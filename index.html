@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>필기웹</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header class="toolbar">
+        <div class="toolbar-brand">필기웹</div>
+        <div class="toolbar-group">
+          <button type="button" class="btn" id="open-btn">PDF 열기</button>
+          <input
+            id="file-input"
+            type="file"
+            accept="application/pdf,.pdf"
+            hidden
+          />
+        </div>
+        <div class="toolbar-group page-nav" id="page-nav" hidden>
+          <button type="button" class="btn icon-btn" id="prev-btn" aria-label="이전 페이지">
+            이전
+          </button>
+          <span class="page-label" id="page-label">1 / 1</span>
+          <button type="button" class="btn icon-btn" id="next-btn" aria-label="다음 페이지">
+            다음
+          </button>
+        </div>
+        <div class="toolbar-group">
+          <button type="button" class="btn tool-btn is-active" id="pen-btn" aria-pressed="true">
+            펜
+          </button>
+        </div>
+      </header>
+
+      <p class="banner" id="banner" hidden></p>
+
+      <main class="workspace">
+        <section class="empty" id="empty">
+          <p>PDF를 선택하면 페이지가 열리고, 그 위에 펜으로 필기할 수 있습니다.</p>
+          <button type="button" class="btn primary" id="empty-open-btn">PDF 열기</button>
+        </section>
+        <div class="page-stage" id="page-stage" hidden>
+          <canvas id="pdf-canvas"></canvas>
+          <canvas id="ink-canvas"></canvas>
+        </div>
+      </main>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
