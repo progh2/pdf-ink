@@ -68,27 +68,12 @@ body {
   min-height: 100vh;
 }
 
-.reopen {
-  position: fixed;
-  top: 12px;
-  left: 12px;
-  min-height: var(--touch);
-  padding: 0 14px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: var(--paper);
-  color: var(--ink);
-  font: inherit;
-  z-index: 3;
-  cursor: pointer;
-}
-
 .workspace {
   min-height: 100vh;
   display: flex;
   justify-content: center;
   align-items: center;
-  padding: 72px 16px 96px;
+  padding: 24px 16px 96px;
 }
 
 .page-stage {

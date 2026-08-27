@@ -20,7 +20,6 @@ const els = {
   uploadScreen: document.querySelector("#upload-screen"),
   writeScreen: document.querySelector("#write-screen"),
   dropzone: document.querySelector("#dropzone"),
-  openBtn: document.querySelector("#open-btn"),
   stage: document.querySelector("#page-stage"),
   pdfCanvas: document.querySelector("#pdf-canvas"),
   inkCanvas: document.querySelector("#ink-canvas"),
@@ -329,7 +328,6 @@ document.querySelectorAll("[data-width]").forEach((btn) => {
   });
 });
 
-els.openBtn.addEventListener("click", pickFile);
 els.dropzone.addEventListener("click", pickFile);
 els.dropzone.addEventListener("dragover", (event) => {
   event.preventDefault();
