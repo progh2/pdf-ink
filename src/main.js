@@ -186,17 +186,30 @@ function showDocumentUi() {
   els.writeScreen.hidden = false;
 }
 
+let pickerBlockedUntil = 0;
+let dropzoneGesture = false;
+
+function blockFilePicker(ms = 500) {
+  pickerBlockedUntil = performance.now() + ms;
+  dropzoneGesture = false;
+}
+
+function pickerAllowed() {
+  return performance.now() >= pickerBlockedUntil;
+}
+
 async function showUploadScreen() {
+  blockFilePicker();
   persistStrokes();
   state.drawing = false;
   state.currentStroke = null;
+  els.writeScreen.hidden = true;
+  els.uploadScreen.hidden = false;
+  showBanner("");
   if (state.pdf) {
     await state.pdf.destroy();
     state.pdf = null;
   }
-  els.writeScreen.hidden = true;
-  els.uploadScreen.hidden = false;
-  showBanner("");
 }
 
 function newStroke(point) {
@@ -307,6 +320,10 @@ function endStroke(event) {
 }
 
 function pickFile() {
+  if (!pickerAllowed() || !dropzoneGesture) {
+    return;
+  }
+  dropzoneGesture = false;
   els.fileInput.click();
 }
 
@@ -342,10 +359,26 @@ document.querySelectorAll("[data-width]").forEach((btn) => {
   });
 });
 
-els.otherPdf.addEventListener("click", () => {
+els.otherPdf.addEventListener("pointerdown", (event) => {
+  event.stopPropagation();
+  blockFilePicker();
+});
+els.otherPdf.addEventListener("click", (event) => {
+  event.preventDefault();
+  event.stopPropagation();
   showUploadScreen();
 });
-els.dropzone.addEventListener("click", pickFile);
+els.dropzone.addEventListener("pointerdown", () => {
+  dropzoneGesture = pickerAllowed();
+});
+els.dropzone.addEventListener("click", (event) => {
+  event.preventDefault();
+  if (!dropzoneGesture || !pickerAllowed()) {
+    dropzoneGesture = false;
+    return;
+  }
+  pickFile();
+});
 els.dropzone.addEventListener("dragover", (event) => {
   event.preventDefault();
   els.dropzone.classList.add("is-over");
