@@ -11,22 +11,22 @@ import {
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
 
-const PEN_COLOR = "#1d1a16";
-const PEN_WIDTH_CSS = 2.4;
+const COLORS = ["#1A1A1A", "#D64545", "#2F6FED", "#E6C200"];
+const WIDTHS = [2, 4, 8];
 
 const els = {
-  openBtn: document.querySelector("#open-btn"),
-  emptyOpenBtn: document.querySelector("#empty-open-btn"),
   fileInput: document.querySelector("#file-input"),
-  pageNav: document.querySelector("#page-nav"),
-  prevBtn: document.querySelector("#prev-btn"),
-  nextBtn: document.querySelector("#next-btn"),
-  pageLabel: document.querySelector("#page-label"),
   banner: document.querySelector("#banner"),
-  empty: document.querySelector("#empty"),
+  uploadScreen: document.querySelector("#upload-screen"),
+  writeScreen: document.querySelector("#write-screen"),
+  dropzone: document.querySelector("#dropzone"),
+  openBtn: document.querySelector("#open-btn"),
   stage: document.querySelector("#page-stage"),
   pdfCanvas: document.querySelector("#pdf-canvas"),
   inkCanvas: document.querySelector("#ink-canvas"),
+  prevBtn: document.querySelector("#prev-btn"),
+  nextBtn: document.querySelector("#next-btn"),
+  pageLabel: document.querySelector("#page-label"),
 };
 
 const state = {
@@ -39,6 +39,9 @@ const state = {
   pages: {},
   drawing: false,
   currentStroke: null,
+  tool: "pen",
+  color: COLORS[0],
+  width: WIDTHS[0],
 };
 
 function showBanner(message) {
@@ -91,29 +94,36 @@ function eventToNorm(event, canvas) {
   };
 }
 
+function canvasScale() {
+  const cssWidth = els.inkCanvas.getBoundingClientRect().width || els.inkCanvas.width;
+  return els.inkCanvas.width / cssWidth;
+}
+
 function drawStrokes() {
   const canvas = els.inkCanvas;
   const ctx = canvas.getContext("2d");
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
-  ctx.strokeStyle = PEN_COLOR;
-  const cssWidth = canvas.getBoundingClientRect().width || canvas.width;
-  const scale = canvas.width / cssWidth;
-  ctx.lineWidth = PEN_WIDTH_CSS * scale;
+  const scale = canvasScale();
 
   for (const stroke of pageStrokes()) {
-    strokePath(ctx, stroke.points);
+    paintStroke(ctx, stroke, scale);
   }
   if (state.currentStroke?.points.length) {
-    strokePath(ctx, state.currentStroke.points);
+    paintStroke(ctx, state.currentStroke, scale);
   }
 }
 
-function strokePath(ctx, points) {
+function paintStroke(ctx, stroke, scale) {
+  const points = stroke.points || [];
   if (!points.length) {
     return;
   }
+  ctx.save();
+  ctx.globalCompositeOperation = stroke.erase ? "destination-out" : "source-over";
+  ctx.strokeStyle = stroke.color || COLORS[0];
+  ctx.lineWidth = (stroke.width || WIDTHS[0]) * scale;
   ctx.beginPath();
   points.forEach((point, index) => {
     const x = point.x * els.inkCanvas.width;
@@ -130,13 +140,14 @@ function strokePath(ctx, points) {
     ctx.lineTo(x + 0.1, y);
   }
   ctx.stroke();
+  ctx.restore();
 }
 
 function fitScale(page) {
   const viewport = page.getViewport({ scale: 1 });
   const workspace = document.querySelector(".workspace");
   const maxWidth = Math.max(240, (workspace?.clientWidth || 800) - 32);
-  const maxHeight = Math.max(240, window.innerHeight - 140);
+  const maxHeight = Math.max(240, window.innerHeight - 180);
   return Math.min(maxWidth / viewport.width, maxHeight / viewport.height);
 }
 
@@ -165,15 +176,23 @@ async function renderPage() {
 }
 
 function updatePager() {
-  els.pageNav.hidden = state.pageCount < 1;
   els.pageLabel.textContent = `${state.page} / ${state.pageCount}`;
   els.prevBtn.disabled = state.page <= 1;
   els.nextBtn.disabled = state.page >= state.pageCount;
 }
 
 function showDocumentUi() {
-  els.empty.hidden = true;
-  els.stage.hidden = false;
+  els.uploadScreen.hidden = true;
+  els.writeScreen.hidden = false;
+}
+
+function newStroke(point) {
+  return {
+    points: [point],
+    color: state.color,
+    width: state.width,
+    erase: state.tool === "eraser",
+  };
 }
 
 async function openPdfBuffer(buffer, { identity, name, page = 1 }) {
@@ -236,13 +255,13 @@ async function goToPage(nextPage) {
 }
 
 function startStroke(event) {
-  if (!state.pdf || event.button !== undefined && event.button !== 0) {
+  if (!state.pdf || (event.button !== undefined && event.button !== 0)) {
     return;
   }
   event.preventDefault();
   els.inkCanvas.setPointerCapture(event.pointerId);
   state.drawing = true;
-  state.currentStroke = { points: [eventToNorm(event, els.inkCanvas)] };
+  state.currentStroke = newStroke(eventToNorm(event, els.inkCanvas));
   drawStrokes();
 }
 
@@ -278,8 +297,55 @@ function pickFile() {
   els.fileInput.click();
 }
 
+function syncToolSelection() {
+  document.querySelectorAll("[data-tool]").forEach((btn) => {
+    btn.classList.toggle("is-selected", btn.dataset.tool === state.tool);
+  });
+  document.querySelectorAll("[data-color]").forEach((btn) => {
+    btn.classList.toggle("is-selected", btn.dataset.color === state.color);
+  });
+  document.querySelectorAll("[data-width]").forEach((btn) => {
+    btn.classList.toggle("is-selected", Number(btn.dataset.width) === state.width);
+  });
+}
+
+document.querySelectorAll("[data-tool]").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    state.tool = btn.dataset.tool;
+    syncToolSelection();
+  });
+});
+document.querySelectorAll("[data-color]").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    state.color = btn.dataset.color;
+    state.tool = "pen";
+    syncToolSelection();
+  });
+});
+document.querySelectorAll("[data-width]").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    state.width = Number(btn.dataset.width);
+    syncToolSelection();
+  });
+});
+
 els.openBtn.addEventListener("click", pickFile);
-els.emptyOpenBtn.addEventListener("click", pickFile);
+els.dropzone.addEventListener("click", pickFile);
+els.dropzone.addEventListener("dragover", (event) => {
+  event.preventDefault();
+  els.dropzone.classList.add("is-over");
+});
+els.dropzone.addEventListener("dragleave", () => {
+  els.dropzone.classList.remove("is-over");
+});
+els.dropzone.addEventListener("drop", (event) => {
+  event.preventDefault();
+  els.dropzone.classList.remove("is-over");
+  const file = event.dataTransfer?.files?.[0];
+  if (file) {
+    openSelectedFile(file);
+  }
+});
 els.fileInput.addEventListener("change", () => {
   const file = els.fileInput.files?.[0];
   if (file) {
@@ -302,6 +368,8 @@ window.addEventListener("resize", () => {
     }
   }, 120);
 });
+
+syncToolSelection();
 
 loadLastSession()
   .then((session) => {

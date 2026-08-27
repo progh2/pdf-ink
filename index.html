@@ -12,45 +12,39 @@
   </head>
   <body>
     <div id="app">
-      <header class="toolbar">
-        <div class="toolbar-brand">필기웹</div>
-        <div class="toolbar-group">
-          <button type="button" class="btn" id="open-btn">PDF 열기</button>
-          <input
-            id="file-input"
-            type="file"
-            accept="application/pdf,.pdf"
-            hidden
-          />
-        </div>
-        <div class="toolbar-group page-nav" id="page-nav" hidden>
-          <button type="button" class="btn icon-btn" id="prev-btn" aria-label="이전 페이지">
-            이전
-          </button>
-          <span class="page-label" id="page-label">1 / 1</span>
-          <button type="button" class="btn icon-btn" id="next-btn" aria-label="다음 페이지">
-            다음
-          </button>
-        </div>
-        <div class="toolbar-group">
-          <button type="button" class="btn tool-btn is-active" id="pen-btn" aria-pressed="true">
-            펜
-          </button>
-        </div>
-      </header>
-
+      <input id="file-input" type="file" accept="application/pdf,.pdf" hidden />
       <p class="banner" id="banner" hidden></p>
 
-      <main class="workspace">
-        <section class="empty" id="empty">
-          <p>PDF를 선택하면 페이지가 열리고, 그 위에 펜으로 필기할 수 있습니다.</p>
-          <button type="button" class="btn primary" id="empty-open-btn">PDF 열기</button>
-        </section>
-        <div class="page-stage" id="page-stage" hidden>
-          <canvas id="pdf-canvas"></canvas>
-          <canvas id="ink-canvas"></canvas>
+      <section class="upload-screen" id="upload-screen">
+        <button type="button" class="dropzone" id="dropzone">
+          <span>PDF만 올려요</span>
+        </button>
+      </section>
+
+      <section class="write-screen" id="write-screen" hidden>
+        <button type="button" class="reopen" id="open-btn">PDF 열기</button>
+        <div class="workspace">
+          <div class="page-stage" id="page-stage">
+            <canvas id="pdf-canvas"></canvas>
+            <canvas id="ink-canvas"></canvas>
+          </div>
         </div>
-      </main>
+
+        <div class="toolbar" id="toolbar">
+          <button type="button" class="tool is-selected" data-tool="pen" aria-label="펜">펜</button>
+          <button type="button" class="tool" data-tool="eraser" aria-label="지우개">지우개</button>
+          <button type="button" class="tool swatch is-selected" data-color="#1A1A1A" aria-label="검정"></button>
+          <button type="button" class="tool swatch" data-color="#D64545" aria-label="빨강"></button>
+          <button type="button" class="tool swatch" data-color="#2F6FED" aria-label="파랑"></button>
+          <button type="button" class="tool swatch" data-color="#E6C200" aria-label="노랑"></button>
+          <button type="button" class="tool" data-width="2" aria-label="얇게">얇</button>
+          <button type="button" class="tool" data-width="4" aria-label="중간">중</button>
+          <button type="button" class="tool" data-width="8" aria-label="굵게">굵</button>
+          <button type="button" class="tool" id="prev-btn" aria-label="이전 페이지">이전</button>
+          <button type="button" class="tool" id="next-btn" aria-label="다음 페이지">다음</button>
+          <span class="page-label" id="page-label">1 / 1</span>
+        </div>
+      </section>
     </div>
     <script type="module" src="/src/main.js"></script>
   </body>

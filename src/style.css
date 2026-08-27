@@ -1,16 +1,13 @@
 :root {
   color-scheme: light;
-  --bg: #ece8e1;
+  --bg: #f3f0e8;
   --paper: #ffffff;
-  --ink: #1d1a16;
-  --muted: #6b645b;
-  --line: #d8d1c7;
-  --accent: #2f6f5e;
-  --accent-soft: #e4f0eb;
+  --ink: #1a1a1a;
+  --line: #e6e1d6;
+  --drop-line: #d4cfc4;
+  --selected: #ede8dc;
   --danger: #8a2f2f;
   --danger-bg: #f8e6e4;
-  --toolbar: #f7f4ef;
-  --shadow: 0 10px 28px rgba(40, 32, 22, 0.12);
   --touch: 44px;
   font-family: "Apple SD Gothic Neo", "Noto Sans KR", "Pretendard", sans-serif;
 }
@@ -33,75 +30,6 @@ body {
 
 #app {
   min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-}
-
-.toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 16px;
-  background: var(--toolbar);
-  border-bottom: 1px solid var(--line);
-  position: sticky;
-  top: 0;
-  z-index: 2;
-}
-
-.toolbar-brand {
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  margin-right: 8px;
-}
-
-.toolbar-group {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.btn {
-  min-height: var(--touch);
-  min-width: var(--touch);
-  padding: 0 14px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: var(--paper);
-  color: var(--ink);
-  font: inherit;
-  font-size: 15px;
-  cursor: pointer;
-}
-
-.btn:hover {
-  border-color: #c4bbb0;
-}
-
-.btn:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
-
-.btn.primary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
-}
-
-.tool-btn.is-active {
-  background: var(--accent-soft);
-  border-color: var(--accent);
-  color: var(--accent);
-  font-weight: 600;
-}
-
-.page-label {
-  min-width: 72px;
-  text-align: center;
-  font-variant-numeric: tabular-nums;
-  color: var(--muted);
 }
 
 .banner {
@@ -109,30 +37,65 @@ body {
   padding: 10px 16px;
   background: var(--danger-bg);
   color: var(--danger);
+  text-align: center;
+}
+
+.upload-screen {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.dropzone {
+  width: 320px;
+  height: 200px;
+  border: 1.5px dashed var(--drop-line);
+  border-radius: 16px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.dropzone.is-over {
+  background: var(--selected);
+}
+
+.write-screen {
+  min-height: 100vh;
+}
+
+.reopen {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  min-height: var(--touch);
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+  z-index: 3;
+  cursor: pointer;
 }
 
 .workspace {
-  flex: 1;
+  min-height: 100vh;
   display: flex;
   justify-content: center;
-  align-items: flex-start;
-  padding: 24px 16px 48px;
-  overflow: auto;
-}
-
-.empty {
-  margin-top: 12vh;
-  max-width: 420px;
-  text-align: center;
-  color: var(--muted);
-  line-height: 1.6;
+  align-items: center;
+  padding: 72px 16px 96px;
 }
 
 .page-stage {
   position: relative;
   display: inline-block;
   background: var(--paper);
-  box-shadow: var(--shadow);
+  box-shadow: 0 8px 18px rgba(40, 32, 22, 0.08);
 }
 
 .page-stage canvas {
@@ -144,4 +107,82 @@ body {
   inset: 0;
   touch-action: none;
   cursor: crosshair;
+}
+
+.toolbar {
+  position: fixed;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 56px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 28px;
+  background: var(--paper);
+  z-index: 3;
+  max-width: calc(100vw - 16px);
+  overflow-x: auto;
+}
+
+.tool {
+  width: var(--touch);
+  height: var(--touch);
+  min-width: var(--touch);
+  padding: 0;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.tool.is-selected {
+  background: var(--selected);
+}
+
+.swatch {
+  position: relative;
+}
+
+.swatch::after {
+  content: "";
+  position: absolute;
+  inset: 12px;
+  border-radius: 50%;
+  background: var(--swatch);
+}
+
+.swatch[data-color="#1A1A1A"] {
+  --swatch: #1a1a1a;
+}
+
+.swatch[data-color="#D64545"] {
+  --swatch: #d64545;
+}
+
+.swatch[data-color="#2F6FED"] {
+  --swatch: #2f6fed;
+}
+
+.swatch[data-color="#E6C200"] {
+  --swatch: #e6c200;
+}
+
+.page-label {
+  min-width: 56px;
+  padding: 0 8px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.tool:disabled {
+  opacity: 0.35;
+  cursor: default;
 }
