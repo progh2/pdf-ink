@@ -48,6 +48,13 @@ body {
   padding: 24px;
 }
 
+.upload-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
 .dropzone {
   width: 320px;
   height: 200px;
@@ -61,6 +68,34 @@ body {
 }
 
 .dropzone.is-over {
+  background: var(--selected);
+}
+
+.recents {
+  width: 320px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.recents-item {
+  width: 100%;
+  min-height: var(--touch);
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 15px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.recents-item:hover {
   background: var(--selected);
 }
 
