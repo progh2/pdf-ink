@@ -125,6 +125,11 @@ body {
   z-index: 3;
   max-width: calc(100vw - 16px);
   overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.toolbar::-webkit-scrollbar {
+  display: none;
 }
 
 .tool {
