@@ -3,9 +3,12 @@ import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import { validatePdfContents, validatePdfFile } from "./validate.js";
 import {
   fileIdentity,
+  listDocuments,
+  loadDocument,
   loadLastSession,
   loadStrokes,
-  saveLastSession,
+  migrateLastIntoFiles,
+  saveDocument,
   saveStrokes,
 } from "./storage.js";
 
@@ -20,6 +23,7 @@ const els = {
   uploadScreen: document.querySelector("#upload-screen"),
   writeScreen: document.querySelector("#write-screen"),
   dropzone: document.querySelector("#dropzone"),
+  recents: document.querySelector("#recents"),
   otherPdf: document.querySelector("#other-pdf"),
   stage: document.querySelector("#page-stage"),
   pdfCanvas: document.querySelector("#pdf-canvas"),
@@ -65,7 +69,7 @@ async function persistSession() {
     return;
   }
   try {
-    await saveLastSession({
+    await saveDocument({
       identity: state.identity,
       name: state.fileName,
       buffer: state.buffer,
@@ -206,9 +210,54 @@ async function showUploadScreen() {
   els.writeScreen.hidden = true;
   els.uploadScreen.hidden = false;
   showBanner("");
+  await renderRecents();
   if (state.pdf) {
     await state.pdf.destroy();
     state.pdf = null;
+  }
+}
+
+async function renderRecents() {
+  let rows = [];
+  try {
+    await migrateLastIntoFiles();
+    rows = await listDocuments();
+  } catch {
+    rows = [];
+  }
+  els.recents.replaceChildren();
+  if (!rows.length) {
+    els.recents.hidden = true;
+    return;
+  }
+  for (const row of rows) {
+    const item = document.createElement("li");
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "recents-item";
+    button.textContent = row.name || "문서.pdf";
+    button.addEventListener("click", () => openStoredDocument(row.identity));
+    item.append(button);
+    els.recents.append(item);
+  }
+  els.recents.hidden = false;
+}
+
+async function openStoredDocument(identity) {
+  try {
+    const row = await loadDocument(identity);
+    if (!row?.buffer) {
+      showBanner("저장된 파일을 열 수 없습니다.");
+      await renderRecents();
+      return;
+    }
+    await openPdfBuffer(row.buffer, {
+      identity: row.identity,
+      name: row.name || "문서.pdf",
+      page: row.page || 1,
+    });
+  } catch {
+    showBanner("저장된 파일을 열 수 없습니다.");
   }
 }
 
@@ -419,10 +468,11 @@ window.addEventListener("resize", () => {
 
 syncToolSelection();
 
-loadLastSession()
+migrateLastIntoFiles()
+  .then(() => loadLastSession())
   .then((session) => {
     if (!session?.buffer || !session.identity) {
-      return;
+      return renderRecents();
     }
     return openPdfBuffer(session.buffer, {
       identity: session.identity,
@@ -431,5 +481,5 @@ loadLastSession()
     });
   })
   .catch(() => {
-    // First visit or blocked storage: stay on the empty state.
+    return renderRecents();
   });
