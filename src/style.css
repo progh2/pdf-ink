@@ -66,14 +66,32 @@ body {
 
 .write-screen {
   min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.write-top {
+  flex: 0 0 auto;
+  padding: 8px 12px 0;
+}
+
+.other-pdf {
+  height: 32px;
+  padding: 8px 12px;
+  border: 0;
+  background: transparent;
+  color: #8a8478;
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
 }
 
 .workspace {
-  min-height: 100vh;
+  flex: 1;
   display: flex;
   justify-content: center;
   align-items: center;
-  padding: 24px 16px 96px;
+  padding: 8px 16px 96px;
 }
 
 .page-stage {

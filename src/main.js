@@ -20,6 +20,7 @@ const els = {
   uploadScreen: document.querySelector("#upload-screen"),
   writeScreen: document.querySelector("#write-screen"),
   dropzone: document.querySelector("#dropzone"),
+  otherPdf: document.querySelector("#other-pdf"),
   stage: document.querySelector("#page-stage"),
   pdfCanvas: document.querySelector("#pdf-canvas"),
   inkCanvas: document.querySelector("#ink-canvas"),
@@ -185,6 +186,19 @@ function showDocumentUi() {
   els.writeScreen.hidden = false;
 }
 
+async function showUploadScreen() {
+  persistStrokes();
+  state.drawing = false;
+  state.currentStroke = null;
+  if (state.pdf) {
+    await state.pdf.destroy();
+    state.pdf = null;
+  }
+  els.writeScreen.hidden = true;
+  els.uploadScreen.hidden = false;
+  showBanner("");
+}
+
 function newStroke(point) {
   return {
     points: [point],
@@ -328,6 +342,9 @@ document.querySelectorAll("[data-width]").forEach((btn) => {
   });
 });
 
+els.otherPdf.addEventListener("click", () => {
+  showUploadScreen();
+});
 els.dropzone.addEventListener("click", pickFile);
 els.dropzone.addEventListener("dragover", (event) => {
   event.preventDefault();
