@@ -1,0 +1,196 @@
+:root {
+  color-scheme: light;
+  --bg: #f3f0e8;
+  --paper: #ffffff;
+  --ink: #1a1a1a;
+  --line: #e6e1d6;
+  --drop-line: #d4cfc4;
+  --selected: #ede8dc;
+  --danger: #8a2f2f;
+  --danger-bg: #f8e6e4;
+  --touch: 44px;
+  font-family: "Apple SD Gothic Neo", "Noto Sans KR", "Pretendard", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  background: var(--bg);
+  color: var(--ink);
+}
+
+#app {
+  min-height: 100vh;
+}
+
+.banner {
+  margin: 0;
+  padding: 10px 16px;
+  background: var(--danger-bg);
+  color: var(--danger);
+  text-align: center;
+}
+
+.upload-screen {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.dropzone {
+  width: 320px;
+  height: 200px;
+  border: 1.5px dashed var(--drop-line);
+  border-radius: 16px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.dropzone.is-over {
+  background: var(--selected);
+}
+
+.write-screen {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.write-top {
+  flex: 0 0 auto;
+  padding: 8px 12px 0;
+}
+
+.other-pdf {
+  height: 32px;
+  padding: 8px 12px;
+  border: 0;
+  background: transparent;
+  color: #8a8478;
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.workspace {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 8px 16px 96px;
+}
+
+.page-stage {
+  position: relative;
+  display: inline-block;
+  background: var(--paper);
+  box-shadow: 0 8px 18px rgba(40, 32, 22, 0.08);
+}
+
+.page-stage canvas {
+  display: block;
+}
+
+#ink-canvas {
+  position: absolute;
+  inset: 0;
+  touch-action: none;
+  cursor: crosshair;
+}
+
+.toolbar {
+  position: fixed;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 56px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 28px;
+  background: var(--paper);
+  z-index: 3;
+  max-width: calc(100vw - 16px);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.toolbar::-webkit-scrollbar {
+  display: none;
+}
+
+.tool {
+  width: var(--touch);
+  height: var(--touch);
+  min-width: var(--touch);
+  padding: 0;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.tool.is-selected {
+  background: var(--selected);
+}
+
+.swatch {
+  position: relative;
+}
+
+.swatch::after {
+  content: "";
+  position: absolute;
+  inset: 12px;
+  border-radius: 50%;
+  background: var(--swatch);
+}
+
+.swatch[data-color="#1A1A1A"] {
+  --swatch: #1a1a1a;
+}
+
+.swatch[data-color="#D64545"] {
+  --swatch: #d64545;
+}
+
+.swatch[data-color="#2F6FED"] {
+  --swatch: #2f6fed;
+}
+
+.swatch[data-color="#E6C200"] {
+  --swatch: #e6c200;
+}
+
+.page-label {
+  min-width: 56px;
+  padding: 0 8px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.tool:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
