@@ -31,7 +31,7 @@ npm run preview
 
 Vite 정적 호스팅만 사용합니다. `vercel.json`이 빌드(`npm run build`)·출력(`dist`)·SPA fallback(`index.html`)을 지정합니다. 서버·로그인·시크릿은 없습니다.
 
-이 환경에는 Vercel 배포 토큰이 없어 공개 https URL을 만들지 못했습니다. GitHub 저장소를 Vercel에 연결하면 펜 기종에서 열 주소가 생깁니다. 주소를 만든 뒤 이 README에 실제 URL을 적어 주세요.
+펜 기종에서 테스트할 공개 주소: https://pdf-ink.vercel.app
 
 ## 범위 (M1)
 
