@@ -1,8 +1,10 @@
 :root {
   color-scheme: light;
   --bg: #f3f0e8;
+  --desk: #efe9dc;
   --paper: #ffffff;
   --ink: #1a1a1a;
+  --muted: #8a8478;
   --line: #e6e1d6;
   --drop-line: #d4cfc4;
   --selected: #ede8dc;
@@ -24,8 +26,10 @@ html,
 body {
   margin: 0;
   min-height: 100%;
-  background: var(--bg);
+  background:
+    radial-gradient(ellipse at 50% 32%, #f7f3ea 0%, var(--bg) 52%, var(--desk) 100%);
   color: var(--ink);
+  overscroll-behavior: none;
 }
 
 #app {
@@ -52,7 +56,7 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 16px;
+  gap: 28px;
 }
 
 .dropzone {
@@ -60,11 +64,40 @@ body {
   height: 200px;
   border: 1.5px dashed var(--drop-line);
   border-radius: 16px;
-  background: transparent;
+  background: rgba(255, 255, 255, 0.55);
   color: var(--ink);
   font: inherit;
   font-size: 16px;
   cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  box-shadow: 0 10px 24px rgba(40, 32, 22, 0.05);
+}
+
+.dropzone-icon {
+  width: 42px;
+  height: 54px;
+  border-radius: 3px 8px 3px 3px;
+  background: var(--paper);
+  box-shadow:
+    0 1px 1px rgba(40, 32, 22, 0.06),
+    0 8px 16px rgba(40, 32, 22, 0.08);
+  position: relative;
+}
+
+.dropzone-icon::after {
+  content: "";
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  top: 14px;
+  height: 22px;
+  border-top: 1.5px solid var(--line);
+  border-bottom: 1.5px solid var(--line);
+  background: linear-gradient(var(--line), var(--line)) 0 10px / 100% 1.5px no-repeat;
 }
 
 .dropzone.is-over {
@@ -72,53 +105,86 @@ body {
 }
 
 .recents {
-  width: 320px;
+  width: min(720px, 100%);
   margin: 0;
   padding: 0;
   list-style: none;
   display: flex;
-  flex-direction: column;
-  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 16px;
 }
 
-.recents-item {
-  width: 100%;
-  min-height: var(--touch);
-  padding: 10px 12px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
+.recent-card {
+  width: 112px;
+  padding: 0;
+  border: 0;
   background: transparent;
   color: var(--ink);
   font: inherit;
-  font-size: 15px;
-  text-align: left;
   cursor: pointer;
 }
 
-.recents-item:hover {
-  background: var(--selected);
+.recent-cover {
+  display: block;
+  height: 132px;
+  border-radius: 3px;
+  background:
+    linear-gradient(180deg, #fffefb 0%, #fbf8f2 100%);
+  box-shadow:
+    0 1px 1px rgba(40, 32, 22, 0.04),
+    0 8px 18px rgba(40, 32, 22, 0.1);
+}
+
+.recent-name {
+  display: block;
+  margin-top: 10px;
+  font-size: 13px;
+  color: #5c574e;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .write-screen {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+  touch-action: none;
 }
 
 .write-top {
   flex: 0 0 auto;
-  padding: 8px 12px 0;
+  display: grid;
+  grid-template-columns: 1fr minmax(0, 46vw) 1fr;
+  align-items: center;
+  padding: 10px 16px 0;
 }
 
 .other-pdf {
+  justify-self: start;
   height: 32px;
   padding: 8px 12px;
   border: 0;
   background: transparent;
-  color: #8a8478;
+  color: var(--muted);
   font: inherit;
   font-size: 14px;
   cursor: pointer;
+}
+
+.doc-title {
+  justify-self: center;
+  margin: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: #5c574e;
 }
 
 .workspace {
@@ -126,18 +192,24 @@ body {
   display: flex;
   justify-content: center;
   align-items: center;
-  padding: 8px 16px 96px;
+  padding: 12px 16px 104px;
+  touch-action: none;
 }
 
 .page-stage {
   position: relative;
   display: inline-block;
   background: var(--paper);
-  box-shadow: 0 8px 18px rgba(40, 32, 22, 0.08);
+  box-shadow:
+    0 1px 2px rgba(40, 32, 22, 0.05),
+    0 10px 24px rgba(40, 32, 22, 0.08),
+    0 28px 48px rgba(40, 32, 22, 0.06);
+  touch-action: none;
 }
 
 .page-stage canvas {
   display: block;
+  touch-action: none;
 }
 
 #ink-canvas {
@@ -160,6 +232,7 @@ body {
   border: 1px solid var(--line);
   border-radius: 28px;
   background: var(--paper);
+  box-shadow: 0 10px 28px rgba(40, 32, 22, 0.08);
   z-index: 3;
   max-width: calc(100vw - 16px);
   overflow-x: auto;
@@ -180,8 +253,14 @@ body {
   background: transparent;
   color: var(--ink);
   font: inherit;
-  font-size: 13px;
+  display: grid;
+  place-items: center;
   cursor: pointer;
+}
+
+.tool svg {
+  width: 22px;
+  height: 22px;
 }
 
 .tool.is-selected {
@@ -214,6 +293,27 @@ body {
 
 .swatch[data-color="#E6C200"] {
   --swatch: #e6c200;
+}
+
+.width-btn .width-dot {
+  display: block;
+  border-radius: 50%;
+  background: var(--ink);
+}
+
+.width-btn[data-width="2"] .width-dot {
+  width: 6px;
+  height: 6px;
+}
+
+.width-btn[data-width="4"] .width-dot {
+  width: 10px;
+  height: 10px;
+}
+
+.width-btn[data-width="8"] .width-dot {
+  width: 14px;
+  height: 14px;
 }
 
 .page-label {

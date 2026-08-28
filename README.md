@@ -27,6 +27,8 @@ npm run build
 npm run preview
 ```
 
+이 GitHub 저장소를 Vercel에 연결하고 프레임워크를 Vite로 두면 됩니다.
+
 ## 범위 (M1)
 
 - PDF 업로드와 페이지 렌더 (`#2`)

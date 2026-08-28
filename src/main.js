@@ -25,6 +25,7 @@ const els = {
   dropzone: document.querySelector("#dropzone"),
   recents: document.querySelector("#recents"),
   otherPdf: document.querySelector("#other-pdf"),
+  docTitle: document.querySelector("#doc-title"),
   stage: document.querySelector("#page-stage"),
   pdfCanvas: document.querySelector("#pdf-canvas"),
   inkCanvas: document.querySelector("#ink-canvas"),
@@ -234,8 +235,14 @@ async function renderRecents() {
     const item = document.createElement("li");
     const button = document.createElement("button");
     button.type = "button";
-    button.className = "recents-item";
-    button.textContent = row.name || "문서.pdf";
+    button.className = "recent-card";
+    button.setAttribute("aria-label", row.name || "문서.pdf");
+    const cover = document.createElement("span");
+    cover.className = "recent-cover";
+    const name = document.createElement("span");
+    name.className = "recent-name";
+    name.textContent = displayName(row.name);
+    button.append(cover, name);
     button.addEventListener("click", () => openStoredDocument(row.identity));
     item.append(button);
     els.recents.append(item);
@@ -259,6 +266,10 @@ async function openStoredDocument(identity) {
   } catch {
     showBanner("저장된 파일을 열 수 없습니다.");
   }
+}
+
+function displayName(fileName) {
+  return (fileName || "문서.pdf").replace(/\.pdf$/i, "") || "문서";
 }
 
 function newStroke(point) {
@@ -285,6 +296,7 @@ async function openPdfBuffer(buffer, { identity, name, page = 1 }) {
   state.pageCount = pdf.numPages;
   state.page = Math.min(Math.max(1, page), pdf.numPages);
   state.pages = loadStrokes(identity).pages;
+  els.docTitle.textContent = displayName(name);
   showDocumentUi();
   showBanner("");
   await renderPage();
@@ -455,6 +467,13 @@ els.inkCanvas.addEventListener("pointerdown", startStroke);
 els.inkCanvas.addEventListener("pointermove", moveStroke);
 els.inkCanvas.addEventListener("pointerup", endStroke);
 els.inkCanvas.addEventListener("pointercancel", endStroke);
+els.writeScreen.addEventListener(
+  "touchmove",
+  (event) => {
+    event.preventDefault();
+  },
+  { passive: false },
+);
 
 let resizeTimer = 0;
 window.addEventListener("resize", () => {
