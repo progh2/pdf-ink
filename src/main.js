@@ -236,13 +236,7 @@ async function renderRecents() {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "recent-card";
-    button.setAttribute("aria-label", row.name || "문서.pdf");
-    const cover = document.createElement("span");
-    cover.className = "recent-cover";
-    const name = document.createElement("span");
-    name.className = "recent-name";
-    name.textContent = displayName(row.name);
-    button.append(cover, name);
+    button.textContent = displayName(row.name);
     button.addEventListener("click", () => openStoredDocument(row.identity));
     item.append(button);
     els.recents.append(item);
