@@ -2,7 +2,10 @@
 <html lang="ko">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover"
+    />
     <title>필기웹</title>
     <link
       rel="icon"
@@ -18,6 +21,7 @@
       <section class="upload-screen" id="upload-screen">
         <div class="upload-stack">
           <button type="button" class="dropzone" id="dropzone">
+            <span class="dropzone-icon" aria-hidden="true"></span>
             <span>PDF만 올려요</span>
           </button>
           <ul class="recents" id="recents" hidden></ul>
@@ -27,6 +31,7 @@
       <section class="write-screen" id="write-screen" hidden>
         <div class="write-top">
           <button type="button" class="other-pdf" id="other-pdf">다른 PDF</button>
+          <h1 class="doc-title" id="doc-title"></h1>
         </div>
         <div class="workspace">
           <div class="page-stage" id="page-stage">
@@ -36,17 +41,52 @@
         </div>
 
         <div class="toolbar" id="toolbar">
-          <button type="button" class="tool is-selected" data-tool="pen" aria-label="펜">펜</button>
-          <button type="button" class="tool" data-tool="eraser" aria-label="지우개">지우개</button>
+          <button type="button" class="tool is-selected" data-tool="pen" aria-label="펜">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M14.7 4.3a2 2 0 0 1 2.8 2.8l-10 10-3.2.8.8-3.2 10-10z"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linejoin="round"
+              />
+            </svg>
+          </button>
+          <button type="button" class="tool" data-tool="eraser" aria-label="지우개">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M6.2 13.2 12.8 6.6a2 2 0 0 1 2.8 0l2 2a2 2 0 0 1 0 2.8l-7.4 7.4H6.2l-2-2a2 2 0 0 1 0-2.8l2-2z"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linejoin="round"
+              />
+              <path d="M9 20h10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+            </svg>
+          </button>
           <button type="button" class="tool swatch is-selected" data-color="#1A1A1A" aria-label="검정"></button>
           <button type="button" class="tool swatch" data-color="#D64545" aria-label="빨강"></button>
           <button type="button" class="tool swatch" data-color="#2F6FED" aria-label="파랑"></button>
           <button type="button" class="tool swatch" data-color="#E6C200" aria-label="노랑"></button>
-          <button type="button" class="tool" data-width="2" aria-label="얇게">얇</button>
-          <button type="button" class="tool" data-width="4" aria-label="중간">중</button>
-          <button type="button" class="tool" data-width="8" aria-label="굵게">굵</button>
-          <button type="button" class="tool" id="prev-btn" aria-label="이전 페이지">이전</button>
-          <button type="button" class="tool" id="next-btn" aria-label="다음 페이지">다음</button>
+          <button type="button" class="tool width-btn" data-width="2" aria-label="얇게">
+            <span class="width-dot"></span>
+          </button>
+          <button type="button" class="tool width-btn" data-width="4" aria-label="중간">
+            <span class="width-dot"></span>
+          </button>
+          <button type="button" class="tool width-btn" data-width="8" aria-label="굵게">
+            <span class="width-dot"></span>
+          </button>
+          <button type="button" class="tool" id="prev-btn" aria-label="이전 페이지">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M14.5 6 8.5 12l6 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+          </button>
+          <button type="button" class="tool" id="next-btn" aria-label="다음 페이지">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M9.5 6 15.5 12l-6 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+          </button>
           <span class="page-label" id="page-label">1 / 1</span>
         </div>
       </section>
