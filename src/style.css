@@ -227,6 +227,13 @@ body {
   background: var(--selected);
 }
 
+.tool-text {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: -0.04em;
+  line-height: 1;
+}
+
 .swatch {
   position: relative;
 }
