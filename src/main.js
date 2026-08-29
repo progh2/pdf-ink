@@ -533,6 +533,12 @@ function showDocumentUi() {
 
 let pickerBlockedUntil = 0;
 let dropzoneGesture = false;
+let stayOnWriteUntil = 0;
+let undoHoldLock = false;
+
+function armStayOnWrite(ms = 800) {
+  stayOnWriteUntil = performance.now() + ms;
+}
 
 function blockFilePicker(ms = 500) {
   pickerBlockedUntil = performance.now() + ms;
@@ -1397,6 +1403,9 @@ function redrawHistoryPage(pageNum) {
 }
 
 function undoInk() {
+  if (undoHoldLock) {
+    return;
+  }
   const entry = undoChange(state.history, state.pages);
   if (!entry) {
     return;
@@ -1958,24 +1967,45 @@ els.interactBtn.addEventListener("click", () => {
   setInteractMode(state.interactMode === "view" ? "edit" : "view");
 });
 bindHold(els.undoBtn, {
-  onShort: undoInk,
-  onLong: redoInk,
+  onShort: () => {
+    if (undoHoldLock) {
+      return;
+    }
+    undoInk();
+  },
+  onLong: () => {
+    undoHoldLock = true;
+    redoInk();
+  },
+});
+els.undoBtn.addEventListener("click", (event) => {
+  event.preventDefault();
+  event.stopPropagation();
+});
+els.undoBtn.addEventListener("pointerup", () => {
+  window.setTimeout(() => {
+    undoHoldLock = false;
+  }, 80);
 });
 els.moreBtn.addEventListener("pointerdown", (event) => {
   event.stopPropagation();
+  armStayOnWrite();
 });
 els.moreBtn.addEventListener("click", (event) => {
   event.preventDefault();
   event.stopPropagation();
+  armStayOnWrite();
   toggleMorePanel();
 });
 document.querySelectorAll("#more-panel [data-more]").forEach((btn) => {
   btn.addEventListener("pointerdown", (event) => {
     event.stopPropagation();
+    armStayOnWrite();
   });
   btn.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
+    armStayOnWrite();
     selectMoreAction(btn.dataset.more);
   });
 });
@@ -2001,10 +2031,13 @@ els.otherPdf.addEventListener("pointerdown", (event) => {
 els.otherPdf.addEventListener("click", (event) => {
   event.preventDefault();
   event.stopPropagation();
-  if (event.target.closest("#more-btn, #m4-bar, #undo-btn, .more-panel")) {
+  if (performance.now() < stayOnWriteUntil) {
     return;
   }
-  if (!els.otherPdf.contains(event.target)) {
+  if (!els.morePanel.hidden) {
+    return;
+  }
+  if (event.target !== els.otherPdf) {
     return;
   }
   showUploadScreen();

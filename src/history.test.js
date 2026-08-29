@@ -72,6 +72,18 @@ describe("undo/redo", () => {
     assert.deepEqual(pages[1][1], second);
   });
 
+  it("redo without an undo does not wipe strokes", () => {
+    const pages = { 1: [{ type: "pen", points: [{ x: 0.2, y: 0.2 }], width: 2 }] };
+    const history = createHistory();
+    recordChange(history, { page: 1, before: [], after: pages[1] });
+    assert.equal(redoChange(history, pages), null);
+    assert.equal(pages[1].length, 1);
+    undoChange(history, pages);
+    assert.equal(pages[1].length, 0);
+    redoChange(history, pages);
+    assert.equal(pages[1].length, 1);
+  });
+
   it("keeps the stack in memory only", () => {
     assert.doesNotMatch(src, /localStorage|indexedDB|fetch\(/);
   });

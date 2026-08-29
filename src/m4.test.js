@@ -35,6 +35,10 @@ describe("M4 #31 chrome", () => {
     assert.match(header, /id="prev-btn"/);
     assert.match(header, /id="next-btn"/);
     assert.match(css, /\.toolbar \{[\s\S]*justify-content: space-between/);
+    assert.match(css, /\[data-toolbar="left"\] \.toolbar,[\s\S]*height: auto/);
+    assert.match(main, /onLong: \(\) => \{[\s\S]*redoInk\(\)/);
+    assert.match(main, /armStayOnWrite/);
+    assert.doesNotMatch(main.slice(main.indexOf("function redoInk"), main.indexOf("function overflowSide")), /showUploadScreen|pages\s*=\s*\{\}/);
     const railCss = css.slice(css.indexOf(".toolbar-rail {"), css.indexOf(".write-screen[data-toolbar=\"left\"] .toolbar-rail"));
     assert.doesNotMatch(railCss, /space-between/);
     assert.match(html, /aria-label="되돌리기"/);
@@ -51,8 +55,8 @@ describe("M4 #31 chrome", () => {
     assert.match(css, /\.slot-panel \{[\s\S]*padding: 12px;[\s\S]*border: 1px solid #e6e1d6;[\s\S]*border-radius: 16px/);
     assert.match(css, /\.more-panel button \{[\s\S]*height: 44px/);
     assert.match(main, /bindHold\(els\.undoBtn/);
-    assert.match(main, /onShort: undoInk/);
-    assert.match(main, /onLong: redoInk/);
+    assert.match(main, /undoInk\(\)/);
+    assert.match(main, /redoInk\(\)/);
     assert.doesNotMatch(main, /redoBtn/);
   });
 
