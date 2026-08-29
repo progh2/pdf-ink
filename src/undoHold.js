@@ -1,5 +1,5 @@
-export const UNDO_HOLD_MS = 500;
-export const UNDO_HOLD_SUPPRESS_MS = 500;
+export const UNDO_HOLD_MS = 400;
+export const UNDO_HOLD_SUPPRESS_MS = 400;
 
 function defaultNow() {
   return typeof performance !== "undefined" ? performance.now() : Date.now();

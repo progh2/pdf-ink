@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { cloneItems, createHistory, recordChange, redoChange, undoChange } from "./history.js";
-import { bindUndoHold, UNDO_HOLD_MS } from "./undoHold.js";
+import { bindUndoHold, UNDO_HOLD_MS, UNDO_HOLD_SUPPRESS_MS } from "./undoHold.js";
 
 function createClock() {
   let now = 0;
@@ -102,11 +102,12 @@ function bindWithHistory() {
 }
 
 describe("undo hold #43", () => {
-  it("uses a 500ms hold", () => {
-    assert.equal(UNDO_HOLD_MS, 500);
+  it("uses a 400ms hold", () => {
+    assert.equal(UNDO_HOLD_MS, 400);
+    assert.equal(UNDO_HOLD_SUPPRESS_MS, 400);
   });
 
-  it("tap versus hold: short tap undoes, 500ms hold redos and pointerup does not undo again", () => {
+  it("tap versus hold: short tap undoes, 400ms hold redos and pointerup does not undo again", () => {
     const tap = bindWithHistory();
     fire(tap.btn, "pointerdown");
     tap.clock.advance(40);
@@ -117,7 +118,7 @@ describe("undo hold #43", () => {
 
     const hold = bindWithHistory();
     fire(hold.btn, "pointerdown");
-    hold.clock.advance(500);
+    hold.clock.advance(400);
     assert.deepEqual(hold.calls, ["redo"]);
     fire(hold.btn, "pointerup");
     fire(hold.root, "pointerup");
@@ -127,11 +128,11 @@ describe("undo hold #43", () => {
     assert.equal(hold.pages[1].length, 2);
   });
 
-  it("release at 499ms undoes once and does not redo", () => {
+  it("release at 399ms undoes once and does not redo", () => {
     const { pages, calls, clock, btn, root } = bindWithHistory();
 
     fire(btn, "pointerdown");
-    clock.advance(499);
+    clock.advance(399);
     fire(root, "pointerup");
     fire(btn, "click");
 
@@ -139,11 +140,11 @@ describe("undo hold #43", () => {
     assert.equal(pages[1].length, 1);
   });
 
-  it("at 500ms redos once and later pointerup/cancel/click do not undo", () => {
+  it("at 400ms redos once and later pointerup/cancel/click do not undo", () => {
     const { pages, calls, clock, btn, root } = bindWithHistory();
 
     fire(btn, "pointerdown");
-    clock.advance(500);
+    clock.advance(400);
     assert.deepEqual(calls, ["redo"]);
     assert.equal(calls.filter((name) => name === "undo").length, 0);
 
@@ -167,9 +168,9 @@ describe("undo hold #43", () => {
     assert.deepEqual(calls, ["undo"]);
     assert.equal(pages[1].length, 1);
 
-    clock.advance(500);
+    clock.advance(400);
     fire(btn, "pointerdown", { pointerId: 2 });
-    clock.advance(500);
+    clock.advance(400);
     fire(root, "pointerup", { pointerId: 2 });
     fire(btn, "click", { pointerId: 2 });
 
@@ -178,7 +179,7 @@ describe("undo hold #43", () => {
     assert.equal(pages[1].length, 2);
   });
 
-  it("pointerup after a 500ms hold does not fire a second undo, including a ghost tap", () => {
+  it("pointerup after a 400ms hold does not fire a second undo, including a ghost tap", () => {
     const { pages, calls, clock, btn, root } = bindWithHistory();
 
     fire(btn, "pointerdown");
@@ -186,9 +187,9 @@ describe("undo hold #43", () => {
     fire(root, "pointerup");
     assert.deepEqual(calls, ["undo"]);
 
-    clock.advance(500);
+    clock.advance(400);
     fire(btn, "pointerdown", { pointerId: 2 });
-    clock.advance(500);
+    clock.advance(400);
     fire(root, "pointerup", { pointerId: 2 });
     fire(btn, "pointerup", { pointerId: 2 });
     fire(btn, "click", { pointerId: 2 });
@@ -207,7 +208,7 @@ describe("undo hold #43", () => {
     fire(root, "pointerup");
     assert.deepEqual(calls, ["undo"]);
 
-    clock.advance(500);
+    clock.advance(400);
     fire(btn, "pointerdown", { pointerId: 2, pointerType: "touch", buttons: 1 });
     fire(btn, "pointercancel", { pointerId: 2, pointerType: "touch", buttons: 1 });
     fire(root, "pointercancel", { pointerId: 2, pointerType: "touch", buttons: 1 });
@@ -215,7 +216,7 @@ describe("undo hold #43", () => {
     assert.deepEqual(calls, ["undo"]);
     assert.equal(pages[1].length, 1);
 
-    clock.advance(500);
+    clock.advance(400);
     fire(root, "pointerup", { pointerId: 2 });
     fire(btn, "click", { pointerId: 2 });
 
