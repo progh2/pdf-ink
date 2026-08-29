@@ -94,8 +94,9 @@ describe("toolbar", () => {
     assert.doesNotMatch(toolbar, /#D64545|#2F6FED|#E6C200|#E03C31/i);
     assert.equal((toolbar.match(/data-slot="/g) || []).length, 3);
     assert.match(toolbar, /id="eraser-btn"/);
-    assert.match(toolbar, /id="prev-btn"/);
-    assert.match(toolbar, /id="next-btn"/);
+    assert.doesNotMatch(toolbar, /id="prev-btn"|id="next-btn"/);
+    assert.match(html, /id="prev-btn"/);
+    assert.match(html, /id="next-btn"/);
     assert.match(html, /id="slot-panel"/);
     assert.match(html, /id="slot-palette"/);
     assert.match(html, /data-kind="pen">펜/);

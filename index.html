@@ -42,73 +42,79 @@
                 <path d="M15.5 11V8.4a3.5 3.5 0 0 0-7 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
               </svg>
             </button>
-            <span class="page-label" id="page-label">1 / 1</span>
+            <div class="page-pager">
+              <button type="button" class="page-step" id="prev-btn" aria-label="이전 페이지">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M14.5 6 8.5 12l6 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+              </button>
+              <span class="page-label" id="page-label">1 / 1</span>
+              <button type="button" class="page-step" id="next-btn" aria-label="다음 페이지">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M9.5 6 15.5 12l-6 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+              </button>
+            </div>
           </div>
         </div>
 
         <div class="write-body">
           <div class="toolbar-rail">
             <div class="toolbar" id="toolbar">
-              <button type="button" class="tool slot is-selected" data-slot="0" aria-label="슬롯 1">
-                <span class="slot-mark">
-                  <span class="slot-ring"></span>
-                  <span class="slot-dot"></span>
-                </span>
-              </button>
-              <button type="button" class="tool slot" data-slot="1" aria-label="슬롯 2">
-                <span class="slot-mark">
-                  <span class="slot-ring"></span>
-                  <span class="slot-dot"></span>
-                </span>
-              </button>
-              <button type="button" class="tool slot" data-slot="2" aria-label="슬롯 3">
-                <span class="slot-mark">
-                  <span class="slot-ring"></span>
-                  <span class="slot-dot"></span>
-                </span>
-              </button>
-              <button type="button" class="tool" id="eraser-btn" data-tool="eraser" aria-label="지우개">
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path
-                    d="M6.2 13.2 12.8 6.6a2 2 0 0 1 2.8 0l2 2a2 2 0 0 1 0 2.8l-7.4 7.4H6.2l-2-2a2 2 0 0 1 0-2.8l2-2z"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="1.8"
-                    stroke-linejoin="round"
-                  />
-                  <path d="M9 20h10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
-                </svg>
-              </button>
-              <button type="button" class="tool" id="prev-btn" aria-label="이전 페이지">
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M14.5 6 8.5 12l6 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
-                </svg>
-              </button>
-              <button type="button" class="tool" id="next-btn" aria-label="다음 페이지">
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M9.5 6 15.5 12l-6 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
-                </svg>
-              </button>
-              <button type="button" class="tool" id="settings-btn" aria-label="설정">
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M5 8h14M5 16h14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
-                  <circle cx="9" cy="8" r="2.1" fill="none" stroke="currentColor" stroke-width="1.8" />
-                  <circle cx="15" cy="16" r="2.1" fill="none" stroke="currentColor" stroke-width="1.8" />
-                </svg>
-              </button>
-              <button type="button" class="tool" id="undo-btn" aria-label="되돌리기" disabled>
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M8 8H5.5a.5.5 0 0 0-.5.5V11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
-                  <path d="M6 9.5c1.6-2.6 4.4-4 7.4-3.6 3.4.4 6 3.2 6.2 6.6.2 3.6-2.5 6.8-6 7.4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
-                </svg>
-              </button>
-              <button type="button" class="tool" id="more-btn" aria-label="더보기">
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <circle cx="6.5" cy="12" r="1.4" fill="currentColor" />
-                  <circle cx="12" cy="12" r="1.4" fill="currentColor" />
-                  <circle cx="17.5" cy="12" r="1.4" fill="currentColor" />
-                </svg>
-              </button>
+              <div class="toolbar-cluster">
+                <button type="button" class="tool slot is-selected" data-slot="0" aria-label="슬롯 1">
+                  <span class="slot-mark">
+                    <span class="slot-ring"></span>
+                    <span class="slot-dot"></span>
+                  </span>
+                </button>
+                <button type="button" class="tool slot" data-slot="1" aria-label="슬롯 2">
+                  <span class="slot-mark">
+                    <span class="slot-ring"></span>
+                    <span class="slot-dot"></span>
+                  </span>
+                </button>
+                <button type="button" class="tool slot" data-slot="2" aria-label="슬롯 3">
+                  <span class="slot-mark">
+                    <span class="slot-ring"></span>
+                    <span class="slot-dot"></span>
+                  </span>
+                </button>
+                <button type="button" class="tool" id="eraser-btn" data-tool="eraser" aria-label="지우개">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path
+                      d="M6.2 13.2 12.8 6.6a2 2 0 0 1 2.8 0l2 2a2 2 0 0 1 0 2.8l-7.4 7.4H6.2l-2-2a2 2 0 0 1 0-2.8l2-2z"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.8"
+                      stroke-linejoin="round"
+                    />
+                    <path d="M9 20h10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+                  </svg>
+                </button>
+                <button type="button" class="tool" id="settings-btn" aria-label="설정">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M5 8h14M5 16h14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+                    <circle cx="9" cy="8" r="2.1" fill="none" stroke="currentColor" stroke-width="1.8" />
+                    <circle cx="15" cy="16" r="2.1" fill="none" stroke="currentColor" stroke-width="1.8" />
+                  </svg>
+                </button>
+              </div>
+              <div class="toolbar-cluster">
+                <button type="button" class="tool" id="undo-btn" aria-label="되돌리기" disabled>
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M8 8H5.5a.5.5 0 0 0-.5.5V11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+                    <path d="M6 9.5c1.6-2.6 4.4-4 7.4-3.6 3.4.4 6 3.2 6.2 6.6.2 3.6-2.5 6.8-6 7.4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+                  </svg>
+                </button>
+                <button type="button" class="tool" id="more-btn" aria-label="더보기">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <circle cx="6.5" cy="12" r="1.4" fill="currentColor" />
+                    <circle cx="12" cy="12" r="1.4" fill="currentColor" />
+                    <circle cx="17.5" cy="12" r="1.4" fill="currentColor" />
+                  </svg>
+                </button>
+              </div>
             </div>
           </div>
 
