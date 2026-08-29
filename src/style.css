@@ -302,11 +302,11 @@ body {
 
 .slot-ring {
   position: absolute;
-  width: calc(16px + var(--slot-width, 2) * 1.2px);
-  height: calc(16px + var(--slot-width, 2) * 1.2px);
-  border: 1.5px solid var(--slot-color, #1a1a1a);
+  width: calc(18px + (var(--slot-width, 2) - 1) * 1.1px);
+  height: calc(18px + (var(--slot-width, 2) - 1) * 1.1px);
+  border: 1.6px solid var(--slot-color, #1a1a1a);
   border-radius: 50%;
-  opacity: 0.4;
+  opacity: 0.55;
 }
 
 .workspace {
