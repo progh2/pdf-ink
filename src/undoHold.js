@@ -1,4 +1,5 @@
-export const UNDO_HOLD_MS = 400;
+export const UNDO_HOLD_MS = 500;
+export const UNDO_HOLD_SUPPRESS_MS = 500;
 
 function defaultNow() {
   return typeof performance !== "undefined" ? performance.now() : Date.now();
@@ -12,8 +13,15 @@ export function bindUndoHold(btn, {
   onUndo,
   onRedo,
   longPressMs = UNDO_HOLD_MS,
+  suppressMs = UNDO_HOLD_SUPPRESS_MS,
   setTimeoutFn = (fn, ms) => window.setTimeout(fn, ms),
   clearTimeoutFn = (id) => window.clearTimeout(id),
+  requestFrameFn = typeof requestAnimationFrame === "function"
+    ? (fn) => requestAnimationFrame(fn)
+    : (fn) => window.setTimeout(fn, 16),
+  cancelFrameFn = typeof cancelAnimationFrame === "function"
+    ? (id) => cancelAnimationFrame(id)
+    : (id) => window.clearTimeout(id),
   now = defaultNow,
   root = defaultRoot(),
 } = {}) {
@@ -21,10 +29,19 @@ export function bindUndoHold(btn, {
   let startedAt = 0;
   let didLong = false;
   let timer = 0;
+  let frame = 0;
+  let suppressUndoUntil = 0;
 
   const clearTimer = () => {
     clearTimeoutFn(timer);
     timer = 0;
+  };
+
+  const clearFrame = () => {
+    if (frame) {
+      cancelFrameFn(frame);
+      frame = 0;
+    }
   };
 
   const samePointer = (event) =>
@@ -36,27 +53,69 @@ export function bindUndoHold(btn, {
     }
     root.removeEventListener("pointerup", onLift, true);
     root.removeEventListener("pointercancel", onPointerCancel, true);
+    root.removeEventListener("pointermove", onMove, true);
     root.removeEventListener("touchend", onLift, true);
   };
 
   const endPress = () => {
     clearTimer();
+    clearFrame();
     pointerId = null;
     detachLift();
+  };
+
+  const armSuppress = () => {
+    suppressUndoUntil = now() + suppressMs;
+  };
+
+  const fireRedo = () => {
+    if (didLong) {
+      return;
+    }
+    didLong = true;
+    armSuppress();
+    onRedo();
+  };
+
+  const maybeRedoFromHold = () => {
+    if (pointerId == null || didLong) {
+      return;
+    }
+    if (now() - startedAt >= longPressMs) {
+      fireRedo();
+    }
+  };
+
+  const tick = () => {
+    frame = 0;
+    if (pointerId == null) {
+      return;
+    }
+    maybeRedoFromHold();
+    if (pointerId != null && !didLong) {
+      frame = requestFrameFn(tick);
+    }
+  };
+
+  const onMove = (event) => {
+    if (pointerId == null || !samePointer(event)) {
+      return;
+    }
+    maybeRedoFromHold();
   };
 
   const onLift = (event) => {
     if (pointerId == null || !samePointer(event)) {
       return;
     }
-    const held = now() - startedAt;
-    const wasLong = didLong || held >= longPressMs;
+    maybeRedoFromHold();
+    const wasLong = didLong;
     endPress();
     if (wasLong) {
-      if (!didLong) {
-        didLong = true;
-        onRedo();
-      }
+      armSuppress();
+      return;
+    }
+    if (now() < suppressUndoUntil) {
       return;
     }
     onUndo();
@@ -66,6 +125,7 @@ export function bindUndoHold(btn, {
     if (pointerId == null || !samePointer(event)) {
       return;
     }
+    maybeRedoFromHold();
     // Browser often cancels a touch pointer for the context menu while the
     // finger is still down. Keep the long-press timer in that case.
     if (event.buttons > 0 || event.pointerType !== "mouse") {
@@ -78,19 +138,24 @@ export function bindUndoHold(btn, {
     if (event.button !== undefined && event.button !== 0) {
       return;
     }
+    event.preventDefault();
+    event.stopPropagation();
     if (pointerId != null) {
       return;
     }
-    event.preventDefault();
-    event.stopPropagation();
+    if (now() < suppressUndoUntil) {
+      return;
+    }
     pointerId = event.pointerId ?? 1;
     startedAt = now();
     didLong = false;
     clearTimer();
+    clearFrame();
     detachLift();
     if (root) {
       root.addEventListener("pointerup", onLift, true);
       root.addEventListener("pointercancel", onPointerCancel, true);
+      root.addEventListener("pointermove", onMove, true);
       root.addEventListener("touchend", onLift, true);
     }
     try {
@@ -99,14 +164,12 @@ export function bindUndoHold(btn, {
       // Capture is optional; some synthetic pointers reject it.
     }
     timer = setTimeoutFn(() => {
-      if (pointerId == null || didLong) {
-        return;
-      }
-      didLong = true;
-      onRedo();
+      maybeRedoFromHold();
     }, longPressMs);
+    frame = requestFrameFn(tick);
   });
 
+  btn.addEventListener("pointermove", onMove);
   btn.addEventListener("pointerup", onLift);
   btn.addEventListener("pointercancel", onPointerCancel);
   btn.addEventListener("click", (event) => {

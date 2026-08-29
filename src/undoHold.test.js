@@ -6,6 +6,7 @@ import { bindUndoHold, UNDO_HOLD_MS } from "./undoHold.js";
 function createClock() {
   let now = 0;
   const timers = new Map();
+  const frames = [];
   let nextId = 1;
   return {
     now: () => now,
@@ -17,6 +18,17 @@ function createClock() {
     clearTimeoutFn: (id) => {
       timers.delete(id);
     },
+    requestFrameFn: (fn) => {
+      const id = nextId++;
+      frames.push({ id, fn });
+      return id;
+    },
+    cancelFrameFn: (id) => {
+      const index = frames.findIndex((item) => item.id === id);
+      if (index >= 0) {
+        frames.splice(index, 1);
+      }
+    },
     advance(ms) {
       now += ms;
       for (const [id, timer] of [...timers]) {
@@ -24,6 +36,10 @@ function createClock() {
           timers.delete(id);
           timer.fn();
         }
+      }
+      const pending = frames.splice(0);
+      for (const item of pending) {
+        item.fn();
       }
     },
   };
@@ -77,6 +93,8 @@ function bindWithHistory() {
     now: clock.now,
     setTimeoutFn: clock.setTimeoutFn,
     clearTimeoutFn: clock.clearTimeoutFn,
+    requestFrameFn: clock.requestFrameFn,
+    cancelFrameFn: clock.cancelFrameFn,
     root,
   });
 
@@ -84,29 +102,48 @@ function bindWithHistory() {
 }
 
 describe("undo hold #43", () => {
-  it("uses a 400ms hold", () => {
-    assert.equal(UNDO_HOLD_MS, 400);
+  it("uses a 500ms hold", () => {
+    assert.equal(UNDO_HOLD_MS, 500);
   });
 
-  it("release at 399ms undoes once and does not redo", () => {
+  it("tap versus hold: short tap undoes, 500ms hold redos and pointerup does not undo again", () => {
+    const tap = bindWithHistory();
+    fire(tap.btn, "pointerdown");
+    tap.clock.advance(40);
+    fire(tap.root, "pointerup");
+    fire(tap.btn, "click");
+    assert.deepEqual(tap.calls, ["undo"]);
+    assert.equal(tap.pages[1].length, 1);
+
+    const hold = bindWithHistory();
+    fire(hold.btn, "pointerdown");
+    hold.clock.advance(500);
+    assert.deepEqual(hold.calls, ["redo"]);
+    fire(hold.btn, "pointerup");
+    fire(hold.root, "pointerup");
+    fire(hold.btn, "click");
+    assert.deepEqual(hold.calls, ["redo"]);
+    assert.equal(hold.calls.filter((name) => name === "undo").length, 0);
+    assert.equal(hold.pages[1].length, 2);
+  });
+
+  it("release at 499ms undoes once and does not redo", () => {
     const { pages, calls, clock, btn, root } = bindWithHistory();
 
     fire(btn, "pointerdown");
-    clock.advance(399);
+    clock.advance(499);
     fire(root, "pointerup");
     fire(btn, "click");
 
     assert.deepEqual(calls, ["undo"]);
-    assert.equal(calls.filter((name) => name === "undo").length, 1);
-    assert.equal(calls.filter((name) => name === "redo").length, 0);
     assert.equal(pages[1].length, 1);
   });
 
-  it("at 400ms redos once and later pointerup/cancel/click do not undo", () => {
+  it("at 500ms redos once and later pointerup/cancel/click do not undo", () => {
     const { pages, calls, clock, btn, root } = bindWithHistory();
 
     fire(btn, "pointerdown");
-    clock.advance(400);
+    clock.advance(500);
     assert.deepEqual(calls, ["redo"]);
     assert.equal(calls.filter((name) => name === "undo").length, 0);
 
@@ -125,13 +162,14 @@ describe("undo hold #43", () => {
     assert.equal(pages[1].length, 2);
 
     fire(btn, "pointerdown");
-    clock.advance(399);
+    clock.advance(40);
     fire(root, "pointerup");
     assert.deepEqual(calls, ["undo"]);
     assert.equal(pages[1].length, 1);
 
+    clock.advance(500);
     fire(btn, "pointerdown", { pointerId: 2 });
-    clock.advance(400);
+    clock.advance(500);
     fire(root, "pointerup", { pointerId: 2 });
     fire(btn, "click", { pointerId: 2 });
 
@@ -140,14 +178,36 @@ describe("undo hold #43", () => {
     assert.equal(pages[1].length, 2);
   });
 
+  it("pointerup after a 500ms hold does not fire a second undo, including a ghost tap", () => {
+    const { pages, calls, clock, btn, root } = bindWithHistory();
+
+    fire(btn, "pointerdown");
+    clock.advance(40);
+    fire(root, "pointerup");
+    assert.deepEqual(calls, ["undo"]);
+
+    clock.advance(500);
+    fire(btn, "pointerdown", { pointerId: 2 });
+    clock.advance(500);
+    fire(root, "pointerup", { pointerId: 2 });
+    fire(btn, "pointerup", { pointerId: 2 });
+    fire(btn, "click", { pointerId: 2 });
+    fire(btn, "pointerdown", { pointerId: 3, pointerType: "mouse" });
+    fire(root, "pointerup", { pointerId: 3, pointerType: "mouse" });
+
+    assert.deepEqual(calls, ["undo", "redo"]);
+    assert.equal(pages[1].length, 2);
+  });
+
   it("pointercancel with buttons>0 does not undo", () => {
     const { pages, calls, clock, btn, root } = bindWithHistory();
 
     fire(btn, "pointerdown");
-    clock.advance(399);
+    clock.advance(40);
     fire(root, "pointerup");
     assert.deepEqual(calls, ["undo"]);
 
+    clock.advance(500);
     fire(btn, "pointerdown", { pointerId: 2, pointerType: "touch", buttons: 1 });
     fire(btn, "pointercancel", { pointerId: 2, pointerType: "touch", buttons: 1 });
     fire(root, "pointercancel", { pointerId: 2, pointerType: "touch", buttons: 1 });
@@ -155,7 +215,7 @@ describe("undo hold #43", () => {
     assert.deepEqual(calls, ["undo"]);
     assert.equal(pages[1].length, 1);
 
-    clock.advance(400);
+    clock.advance(500);
     fire(root, "pointerup", { pointerId: 2 });
     fire(btn, "click", { pointerId: 2 });
 
