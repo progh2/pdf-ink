@@ -233,6 +233,7 @@ body {
   align-items: center;
   padding: 8px;
   z-index: 4;
+  pointer-events: none;
 }
 
 .write-screen[data-toolbar="left"] .toolbar-rail,
@@ -253,7 +254,7 @@ body {
 
 .m4-rail {
   position: absolute;
-  z-index: 4;
+  z-index: 5;
   display: flex;
   justify-content: center;
   align-items: center;
@@ -320,6 +321,7 @@ body {
   border-radius: 28px;
   background: var(--paper);
   max-width: 100%;
+  pointer-events: auto;
 }
 
 .write-screen[data-toolbar="left"] .toolbar,
