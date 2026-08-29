@@ -240,9 +240,13 @@ function strokeScale(view) {
   return inkCanvasScale(canvas.width, cssWidth);
 }
 
+function canvas2d(canvas) {
+  return canvas.getContext("2d", { willReadFrequently: true });
+}
+
 function drawStrokesOn(view, liveStroke = null) {
   const canvas = view.inkCanvas;
-  const ctx = canvas.getContext("2d");
+  const ctx = canvas2d(canvas);
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   const scale = strokeScale(view);
   const cssWidth = view.cssWidth || Number.parseFloat(canvas.style.width) || 0;
@@ -267,7 +271,7 @@ function paintMosaicOverlay(view) {
   if (!canvas) {
     return;
   }
-  const ctx = canvas.getContext("2d");
+  const ctx = canvas2d(canvas);
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   const boxes = mosaicBoxesPx(
     pageStrokes(view.pageNum),
@@ -281,8 +285,8 @@ function paintMosaicOverlay(view) {
   let pdf;
   let ink;
   try {
-    pdf = view.pdfCanvas.getContext("2d").getImageData(0, 0, canvas.width, canvas.height);
-    ink = view.inkCanvas.getContext("2d").getImageData(0, 0, canvas.width, canvas.height);
+    pdf = canvas2d(view.pdfCanvas).getImageData(0, 0, canvas.width, canvas.height);
+    ink = canvas2d(view.inkCanvas).getImageData(0, 0, canvas.width, canvas.height);
   } catch {
     return;
   }
@@ -355,7 +359,7 @@ async function renderPageView(view) {
     state.pageCssWidth = css.width;
     state.pageCssHeight = css.height;
   }
-  const ctx = view.pdfCanvas.getContext("2d");
+  const ctx = canvas2d(view.pdfCanvas);
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, view.pdfCanvas.width, view.pdfCanvas.height);
   await page.render({ canvasContext: ctx, viewport: pixel }).promise;
@@ -1328,8 +1332,8 @@ async function confirmCapture() {
   let pdf;
   let ink;
   try {
-    pdf = view.pdfCanvas.getContext("2d").getImageData(0, 0, view.pdfCanvas.width, view.pdfCanvas.height);
-    ink = view.inkCanvas.getContext("2d").getImageData(0, 0, view.inkCanvas.width, view.inkCanvas.height);
+    pdf = canvas2d(view.pdfCanvas).getImageData(0, 0, view.pdfCanvas.width, view.pdfCanvas.height);
+    ink = canvas2d(view.inkCanvas).getImageData(0, 0, view.inkCanvas.width, view.inkCanvas.height);
   } catch {
     showBanner("이 영역을 복사하지 못했습니다.");
     return;
