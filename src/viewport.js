@@ -34,6 +34,20 @@ export function slotLineWidth(step) {
   return clamp(Number.isFinite(n) ? n : 2, 1, 10);
 }
 
+/**
+ * Bitmap pixels per layout CSS pixel. Uses the page's laid-out size, not
+ * getBoundingClientRect(), so pinch zoom / DPR / CSS transforms cannot make
+ * a live stroke thicker or thinner than the same stroke after commit.
+ */
+export function inkCanvasScale(pixelWidth, cssWidth) {
+  const pixel = Number(pixelWidth);
+  const css = Number(cssWidth);
+  if (!(pixel > 0) || !(css > 0)) {
+    return 1;
+  }
+  return pixel / css;
+}
+
 export function constrainPan(panX, panY, scale, pageW, pageH, viewW, viewH) {
   if (scale <= 1.001) {
     return { x: 0, y: 0 };

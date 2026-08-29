@@ -28,6 +28,7 @@ import {
 } from "./prefs.js";
 import {
   constrainPan,
+  inkCanvasScale,
   pointerDistance,
   pointerMidpoint,
   scaleFromPinch,
@@ -153,9 +154,14 @@ function eventToNorm(event, canvas) {
   };
 }
 
-function canvasScale(canvas) {
-  const cssWidth = canvas.getBoundingClientRect().width || canvas.width || 1;
-  return canvas.width / cssWidth;
+function strokeScale(view) {
+  const canvas = view.inkCanvas;
+  const cssWidth =
+    view.cssWidth ||
+    Number.parseFloat(canvas.style.width) ||
+    canvas.clientWidth ||
+    0;
+  return inkCanvasScale(canvas.width, cssWidth);
 }
 
 function paintStroke(ctx, stroke, scale, canvas) {
@@ -166,6 +172,8 @@ function paintStroke(ctx, stroke, scale, canvas) {
   ctx.save();
   ctx.globalCompositeOperation = stroke.erase ? "destination-out" : "source-over";
   ctx.strokeStyle = stroke.color || "#1A1A1A";
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
   ctx.lineWidth = (stroke.width || 2) * scale;
   ctx.beginPath();
   points.forEach((point, index) => {
@@ -190,9 +198,7 @@ function drawStrokesOn(view, liveStroke = null) {
   const canvas = view.inkCanvas;
   const ctx = canvas.getContext("2d");
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.lineCap = "round";
-  ctx.lineJoin = "round";
-  const scale = canvasScale(canvas);
+  const scale = strokeScale(view);
   for (const stroke of pageStrokes(view.pageNum)) {
     paintStroke(ctx, stroke, scale, canvas);
   }
@@ -231,6 +237,8 @@ function makeStage(pageNum) {
 }
 
 function applyPageSize(view, cssWidth, cssHeight, pixelWidth, pixelHeight) {
+  view.cssWidth = cssWidth;
+  view.cssHeight = cssHeight;
   view.stage.style.width = `${cssWidth}px`;
   view.stage.style.height = `${cssHeight}px`;
   for (const canvas of [view.pdfCanvas, view.inkCanvas]) {
@@ -1233,7 +1241,7 @@ window.addEventListener("resize", () => {
         placeSlotPanel(btn);
       }
     }
-    if (state.pdf) {
+    if (state.pdf && !state.drawing) {
       rebuildPages();
     }
   }, 120);
