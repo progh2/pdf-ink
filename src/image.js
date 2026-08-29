@@ -1,6 +1,9 @@
 export const IMAGE_MAX_BYTES = 8 * 1024 * 1024;
 export const IMAGE_MAX_EDGE = 1600;
+export const IMAGE_HANDLE_CSS = 8;
 export const RESIZE_HANDLES = ["nw", "ne", "se", "sw"];
+export const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp"];
+export const IMAGE_EXTS = [".png", ".jpg", ".jpeg", ".webp"];
 
 function clamp01(value) {
   const n = Number(value);
@@ -117,13 +120,30 @@ export function handleAt(bounds, point, hit = 0.038) {
   return best;
 }
 
+export function acceptImageSrc(src) {
+  if (typeof src !== "string" || !src) {
+    return false;
+  }
+  const head = src.slice(0, 64).toLowerCase();
+  if (head.includes("svg") || src.includes("<svg") || src.includes("<SVG")) {
+    return false;
+  }
+  return /^data:image\/(png|jpeg|jpg|webp)/i.test(src);
+}
+
 export function acceptImageFile(file) {
   if (!file) {
     return { ok: false, message: "이미지를 선택해 주세요." };
   }
   const type = (file.type || "").toLowerCase();
-  if (!type.startsWith("image/")) {
-    return { ok: false, message: "이미지 파일만 넣을 수 있습니다." };
+  const name = (file.name || "").toLowerCase();
+  if (type === "image/svg+xml" || type === "image/svg" || name.endsWith(".svg")) {
+    return { ok: false, message: "SVG는 넣을 수 없습니다." };
+  }
+  const typeOk = IMAGE_TYPES.includes(type);
+  const extOk = IMAGE_EXTS.some((ext) => name.endsWith(ext));
+  if (!typeOk && !extOk) {
+    return { ok: false, message: "PNG, JPEG, WebP만 넣을 수 있습니다." };
   }
   if (file.size > IMAGE_MAX_BYTES) {
     return { ok: false, message: "이미지가 너무 큽니다. 8MB 이하만 넣을 수 있습니다." };

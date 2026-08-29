@@ -37,7 +37,7 @@ import {
   scaleFromPinch,
 } from "./viewport.js";
 import { applyEraserToInk, isPixelErase, isStrokeErase, paintItem, paintStamp, removeHitItems, removeHitStamps, stampInkItem, stampTilt } from "./ink.js";
-import { canCreateInk, rectBigEnough, rectFromPoints, selectFitsCapsule, shouldPanPointer } from "./interact.js";
+import { canCreateInk, rectBigEnough, rectFromPoints, shouldPanPointer } from "./interact.js";
 import { canRedo, canUndo, cloneItems, createHistory, recordChange, redoChange, undoChange } from "./history.js";
 import { bindUndoHold } from "./undoHold.js";
 import { MOSAIC_CELL_CSS, mosaicBoxesPx, mosaicItem } from "./mosaic.js";
@@ -54,6 +54,7 @@ import {
 import {
   IMAGE_MAX_EDGE,
   acceptImageFile,
+  acceptImageSrc,
   cropImage,
   cropRectOnImage,
   handleAt,
@@ -117,9 +118,6 @@ const els = {
   undoBtn: document.querySelector("#undo-btn"),
   moreBtn: document.querySelector("#more-btn"),
   morePanel: document.querySelector("#more-panel"),
-  moreSelect: document.querySelector("#more-select"),
-  selectBtn: document.querySelector("#select-btn"),
-  rotatePanel: document.querySelector("#rotate-panel"),
   imageInput: document.querySelector("#image-input"),
   previewDrawer: document.querySelector("#preview-drawer"),
   previewBackdrop: document.querySelector("#preview-backdrop"),
@@ -184,7 +182,6 @@ const state = {
   immersive: false,
   leaves: [],
   previewFilter: "all",
-  compactSelect: false,
   selectIndices: [],
   selectPage: 1,
   selectDrag: null,
@@ -266,7 +263,6 @@ function resetEditorExtras() {
   hideMarquee();
   hideSelectUi();
   closePreview();
-  closeRotatePanel();
   syncHistoryButtons();
   syncRectTool();
 }
@@ -939,7 +935,6 @@ function overlayOpen() {
     !els.slotPanel.hidden ||
     !els.eraserPanel.hidden ||
     !els.morePanel.hidden ||
-    !els.rotatePanel.hidden ||
     !els.previewDrawer.hidden
   );
 }
@@ -1121,22 +1116,14 @@ function syncInteract() {
   }
 }
 
-function syncCompactSelect() {
-  const compact = !selectFitsCapsule({
-    width: els.writeScreen.clientWidth || window.innerWidth,
-    height: els.writeScreen.clientHeight || window.innerHeight,
-    position: state.toolbarPos,
-  });
-  state.compactSelect = compact;
-  els.selectBtn.hidden = compact;
-  els.moreSelect.hidden = !compact;
-}
-
 function syncRectTool() {
   els.writeScreen.dataset.rect = state.rectTool || "";
-  els.moreBtn.classList.toggle("is-selected", Boolean(state.rectTool) || !els.morePanel.hidden || !els.rotatePanel.hidden);
+  els.moreBtn.classList.toggle("is-selected", Boolean(state.rectTool) || !els.morePanel.hidden || state.tool === "select");
   document.querySelectorAll("#more-panel [data-more]").forEach((btn) => {
-    btn.classList.toggle("is-selected", btn.dataset.more === state.rectTool);
+    btn.classList.toggle(
+      "is-selected",
+      btn.dataset.more === state.rectTool || (btn.dataset.more === "select" && state.tool === "select"),
+    );
   });
 }
 
@@ -1170,7 +1157,6 @@ function applyChrome() {
   els.writeScreen.dataset.interact = state.interactMode;
   els.writeScreen.dataset.rect = state.rectTool || "";
   els.writeScreen.classList.toggle("is-fullscreen", isFullscreen());
-  syncCompactSelect();
   document.querySelectorAll("#toolbar-pos-choices [data-pos]").forEach((btn) => {
     btn.classList.toggle("is-selected", btn.dataset.pos === state.toolbarPos);
   });
@@ -1208,15 +1194,6 @@ function closeMorePanel() {
   syncRectTool();
 }
 
-function closeRotatePanel() {
-  if (!els.rotatePanel) {
-    return;
-  }
-  els.rotatePanel.hidden = true;
-  els.rotatePanel.style.left = "-9999px";
-  els.rotatePanel.style.top = "-9999px";
-}
-
 function closePreview() {
   if (!els.previewDrawer) {
     return;
@@ -1237,7 +1214,6 @@ function closeAllPanels() {
   closeSlotPanel();
   closeEraserPanel();
   closeMorePanel();
-  closeRotatePanel();
 }
 
 function placePanel(panel, anchorBtn) {
@@ -1550,6 +1526,10 @@ function syncSelectHud() {
   const items = pageStrokes(pageNum);
   const image = selectedImageItem();
   const cropping = Boolean(state.cropping);
+  if (!state.selectIndices.length && !cropping) {
+    hideSelectUi();
+    return;
+  }
   els.cropBtn.hidden = !image || cropping;
   els.lockBtn.hidden = !image || cropping;
   els.lockBtn.classList.toggle("is-on", Boolean(image?.locked));
@@ -1566,8 +1546,7 @@ function syncSelectHud() {
   }
   const bounds = selectedBounds(items, state.selectIndices, view?.cssWidth || 400, view?.cssHeight || 600);
   if (!bounds || !view) {
-    els.selectLayer.hidden = true;
-    placeSelectHud(null, null);
+    hideSelectUi();
     return;
   }
   placeSelectBox(view, bounds);
@@ -1950,6 +1929,10 @@ async function addImageFile(file) {
   }
   try {
     const raw = await readFileDataUrl(file);
+    if (!acceptImageSrc(raw)) {
+      showBanner("PNG, JPEG, WebP만 넣을 수 있습니다.");
+      return;
+    }
     const img = await loadHtmlImage(raw);
     const scaled = await downscaleImage(img);
     const view = state.pageViews.find((item) => item.pageNum === state.page);
@@ -1986,7 +1969,7 @@ function rotateCurrentPage(delta) {
     state.pageCount = state.leaves.length;
     state.selectIndices = [];
   });
-  closeRotatePanel();
+  closeMorePanel();
   rebuildPages();
 }
 
@@ -2080,35 +2063,6 @@ function insertOutlinePage() {
   if (!els.previewDrawer.hidden) {
     renderPreviewList();
   }
-}
-
-function placeRotatePanel() {
-  const panel = els.rotatePanel;
-  const anchor = els.moreBtn.getBoundingClientRect();
-  panel.style.visibility = "hidden";
-  panel.style.left = "-9999px";
-  panel.style.top = "-9999px";
-  panel.hidden = false;
-  const width = 240;
-  const height = panel.getBoundingClientRect().height || 100;
-  const gap = 8;
-  const side = overflowSide();
-  let top = anchor.bottom + gap;
-  let left = anchor.left + anchor.width / 2 - width / 2;
-  if (side === "above") {
-    top = anchor.top - gap - height;
-  } else if (side === "left") {
-    left = anchor.left - gap - width;
-    top = anchor.top + anchor.height / 2 - height / 2;
-  } else if (side === "right") {
-    left = anchor.right + gap;
-    top = anchor.top + anchor.height / 2 - height / 2;
-  }
-  left = Math.min(window.innerWidth - width - 8, Math.max(8, left));
-  top = Math.min(window.innerHeight - height - 8, Math.max(8, top));
-  panel.style.left = `${left}px`;
-  panel.style.top = `${top}px`;
-  panel.style.visibility = "";
 }
 
 let captureWriting = false;
@@ -2305,11 +2259,6 @@ function selectMoreAction(action) {
     closeMorePanel();
     ignoreAfterPanel = true;
     els.imageInput.click();
-    return;
-  }
-  if (action === "rotate") {
-    closeMorePanel();
-    placeRotatePanel();
     return;
   }
   if (action === "preview") {
@@ -2822,11 +2771,6 @@ els.interactBtn.addEventListener("click", () => {
   setInteractMode(state.interactMode === "view" ? "edit" : "view");
 });
 bindUndoHold(els.undoBtn, { onUndo: undoInk, onRedo: redoInk });
-els.selectBtn.addEventListener("click", (event) => {
-  event.preventDefault();
-  event.stopPropagation();
-  selectSelectTool();
-});
 els.moreBtn.addEventListener("pointerdown", (event) => {
   event.stopPropagation();
   armStayOnWrite();
@@ -2849,7 +2793,7 @@ document.querySelectorAll("#more-panel [data-more]").forEach((btn) => {
     selectMoreAction(btn.dataset.more);
   });
 });
-document.querySelectorAll("#rotate-panel [data-rotate]").forEach((btn) => {
+document.querySelectorAll("#more-panel [data-rotate]").forEach((btn) => {
   btn.addEventListener("pointerdown", (event) => {
     event.stopPropagation();
     armStayOnWrite();
@@ -2930,7 +2874,7 @@ els.otherPdf.addEventListener("click", (event) => {
   if (performance.now() < stayOnWriteUntil) {
     return;
   }
-  if (!els.morePanel.hidden || !els.rotatePanel.hidden || !els.previewDrawer.hidden) {
+  if (!els.morePanel.hidden || !els.previewDrawer.hidden) {
     return;
   }
   if (event.target !== els.otherPdf) {
@@ -2997,7 +2941,7 @@ els.writeScreen.addEventListener(
 );
 
 document.addEventListener("pointerdown", (event) => {
-  if (event.target.closest(".slot-panel, [data-slot], #eraser-btn, #more-btn, #select-btn, .m4-bar, .marquee, .select-hud, .preview-drawer")) {
+  if (event.target.closest(".slot-panel, [data-slot], #eraser-btn, #more-btn, .m4-bar, .marquee, .select-hud, .preview-drawer")) {
     return;
   }
   closeAllPanels();
@@ -3029,26 +2973,6 @@ document.addEventListener("keydown", (event) => {
   }
 });
 
-document.addEventListener("paste", (event) => {
-  if (els.writeScreen.hidden || state.interactMode === "view") {
-    return;
-  }
-  const item = [...(event.clipboardData?.items || [])].find((entry) => entry.type.startsWith("image/"));
-  if (item) {
-    const file = item.getAsFile();
-    if (!file) {
-      return;
-    }
-    event.preventDefault();
-    addImageFile(file);
-    return;
-  }
-  if (state.inkClipboard.length) {
-    event.preventDefault();
-    pasteClipboard();
-  }
-});
-
 document.addEventListener("fullscreenchange", () => {
   if (!document.fullscreenElement) {
     state.immersive = false;
@@ -3075,10 +2999,6 @@ window.addEventListener("resize", () => {
     if (!els.morePanel.hidden) {
       placeOverflowPanel();
     }
-    if (!els.rotatePanel.hidden) {
-      placeRotatePanel();
-    }
-    syncCompactSelect();
     if (state.pendingCapture || state.currentRect) {
       updateMarquee(Boolean(state.pendingCapture));
     }
@@ -3095,7 +3015,6 @@ applyChrome();
 syncToolSelection();
 syncHistoryButtons();
 syncRectTool();
-syncCompactSelect();
 
 migrateLastIntoFiles()
   .then(() => loadLastSession())

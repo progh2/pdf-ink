@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  IMAGE_HANDLE_CSS,
   acceptImageFile,
+  acceptImageSrc,
   cropImage,
   cropRectOnImage,
   handleAt,
@@ -41,9 +43,12 @@ describe("이미지", () => {
   });
 
   it("rejects non-images and keeps page aspect for placement", () => {
-    assert.equal(acceptImageFile({ type: "application/pdf", size: 10 }).ok, false);
-    assert.equal(acceptImageFile({ type: "image/png", size: 10 }).ok, true);
-    assert.equal(acceptImageFile({ type: "image/png", size: 9 * 1024 * 1024 }).ok, false);
+    assert.equal(IMAGE_HANDLE_CSS, 8);
+    assert.equal(acceptImageFile({ type: "application/pdf", name: "a.pdf", size: 10 }).ok, false);
+    assert.equal(acceptImageFile({ type: "image/svg+xml", name: "a.svg", size: 10 }).ok, false);
+    assert.equal(acceptImageSrc("data:image/svg+xml;utf8,<svg>"), false);
+    assert.equal(acceptImageFile({ type: "image/png", name: "a.png", size: 10 }).ok, true);
+    assert.equal(acceptImageFile({ type: "image/png", name: "a.png", size: 9 * 1024 * 1024 }).ok, false);
     const size = imageSizeOnPage(800, 400, 400, 600, 0.5);
     assert.ok(size.w > 0 && size.h > 0);
     assert.ok(Math.abs(size.h / size.w - (400 / 800) * (400 / 600)) < 1e-6);

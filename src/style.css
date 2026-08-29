@@ -610,6 +610,17 @@ body {
   background: var(--selected);
 }
 
+.more-rotate {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  height: 44px;
+  gap: 0;
+}
+
+.more-rotate button {
+  height: 44px;
+}
+
 .marquee {
   position: fixed;
   inset: 0;
@@ -653,31 +664,31 @@ body {
 
 .select-handle {
   position: absolute;
-  width: 12px;
-  height: 12px;
+  width: 8px;
+  height: 8px;
   background: #fff;
   border: 1.5px solid #5c574e;
   border-radius: 2px;
 }
 
 .select-handle[data-handle="nw"] {
-  left: -6px;
-  top: -6px;
+  left: -4px;
+  top: -4px;
 }
 
 .select-handle[data-handle="ne"] {
-  right: -6px;
-  top: -6px;
+  right: -4px;
+  top: -4px;
 }
 
 .select-handle[data-handle="se"] {
-  right: -6px;
-  bottom: -6px;
+  right: -4px;
+  bottom: -4px;
 }
 
 .select-handle[data-handle="sw"] {
-  left: -6px;
-  bottom: -6px;
+  left: -4px;
+  bottom: -4px;
 }
 
 .select-layer.is-image .select-handle {
@@ -701,7 +712,7 @@ body {
 }
 
 .select-hud button {
-  height: 36px;
+  height: 44px;
   padding: 0 12px;
   border: 0;
   border-radius: 10px;
@@ -732,14 +743,14 @@ body {
   left: 0;
   bottom: 0;
   z-index: 9;
-  width: min(280px, 86vw);
-  padding: 12px;
+  width: 120px;
+  padding: 8px 16px;
   border-right: 1px solid #e6e1d6;
   background: #fff;
   box-shadow: 8px 0 24px rgba(40, 32, 22, 0.12);
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 8px;
 }
 
 .preview-head {
@@ -751,38 +762,38 @@ body {
 
 .preview-head h2 {
   margin: 0;
-  font-size: 16px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--title);
 }
 
 .preview-close {
-  height: 44px;
-  padding: 0 12px;
+  height: 32px;
+  padding: 0 4px;
   border: 0;
-  border-radius: 12px;
+  border-radius: 8px;
   background: transparent;
   color: var(--title);
   font: inherit;
-  font-size: 14px;
+  font-size: 12px;
   cursor: pointer;
 }
 
 .preview-filters {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: 1fr;
   gap: 4px;
 }
 
 .preview-filters button,
 .preview-insert {
-  height: 44px;
+  height: 32px;
   border: 0;
-  border-radius: 12px;
+  border-radius: 8px;
   background: transparent;
   color: var(--title);
   font: inherit;
-  font-size: 14px;
+  font-size: 12px;
   cursor: pointer;
 }
 
@@ -797,7 +808,7 @@ body {
   overflow: auto;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
 }
 
 .preview-row {
@@ -812,7 +823,8 @@ body {
 }
 
 .preview-thumb {
-  width: 100%;
+  width: 88px;
+  height: auto;
   aspect-ratio: 3 / 4;
   border: 1px solid var(--line);
   border-radius: 8px;

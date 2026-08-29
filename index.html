@@ -101,11 +101,6 @@
                 </button>
               </div>
               <div class="toolbar-cluster">
-                <button type="button" class="tool" id="select-btn" data-tool="select" aria-label="선택">
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <rect x="5" y="5" width="14" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-dasharray="3 2.2" />
-                  </svg>
-                </button>
                 <button type="button" class="tool" id="undo-btn" aria-label="되돌리기" disabled>
                   <svg viewBox="0 0 24 24" aria-hidden="true">
                     <path d="M8 8H5.5a.5.5 0 0 0-.5.5V11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
@@ -152,21 +147,19 @@
       </div>
 
       <div class="slot-panel more-panel" id="more-panel" hidden>
-        <button type="button" data-more="select" id="more-select" hidden>선택</button>
         <button type="button" data-more="mosaic">마스킹(모자이크)</button>
         <button type="button" data-more="capture">영역캡처</button>
         <button type="button" data-more="fullscreen" id="fullscreen-item">전체화면</button>
+        <button type="button" data-more="select">선택</button>
         <button type="button" data-more="image">이미지</button>
-        <button type="button" data-more="rotate">회전</button>
+        <div class="more-rotate">
+          <button type="button" data-rotate="-90">왼쪽</button>
+          <button type="button" data-rotate="90">오른쪽</button>
+        </div>
         <button type="button" data-more="preview">미리보기</button>
       </div>
 
-      <div class="slot-panel more-panel" id="rotate-panel" hidden>
-        <button type="button" data-rotate="-90">왼쪽</button>
-        <button type="button" data-rotate="90">오른쪽</button>
-      </div>
-
-      <input id="image-input" type="file" accept="image/*" hidden />
+      <input id="image-input" type="file" accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp" hidden />
 
       <aside class="preview-drawer" id="preview-drawer" hidden>
         <div class="preview-head">
