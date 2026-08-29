@@ -13,15 +13,18 @@ export function loadStrokes(identity) {
   try {
     const raw = localStorage.getItem(STROKE_PREFIX + identity);
     if (!raw) {
-      return { pages: {} };
+      return { pages: {}, leaves: null };
     }
     const data = JSON.parse(raw);
     if (!data || typeof data !== "object" || !data.pages || typeof data.pages !== "object") {
-      return { pages: {} };
+      return { pages: {}, leaves: null };
     }
-    return { pages: data.pages };
+    return {
+      pages: data.pages,
+      leaves: Array.isArray(data.leaves) ? data.leaves : null,
+    };
   } catch {
-    return { pages: {} };
+    return { pages: {}, leaves: null };
   }
 }
 
@@ -41,11 +44,12 @@ export function savePenOnly(on) {
   }
 }
 
-export function saveStrokes(identity, pages) {
+export function saveStrokes(identity, pages, leaves = null) {
   const payload = JSON.stringify({
-    version: 1,
+    version: leaves ? 2 : 1,
     identity,
     pages,
+    ...(leaves ? { leaves } : {}),
     savedAt: Date.now(),
   });
   localStorage.setItem(STROKE_PREFIX + identity, payload);

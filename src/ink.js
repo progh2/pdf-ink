@@ -162,7 +162,10 @@ function stampHitsEraser(item, eraserPts, eraserHalf, cssWidth, cssHeight) {
 export function itemHitsEraser(item, eraser, cssWidth, cssHeight) {
   const eraserPts = toCssPoints(eraser.points, cssWidth, cssHeight);
   const eraserHalf = (eraser.width || 2) / 2;
-  if (item.type === "mosaic") {
+  if (item.type === "mosaic" || item.type === "image") {
+    if (item.type === "image" && item.locked) {
+      return false;
+    }
     const left = item.x * cssWidth - eraserHalf;
     const top = item.y * cssHeight - eraserHalf;
     const right = (item.x + item.w) * cssWidth + eraserHalf;
@@ -183,7 +186,7 @@ export function removeHitItems(items, eraser, cssWidth, cssHeight) {
 
 export function removeHitStamps(items, eraser, cssWidth, cssHeight) {
   return items.filter((item) => {
-    if (item.type !== "stamp" && item.type !== "mosaic") {
+    if (item.type !== "stamp" && item.type !== "mosaic" && item.type !== "image") {
       return true;
     }
     return !itemHitsEraser(item, eraser, cssWidth, cssHeight);
@@ -362,7 +365,7 @@ export function paintErase(ctx, stroke, scale, canvas) {
 }
 
 export function paintItem(ctx, item, scale, canvas) {
-  if (item.type === "mosaic") {
+  if (item.type === "mosaic" || item.type === "image") {
     return;
   }
   if (item.type === "stamp") {

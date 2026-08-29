@@ -43,6 +43,40 @@ import { bindUndoHold } from "./undoHold.js";
 import { MOSAIC_CELL_CSS, mosaicBoxesPx, mosaicItem } from "./mosaic.js";
 import { captureRegionPng, composePageRgba, cropRgba, writePngClipboard } from "./capture.js";
 import {
+  copyItems,
+  itemBounds,
+  offsetItems,
+  pickItemsAt,
+  pickItemsInRect,
+  selectedBounds,
+  translateItems,
+} from "./select.js";
+import {
+  IMAGE_MAX_EDGE,
+  acceptImageFile,
+  acceptImageSrc,
+  cropImage,
+  cropRectOnImage,
+  handleAt,
+  imageItem,
+  imageSizeOnPage,
+  lockImage,
+  resizeImage,
+} from "./image.js";
+import { addRotation, rotateItems } from "./rotate.js";
+import {
+  filterLeaves,
+  inkKey,
+  insertOutlineAfter,
+  leafAt,
+  normalizeLeaves,
+  outlineViewport,
+  pageOfInkKey,
+  pageOfLeaf,
+  setLeafRotate,
+  toggleBookmark,
+} from "./preview.js";
+import {
   HIGHLIGHTER_OPACITY_DEFAULT,
   HIGHLIGHTER_PALETTE,
   PEN_PALETTE,
@@ -84,10 +118,25 @@ const els = {
   undoBtn: document.querySelector("#undo-btn"),
   moreBtn: document.querySelector("#more-btn"),
   morePanel: document.querySelector("#more-panel"),
+  imageInput: document.querySelector("#image-input"),
+  previewDrawer: document.querySelector("#preview-drawer"),
+  previewBackdrop: document.querySelector("#preview-backdrop"),
+  previewClose: document.querySelector("#preview-close"),
+  previewList: document.querySelector("#preview-list"),
+  outlineInsert: document.querySelector("#outline-insert"),
   fullscreenItem: document.querySelector("#fullscreen-item"),
   marquee: document.querySelector("#marquee"),
   marqueeBox: document.querySelector("#marquee-box"),
   captureConfirm: document.querySelector("#capture-confirm"),
+  selectLayer: document.querySelector("#select-layer"),
+  selectBox: document.querySelector("#select-box"),
+  floatBar: document.querySelector("#float-bar"),
+  selectHud: document.querySelector("#float-bar"),
+  copyBtn: document.querySelector("#copy-btn"),
+  pasteBtn: document.querySelector("#paste-btn"),
+  cropBtn: document.querySelector("#crop-btn"),
+  lockBtn: document.querySelector("#lock-btn"),
+  cropConfirm: document.querySelector("#crop-confirm"),
   settingsBtn: document.querySelector("#settings-btn"),
   settingsSheet: document.querySelector("#settings-sheet"),
   settingsBackdrop: document.querySelector("#settings-backdrop"),
@@ -132,6 +181,14 @@ const state = {
   currentRect: null,
   pendingCapture: null,
   immersive: false,
+  leaves: [],
+  previewFilter: "all",
+  selectIndices: [],
+  selectPage: 1,
+  selectDrag: null,
+  inkClipboard: [],
+  cropping: null,
+  baseCss: { width: 0, height: 0 },
   eraseMode: loadEraser().mode,
   eraserWidth: loadEraser().width,
   pendingStamp: null,
@@ -169,7 +226,7 @@ function persistStrokes() {
     return;
   }
   try {
-    saveStrokes(state.identity, state.pages);
+    saveStrokes(state.identity, state.pages, state.leaves);
   } catch {
     showBanner("필기를 저장하지 못했습니다. 브라우저 저장 공간이 부족할 수 있습니다.");
   }
@@ -180,11 +237,17 @@ function syncHistoryButtons() {
 }
 
 function commitPageChange(pageNum, apply) {
-  const key = String(pageNum);
+  const key = inkKey(leafAt(state.leaves, pageNum));
   const before = cloneItems(pageStrokes(pageNum));
+  const leavesBefore = cloneItems(state.leaves);
   apply(key);
   const after = cloneItems(pageStrokes(pageNum));
-  recordChange(state.history, { page: key, before, after });
+  recordChange(state.history, {
+    page: key,
+    before,
+    after,
+    extra: { leavesBefore, leavesAfter: cloneItems(state.leaves) },
+  });
   persistStrokes();
   syncHistoryButtons();
 }
@@ -194,7 +257,13 @@ function resetEditorExtras() {
   state.rectTool = null;
   state.currentRect = null;
   state.pendingCapture = null;
+  state.selectIndices = [];
+  state.selectDrag = null;
+  state.cropping = null;
+  state.inkClipboard = [];
   hideMarquee();
+  hideSelectUi();
+  closePreview();
   syncHistoryButtons();
   syncRectTool();
 }
@@ -216,7 +285,7 @@ async function persistSession() {
 }
 
 function pageStrokes(pageNum = state.drawPage || state.page) {
-  const key = String(pageNum);
+  const key = inkKey(leafAt(state.leaves, pageNum));
   if (!state.pages[key]) {
     state.pages[key] = [];
   }
@@ -266,7 +335,58 @@ function drawStrokesOn(view, liveStroke = null) {
   if (liveStroke && (liveStroke.points?.length || liveStroke.type === "stamp")) {
     paintItem(ctx, liveStroke, scale, canvas);
   }
+  paintImageLayer(view.underCanvas, items, true, () => drawStrokesOn(view));
+  paintImageLayer(view.overCanvas, items, false, () => drawStrokesOn(view));
   paintMosaicOverlay(view);
+}
+
+const imageCache = new Map();
+
+function cachedImage(src, onReady) {
+  if (!src) {
+    return null;
+  }
+  let entry = imageCache.get(src);
+  if (!entry) {
+    const img = new Image();
+    entry = { img, ready: false };
+    img.onload = () => {
+      entry.ready = true;
+      onReady?.();
+    };
+    img.src = src;
+    imageCache.set(src, entry);
+  }
+  return entry;
+}
+
+function paintImageLayer(canvas, items, locked, onReady) {
+  if (!canvas) {
+    return;
+  }
+  const ctx = canvas2d(canvas);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  for (const item of items || []) {
+    if (item.type !== "image" || Boolean(item.locked) !== locked) {
+      continue;
+    }
+    const entry = cachedImage(item.src, onReady);
+    if (!entry?.ready || !entry.img.width) {
+      continue;
+    }
+    const crop = item.crop || { x: 0, y: 0, w: 1, h: 1 };
+    ctx.drawImage(
+      entry.img,
+      crop.x * entry.img.width,
+      crop.y * entry.img.height,
+      Math.max(1, entry.img.width * crop.w),
+      Math.max(1, entry.img.height * crop.h),
+      item.x * canvas.width,
+      item.y * canvas.height,
+      item.w * canvas.width,
+      item.h * canvas.height,
+    );
+  }
 }
 
 function paintMosaicOverlay(view) {
@@ -307,14 +427,27 @@ function drawLive() {
   }
 }
 
-function fitScale(page, mode = state.viewMode) {
-  const viewport = page.getViewport({ scale: 1 });
+function fitScale(page, mode = state.viewMode, rotation = 0) {
+  const viewport = page.getViewport({ scale: 1, rotation });
   const maxWidth = Math.max(120, els.workspace.clientWidth - 24);
   if (mode === "scroll") {
     return maxWidth / viewport.width;
   }
   const maxHeight = Math.max(120, els.workspace.clientHeight - 24);
   return Math.min(maxWidth / viewport.width, maxHeight / viewport.height);
+}
+
+async function basePageCss() {
+  if (state.baseCss.width && state.baseCss.height) {
+    return state.baseCss;
+  }
+  if (state.pdf) {
+    const page = await state.pdf.getPage(1);
+    const css = page.getViewport({ scale: fitScale(page) });
+    state.baseCss = { width: css.width, height: css.height };
+    return state.baseCss;
+  }
+  return { width: 360, height: 520 };
 }
 
 function makeStage(pageNum) {
@@ -327,8 +460,12 @@ function makeStage(pageNum) {
   inkCanvas.className = "ink-canvas";
   const maskCanvas = document.createElement("canvas");
   maskCanvas.className = "mask-canvas";
-  stage.append(pdfCanvas, inkCanvas, maskCanvas);
-  return { pageNum, stage, pdfCanvas, inkCanvas, maskCanvas, rendered: false, token: 0 };
+  const underCanvas = document.createElement("canvas");
+  underCanvas.className = "under-canvas";
+  const overCanvas = document.createElement("canvas");
+  overCanvas.className = "over-canvas";
+  stage.append(pdfCanvas, underCanvas, inkCanvas, overCanvas, maskCanvas);
+  return { pageNum, stage, pdfCanvas, inkCanvas, maskCanvas, underCanvas, overCanvas, rendered: false, token: 0 };
 }
 
 function applyPageSize(view, cssWidth, cssHeight, pixelWidth, pixelHeight) {
@@ -336,7 +473,7 @@ function applyPageSize(view, cssWidth, cssHeight, pixelWidth, pixelHeight) {
   view.cssHeight = cssHeight;
   view.stage.style.width = `${cssWidth}px`;
   view.stage.style.height = `${cssHeight}px`;
-  for (const canvas of [view.pdfCanvas, view.inkCanvas, view.maskCanvas]) {
+  for (const canvas of [view.pdfCanvas, view.underCanvas, view.inkCanvas, view.overCanvas, view.maskCanvas]) {
     canvas.width = pixelWidth;
     canvas.height = pixelHeight;
     canvas.style.width = `${cssWidth}px`;
@@ -345,19 +482,46 @@ function applyPageSize(view, cssWidth, cssHeight, pixelWidth, pixelHeight) {
 }
 
 async function renderPageView(view) {
-  if (!state.pdf) {
+  const token = ++view.token;
+  const leaf = leafAt(state.leaves, view.pageNum);
+  const dpr = window.devicePixelRatio || 1;
+  if (!leaf || leaf.kind === "outline" || !state.pdf) {
+    const base = await basePageCss();
+    if (token !== view.token) {
+      return;
+    }
+    const css = outlineViewport(base.width, base.height, leaf?.rotate || 0);
+    applyPageSize(view, css.width, css.height, Math.round(css.width * dpr), Math.round(css.height * dpr));
+    if (state.viewMode === "page" || view.pageNum === state.page) {
+      state.pageCssWidth = css.width;
+      state.pageCssHeight = css.height;
+    }
+    const ctx = canvas2d(view.pdfCanvas);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = "#F7F4EC";
+    ctx.fillRect(0, 0, view.pdfCanvas.width, view.pdfCanvas.height);
+    ctx.fillStyle = "#5C574E";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "top";
+    ctx.font = `700 ${18 * dpr}px "Apple SD Gothic Neo", "Noto Sans KR", sans-serif`;
+    ctx.fillText(leaf?.title || "개요", view.pdfCanvas.width / 2, 36 * dpr);
+    view.rendered = true;
+    drawStrokesOn(view, state.drawing && state.drawPage === view.pageNum ? state.currentStroke : null);
     return;
   }
-  const token = ++view.token;
-  const page = await state.pdf.getPage(view.pageNum);
+  const page = await state.pdf.getPage(leaf.pdfPage);
   if (token !== view.token || !state.pdf) {
     return;
   }
-  const dpr = window.devicePixelRatio || 1;
-  const scale = fitScale(page);
-  const css = page.getViewport({ scale });
-  const pixel = page.getViewport({ scale: scale * dpr });
+  const rotation = ((page.rotate || 0) + (leaf.rotate || 0)) % 360;
+  const scale = fitScale(page, state.viewMode, rotation);
+  const css = page.getViewport({ scale, rotation });
+  const pixel = page.getViewport({ scale: scale * dpr, rotation });
   applyPageSize(view, css.width, css.height, pixel.width, pixel.height);
+  if (!state.baseCss.width) {
+    const unrotated = page.getViewport({ scale: fitScale(page) });
+    state.baseCss = { width: unrotated.width, height: unrotated.height };
+  }
   if (state.viewMode === "page" || view.pageNum === state.page) {
     state.pageCssWidth = css.width;
     state.pageCssHeight = css.height;
@@ -477,9 +641,10 @@ async function rebuildPages() {
   const gen = ++renderGen;
   els.pageStack.replaceChildren();
   state.pageViews = [];
-  if (!state.pdf) {
+  if (!state.pdf && !state.leaves.length) {
     return;
   }
+  state.pageCount = state.leaves.length;
 
   if (state.viewMode === "page") {
     const view = makeStage(state.page);
@@ -487,16 +652,27 @@ async function rebuildPages() {
     els.pageStack.append(view.stage);
     await renderPageView(view);
   } else {
-    for (let index = 1; index <= state.pageCount; index += 1) {
+    for (let index = 1; index <= state.leaves.length; index += 1) {
       const view = makeStage(index);
       state.pageViews.push(view);
       els.pageStack.append(view.stage);
     }
-    const first = await state.pdf.getPage(1);
+    const firstLeaf = state.leaves[0];
+    let css;
+    if (firstLeaf?.kind === "pdf" && state.pdf) {
+      const first = await state.pdf.getPage(firstLeaf.pdfPage);
+      if (gen !== renderGen) {
+        return;
+      }
+      const rotation = ((first.rotate || 0) + (firstLeaf.rotate || 0)) % 360;
+      css = first.getViewport({ scale: fitScale(first, "scroll", rotation), rotation });
+    } else {
+      const base = await basePageCss();
+      css = outlineViewport(base.width, base.height, firstLeaf?.rotate || 0);
+    }
     if (gen !== renderGen) {
       return;
     }
-    const css = first.getViewport({ scale: fitScale(first, "scroll") });
     for (const view of state.pageViews) {
       view.stage.style.width = `${css.width}px`;
       view.stage.style.height = `${css.height}px`;
@@ -656,9 +832,12 @@ async function openPdfBuffer(buffer, { identity, name, page = 1 }) {
   state.identity = identity;
   state.fileName = name;
   state.buffer = buffer;
-  state.pageCount = pdf.numPages;
-  state.page = Math.min(Math.max(1, page), pdf.numPages);
-  state.pages = loadStrokes(identity).pages;
+  const stored = loadStrokes(identity);
+  state.leaves = normalizeLeaves(stored.leaves, pdf.numPages);
+  state.pageCount = state.leaves.length;
+  state.page = Math.min(Math.max(1, page), state.pageCount);
+  state.pages = stored.pages;
+  state.baseCss = { width: 0, height: 0 };
   resetEditorExtras();
   if (!state.zoomLock) {
     state.userScale = 1;
@@ -713,6 +892,9 @@ async function goToPage(nextPage) {
     await renderVisiblePages();
   }
   await persistSession();
+  if (!els.previewDrawer.hidden) {
+    renderPreviewList();
+  }
 }
 
 function allowsInkPointer(event) {
@@ -721,6 +903,7 @@ function allowsInkPointer(event) {
     penOnly: state.penOnly,
     pointerType: event.pointerType,
     rectTool: state.rectTool,
+    tool: state.tool,
   });
 }
 
@@ -730,7 +913,17 @@ function shouldPan(event) {
     penOnly: state.penOnly,
     pointerType: event.pointerType,
     rectTool: state.rectTool,
+    tool: state.tool,
   });
+}
+
+function allowsSelectPointer(event) {
+  return (
+    state.interactMode === "edit" &&
+    state.tool === "select" &&
+    !state.rectTool &&
+    (!state.penOnly || event.pointerType === "pen")
+  );
 }
 
 function allowsRectPointer(event) {
@@ -738,7 +931,13 @@ function allowsRectPointer(event) {
 }
 
 function overlayOpen() {
-  return !els.settingsSheet.hidden || !els.slotPanel.hidden || !els.eraserPanel.hidden || !els.morePanel.hidden;
+  return (
+    !els.settingsSheet.hidden ||
+    !els.slotPanel.hidden ||
+    !els.eraserPanel.hidden ||
+    !els.morePanel.hidden ||
+    !els.previewDrawer.hidden
+  );
 }
 
 function abortStroke() {
@@ -851,7 +1050,12 @@ function endStroke(event) {
       const cssWidth = view.cssWidth || Number.parseFloat(view.inkCanvas.style.width) || 0;
       const cssHeight = view.cssHeight || Number.parseFloat(view.inkCanvas.style.height) || 0;
       if (isStrokeErase(live) || isPixelErase(live)) {
-        state.pages[String(state.drawPage)] = applyEraserToInk(pageStrokes(state.drawPage), live, cssWidth, cssHeight);
+        state.pages[inkKey(leafAt(state.leaves, state.drawPage))] = applyEraserToInk(
+          pageStrokes(state.drawPage),
+          live,
+          cssWidth,
+          cssHeight,
+        );
       } else {
         pageStrokes(state.drawPage).push(live);
       }
@@ -915,9 +1119,12 @@ function syncInteract() {
 
 function syncRectTool() {
   els.writeScreen.dataset.rect = state.rectTool || "";
-  els.moreBtn.classList.toggle("is-selected", Boolean(state.rectTool) || !els.morePanel.hidden);
+  els.moreBtn.classList.toggle("is-selected", Boolean(state.rectTool) || !els.morePanel.hidden || state.tool === "select");
   document.querySelectorAll("#more-panel [data-more]").forEach((btn) => {
-    btn.classList.toggle("is-selected", btn.dataset.more === state.rectTool);
+    btn.classList.toggle(
+      "is-selected",
+      btn.dataset.more === state.rectTool || (btn.dataset.more === "select" && state.tool === "select"),
+    );
   });
 }
 
@@ -967,6 +1174,7 @@ function closeSettings() {
 
 function openSettings() {
   closeAllPanels();
+  closePreview();
   applyChrome();
   els.settingsSheet.hidden = false;
 }
@@ -985,6 +1193,24 @@ function closeMorePanel() {
   els.morePanel.style.left = "-9999px";
   els.morePanel.style.top = "-9999px";
   syncRectTool();
+}
+
+function closePreview() {
+  if (!els.previewDrawer) {
+    return;
+  }
+  els.previewDrawer.hidden = true;
+  els.previewBackdrop.hidden = true;
+}
+
+function hideSelectUi() {
+  if (!els.selectLayer) {
+    return;
+  }
+  els.selectLayer.hidden = true;
+  if (els.floatBar) {
+    els.floatBar.hidden = true;
+  }
 }
 
 function closeAllPanels() {
@@ -1151,10 +1377,29 @@ function setSlotKind(kind) {
   persistSlotChange();
 }
 
+function clearSelection() {
+  state.selectIndices = [];
+  state.selectDrag = null;
+  state.cropping = null;
+  hideSelectUi();
+}
+
+function selectSelectTool() {
+  state.tool = "select";
+  state.rectTool = null;
+  state.cropping = null;
+  hideMarquee();
+  closeAllPanels();
+  syncToolSelection();
+  syncRectTool();
+  syncSelectHud();
+}
+
 function selectSlot(index) {
   state.slotIndex = index;
   state.tool = "pen";
   state.rectTool = null;
+  clearSelection();
   hideMarquee();
   saveSlotIndex(index);
   closeAllPanels();
@@ -1166,6 +1411,7 @@ function selectEraserPixel() {
   state.tool = "eraser";
   state.eraseMode = "pixel";
   state.rectTool = null;
+  clearSelection();
   hideMarquee();
   persistEraser();
   closeAllPanels();
@@ -1228,10 +1474,96 @@ function setInteractMode(mode) {
   if (state.interactMode === "view") {
     abortStroke();
     state.rectTool = null;
+    clearSelection();
     hideMarquee();
   }
   applyChrome();
   syncRectTool();
+}
+
+function selectedImageItem() {
+  if (state.selectIndices.length !== 1) {
+    return null;
+  }
+  const item = pageStrokes(state.selectPage || state.page)[state.selectIndices[0]];
+  return item?.type === "image" ? item : null;
+}
+
+function placeSelectBox(view, rect) {
+  if (!view || !rect) {
+    els.selectLayer.hidden = true;
+    return;
+  }
+  const box = view.stage.getBoundingClientRect();
+  els.selectLayer.hidden = false;
+  els.selectBox.style.left = `${box.left + rect.x * box.width}px`;
+  els.selectBox.style.top = `${box.top + rect.y * box.height}px`;
+  els.selectBox.style.width = `${Math.max(1, rect.w * box.width)}px`;
+  els.selectBox.style.height = `${Math.max(1, rect.h * box.height)}px`;
+}
+
+function placeSelectHud(view, rect) {
+  if (!els.floatBar) {
+    return;
+  }
+  els.floatBar.hidden = false;
+  let left = 12;
+  let top = 56;
+  if (view && rect) {
+    const box = view.stage.getBoundingClientRect();
+    left = box.left + rect.x * box.width;
+    top = box.top + (rect.y + rect.h) * box.height + 8;
+  }
+  const width = els.floatBar.offsetWidth || 220;
+  const height = els.floatBar.offsetHeight || 56;
+  els.floatBar.style.left = `${Math.min(window.innerWidth - width - 8, Math.max(8, left))}px`;
+  els.floatBar.style.top = `${Math.min(window.innerHeight - height - 8, Math.max(8, top))}px`;
+}
+
+function syncSelectHud() {
+  if (!els.floatBar || !els.selectLayer) {
+    return;
+  }
+  if (state.tool !== "select" || state.interactMode === "view" || els.writeScreen.hidden) {
+    hideSelectUi();
+    return;
+  }
+  const pageNum = state.selectPage || state.page;
+  const view = state.pageViews.find((item) => item.pageNum === pageNum);
+  const items = pageStrokes(pageNum);
+  const image = selectedImageItem();
+  const cropping = Boolean(state.cropping);
+  if (!state.selectIndices.length && !cropping) {
+    hideSelectUi();
+    return;
+  }
+  els.selectLayer.hidden = false;
+  els.floatBar.hidden = false;
+  els.cropBtn.hidden = !image || cropping;
+  els.lockBtn.hidden = !image || cropping;
+  els.lockBtn.classList.toggle("is-on", Boolean(image?.locked));
+  els.lockBtn.textContent = image?.locked ? "고정 해제" : "고정";
+  els.cropConfirm.hidden = !cropping;
+  els.copyBtn.hidden = cropping;
+  els.pasteBtn.hidden = cropping;
+  els.selectLayer.classList.toggle("is-image", Boolean(image) && !cropping);
+  if (cropping) {
+    const rect = rectFromPoints(state.cropping.a, state.cropping.b);
+    placeSelectBox(view, rect);
+    placeSelectHud(view, rect);
+    return;
+  }
+  const bounds = selectedBounds(items, state.selectIndices, view?.cssWidth || 400, view?.cssHeight || 600);
+  if (!bounds) {
+    hideSelectUi();
+    return;
+  }
+  els.selectLayer.hidden = false;
+  els.floatBar.hidden = false;
+  if (view) {
+    placeSelectBox(view, bounds);
+  }
+  placeSelectHud(view, bounds);
 }
 
 function hideMarquee() {
@@ -1339,6 +1671,417 @@ function endRect(event) {
   }
 }
 
+function startSelect(event, stage) {
+  if (state.interactMode === "view") {
+    return;
+  }
+  const ink = stage.querySelector(".ink-canvas");
+  if (!ink) {
+    return;
+  }
+  event.preventDefault();
+  try {
+    ink.setPointerCapture(event.pointerId);
+  } catch {
+    // optional
+  }
+  const view = state.pageViews.find((item) => item.stage === stage);
+  const point = eventToNorm(event, ink);
+  state.drawPage = Number(stage.dataset.page) || state.page;
+  state.drawCanvas = ink;
+  state.selectPage = state.drawPage;
+  const items = pageStrokes(state.drawPage);
+  const cssW = view?.cssWidth || 400;
+  const cssH = view?.cssHeight || 600;
+
+  if (state.cropping) {
+    state.selectDrag = { mode: "crop", page: state.drawPage, a: point, b: point };
+    state.cropping = { ...state.cropping, page: state.drawPage, a: point, b: point };
+    syncSelectHud();
+    return;
+  }
+
+  const image = selectedImageItem();
+  if (image && state.selectPage === state.drawPage) {
+    const handle = handleAt(itemBounds(image, cssW, cssH), point);
+    if (handle) {
+      state.selectDrag = {
+        mode: "resize",
+        handle,
+        page: state.drawPage,
+        start: point,
+        origin: cloneItems(items),
+        indices: [...state.selectIndices],
+      };
+      return;
+    }
+  }
+
+  const hits = pickItemsAt(items, point, cssW, cssH);
+  if (hits.length) {
+    const top = hits[hits.length - 1];
+    if (!state.selectIndices.includes(top)) {
+      state.selectIndices = [top];
+    }
+    state.selectDrag = {
+      mode: "move",
+      page: state.drawPage,
+      start: point,
+      origin: cloneItems(items),
+      indices: [...state.selectIndices],
+    };
+    syncSelectHud();
+    return;
+  }
+
+  state.selectIndices = [];
+  state.selectDrag = { mode: "marquee", page: state.drawPage, a: point, b: point };
+  syncSelectHud();
+}
+
+function moveSelect(event) {
+  const drag = state.selectDrag;
+  if (!drag || !state.drawCanvas) {
+    return;
+  }
+  event.preventDefault();
+  const point = eventToNorm(event, state.drawCanvas);
+  if (drag.mode === "marquee" || drag.mode === "crop") {
+    drag.b = point;
+    if (drag.mode === "crop") {
+      state.cropping = { ...state.cropping, a: drag.a, b: point };
+      syncSelectHud();
+      return;
+    }
+    state.currentRect = { page: drag.page, a: drag.a, b: drag.b };
+    updateMarquee(false);
+    return;
+  }
+  const key = inkKey(leafAt(state.leaves, drag.page));
+  if (drag.mode === "move") {
+    state.pages[key] = translateItems(drag.origin, drag.indices, point.x - drag.start.x, point.y - drag.start.y);
+  } else if (drag.mode === "resize") {
+    const next = cloneItems(drag.origin);
+    next[drag.indices[0]] = resizeImage(drag.origin[drag.indices[0]], drag.handle, point);
+    state.pages[key] = next;
+  }
+  const view = state.pageViews.find((item) => item.pageNum === drag.page);
+  if (view) {
+    drawStrokesOn(view);
+  }
+  syncSelectHud();
+}
+
+function endSelect(event) {
+  const drag = state.selectDrag;
+  if (!drag) {
+    return;
+  }
+  if (event.pointerId != null && state.drawCanvas) {
+    try {
+      state.drawCanvas.releasePointerCapture(event.pointerId);
+    } catch {
+      // already released
+    }
+  }
+  const view = state.pageViews.find((item) => item.pageNum === drag.page);
+  if (drag.mode === "marquee") {
+    const rect = rectFromPoints(drag.a, drag.b);
+    const cssW = view?.cssWidth || 400;
+    const cssH = view?.cssHeight || 600;
+    if (rectBigEnough(rect)) {
+      state.selectIndices = pickItemsInRect(pageStrokes(drag.page), rect, cssW, cssH);
+    } else {
+      state.selectIndices = pickItemsAt(pageStrokes(drag.page), drag.a, cssW, cssH);
+    }
+    hideMarquee();
+    state.selectDrag = null;
+    syncSelectHud();
+    return;
+  }
+  if (drag.mode === "crop") {
+    state.cropping = { ...state.cropping, a: drag.a, b: drag.b };
+    state.selectDrag = null;
+    syncSelectHud();
+    return;
+  }
+  const key = inkKey(leafAt(state.leaves, drag.page));
+  const after = pageStrokes(drag.page);
+  if (JSON.stringify(drag.origin) !== JSON.stringify(after)) {
+    recordChange(state.history, {
+      page: key,
+      before: drag.origin,
+      after: cloneItems(after),
+      extra: { leavesBefore: cloneItems(state.leaves), leavesAfter: cloneItems(state.leaves) },
+    });
+    persistStrokes();
+    syncHistoryButtons();
+  }
+  state.selectDrag = null;
+  syncSelectHud();
+}
+
+function copySelection() {
+  const items = pageStrokes(state.selectPage || state.page);
+  if (!state.selectIndices.length) {
+    return;
+  }
+  state.inkClipboard = copyItems(items, state.selectIndices, 0, 0);
+}
+
+function pasteClipboard() {
+  if (!state.inkClipboard.length || state.interactMode === "view") {
+    return;
+  }
+  const pasted = offsetItems(state.inkClipboard, 0.04, 0.04);
+  state.inkClipboard = offsetItems(state.inkClipboard, 0.04, 0.04);
+  const pageNum = state.page;
+  commitPageChange(pageNum, () => {
+    const list = pageStrokes(pageNum);
+    const start = list.length;
+    list.push(...pasted);
+    state.selectIndices = pasted.map((_, index) => start + index);
+    state.selectPage = pageNum;
+  });
+  state.tool = "select";
+  const view = state.pageViews.find((item) => item.pageNum === pageNum);
+  if (view) {
+    drawStrokesOn(view);
+  }
+  syncToolSelection();
+  syncSelectHud();
+}
+
+function beginCrop() {
+  const image = selectedImageItem();
+  if (!image) {
+    return;
+  }
+  state.cropping = {
+    page: state.selectPage || state.page,
+    index: state.selectIndices[0],
+    a: { x: image.x, y: image.y },
+    b: { x: image.x + image.w, y: image.y + image.h },
+  };
+  syncSelectHud();
+}
+
+function confirmCrop() {
+  if (!state.cropping) {
+    return;
+  }
+  const pageNum = state.cropping.page;
+  const index = state.cropping.index;
+  const item = pageStrokes(pageNum)[index];
+  if (!item || item.type !== "image") {
+    state.cropping = null;
+    syncSelectHud();
+    return;
+  }
+  const rect = rectFromPoints(state.cropping.a, state.cropping.b);
+  commitPageChange(pageNum, () => {
+    pageStrokes(pageNum)[index] = cropImage(item, cropRectOnImage(item, rect));
+  });
+  state.cropping = null;
+  const view = state.pageViews.find((entry) => entry.pageNum === pageNum);
+  if (view) {
+    drawStrokesOn(view);
+  }
+  syncSelectHud();
+}
+
+function toggleSelectedLock() {
+  const image = selectedImageItem();
+  if (!image) {
+    return;
+  }
+  const pageNum = state.selectPage || state.page;
+  const index = state.selectIndices[0];
+  commitPageChange(pageNum, () => {
+    pageStrokes(pageNum)[index] = lockImage(image, !image.locked);
+  });
+  const view = state.pageViews.find((entry) => entry.pageNum === pageNum);
+  if (view) {
+    drawStrokesOn(view);
+  }
+  syncSelectHud();
+}
+
+function readFileDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+
+function loadHtmlImage(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("image"));
+    img.src = src;
+  });
+}
+
+async function downscaleImage(img) {
+  const max = Math.max(img.width, img.height);
+  if (max <= IMAGE_MAX_EDGE) {
+    return { src: img.src, width: img.width, height: img.height };
+  }
+  const scale = IMAGE_MAX_EDGE / max;
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(img.width * scale));
+  canvas.height = Math.max(1, Math.round(img.height * scale));
+  canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+  return { src: canvas.toDataURL("image/jpeg", 0.86), width: canvas.width, height: canvas.height };
+}
+
+async function addImageFile(file) {
+  const check = acceptImageFile(file);
+  if (!check.ok) {
+    showBanner(check.message);
+    return;
+  }
+  try {
+    const raw = await readFileDataUrl(file);
+    if (!acceptImageSrc(raw)) {
+      showBanner("PNG, JPEG, WebP만 넣을 수 있습니다.");
+      return;
+    }
+    const img = await loadHtmlImage(raw);
+    const scaled = await downscaleImage(img);
+    const view = state.pageViews.find((item) => item.pageNum === state.page);
+    const size = imageSizeOnPage(scaled.width, scaled.height, view?.cssWidth || 400, view?.cssHeight || 600);
+    const item = imageItem({ src: scaled.src, x: 0.25, y: 0.22, w: size.w, h: size.h });
+    commitPageChange(state.page, () => {
+      pageStrokes(state.page).push(item);
+      state.selectIndices = [pageStrokes(state.page).length - 1];
+      state.selectPage = state.page;
+    });
+    state.tool = "select";
+    state.rectTool = null;
+    if (view) {
+      drawStrokesOn(view);
+    }
+    syncToolSelection();
+    syncRectTool();
+    syncSelectHud();
+  } catch {
+    showBanner("이미지를 넣지 못했습니다.");
+  }
+}
+
+function rotateCurrentPage(delta) {
+  const pageNum = state.page;
+  const leaf = leafAt(state.leaves, pageNum);
+  if (!leaf) {
+    return;
+  }
+  commitPageChange(pageNum, () => {
+    const key = inkKey(leaf);
+    state.pages[key] = rotateItems(pageStrokes(pageNum), delta);
+    state.leaves = setLeafRotate(state.leaves, pageNum - 1, addRotation(leaf.rotate, delta));
+    state.pageCount = state.leaves.length;
+    state.selectIndices = [];
+  });
+  closeMorePanel();
+  rebuildPages();
+}
+
+function openPreview() {
+  closeAllPanels();
+  els.previewDrawer.hidden = false;
+  els.previewBackdrop.hidden = false;
+  renderPreviewList();
+}
+
+async function renderPreviewList() {
+  if (!els.previewList) {
+    return;
+  }
+  document.querySelectorAll("#preview-filters [data-preview-filter]").forEach((btn) => {
+    btn.classList.toggle("is-selected", btn.dataset.previewFilter === state.previewFilter);
+  });
+  const shown = filterLeaves(state.leaves, state.previewFilter);
+  els.previewList.replaceChildren();
+  for (const leaf of shown) {
+    const pageNum = pageOfLeaf(state.leaves, leaf.id);
+    const row = document.createElement("div");
+    row.className = "preview-row";
+    if (pageNum === state.page) {
+      row.classList.add("is-current");
+    }
+    const thumb = document.createElement("canvas");
+    thumb.className = "preview-thumb";
+    const meta = document.createElement("div");
+    meta.className = "preview-meta";
+    const label = document.createElement("span");
+    label.textContent = leaf.kind === "outline" ? leaf.title : `${pageNum}`;
+    const star = document.createElement("button");
+    star.type = "button";
+    star.className = "preview-bookmark";
+    star.classList.toggle("is-on", leaf.bookmark);
+    star.textContent = leaf.bookmark ? "★" : "☆";
+    star.setAttribute("aria-label", "책갈피");
+    star.addEventListener("click", (event) => {
+      event.stopPropagation();
+      state.leaves = toggleBookmark(state.leaves, pageNum - 1);
+      persistStrokes();
+      renderPreviewList();
+    });
+    meta.append(label, star);
+    row.append(thumb, meta);
+    row.addEventListener("click", () => {
+      goToPage(pageNum);
+    });
+    els.previewList.append(row);
+    paintPreviewThumb(thumb, leaf);
+  }
+}
+
+async function paintPreviewThumb(canvas, leaf) {
+  const ctx = canvas.getContext("2d");
+  canvas.width = 180;
+  canvas.height = 240;
+  ctx.fillStyle = "#F7F4EC";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  if (leaf.kind === "outline" || !state.pdf) {
+    ctx.fillStyle = "#5C574E";
+    ctx.textAlign = "center";
+    ctx.font = "600 16px sans-serif";
+    ctx.fillText(leaf.title || "개요", 90, 40);
+    return;
+  }
+  try {
+    const page = await state.pdf.getPage(leaf.pdfPage);
+    const rotation = ((page.rotate || 0) + (leaf.rotate || 0)) % 360;
+    const base = page.getViewport({ scale: 1, rotation });
+    const scale = Math.min(180 / base.width, 240 / base.height);
+    const viewport = page.getViewport({ scale, rotation });
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+    await page.render({ canvasContext: ctx, viewport }).promise;
+  } catch {
+    // cream placeholder
+  }
+}
+
+function insertOutlinePage() {
+  const pageNum = state.page;
+  const id = `${Date.now().toString(36)}`;
+  commitPageChange(pageNum, () => {
+    state.leaves = insertOutlineAfter(state.leaves, pageNum - 1, id);
+    state.pageCount = state.leaves.length;
+  });
+  state.page = Math.min(pageNum + 1, state.pageCount);
+  rebuildPages();
+  if (!els.previewDrawer.hidden) {
+    renderPreviewList();
+  }
+}
+
 let captureWriting = false;
 
 async function confirmCapture() {
@@ -1392,11 +2135,36 @@ async function confirmCapture() {
   }
 }
 
-function redrawHistoryPage(pageNum) {
-  const num = Number(pageNum);
+function leavesNeedRebuild(before, after) {
+  if (!before || !after || before.length !== after.length) {
+    return true;
+  }
+  return before.some(
+    (leaf, index) =>
+      leaf.id !== after[index].id || leaf.kind !== after[index].kind || leaf.rotate !== after[index].rotate,
+  );
+}
+
+function applyHistoryLeaves(entry, side) {
+  const next = side === "undo" ? entry?.extra?.leavesBefore : entry?.extra?.leavesAfter;
+  if (!next) {
+    return false;
+  }
+  const prev = state.leaves;
+  state.leaves = cloneItems(next);
+  state.pageCount = state.leaves.length;
+  if (state.page > state.pageCount) {
+    state.page = state.pageCount;
+  }
+  return leavesNeedRebuild(prev, state.leaves);
+}
+
+function redrawHistoryPage(key) {
+  const num = pageOfInkKey(state.leaves, key);
   const view = state.pageViews.find((item) => item.pageNum === num);
   if (view) {
     drawStrokesOn(view);
+    syncSelectHud();
     return;
   }
   if (num !== state.page) {
@@ -1411,6 +2179,13 @@ function undoInk() {
   }
   persistStrokes();
   syncHistoryButtons();
+  if (applyHistoryLeaves(entry, "undo")) {
+    rebuildPages();
+    if (!els.previewDrawer.hidden) {
+      renderPreviewList();
+    }
+    return;
+  }
   redrawHistoryPage(entry.page);
 }
 
@@ -1421,6 +2196,13 @@ function redoInk() {
   }
   persistStrokes();
   syncHistoryButtons();
+  if (applyHistoryLeaves(entry, "redo")) {
+    rebuildPages();
+    if (!els.previewDrawer.hidden) {
+      renderPreviewList();
+    }
+    return;
+  }
   redrawHistoryPage(entry.page);
 }
 
@@ -1482,6 +2264,24 @@ function selectMoreAction(action) {
     closeMorePanel();
     ignoreAfterPanel = true;
     toggleFullscreen();
+    return;
+  }
+  if (action === "select") {
+    closeMorePanel();
+    ignoreAfterPanel = true;
+    selectSelectTool();
+    return;
+  }
+  if (action === "image") {
+    closeMorePanel();
+    ignoreAfterPanel = true;
+    els.imageInput.click();
+    return;
+  }
+  if (action === "preview") {
+    closeMorePanel();
+    ignoreAfterPanel = true;
+    openPreview();
     return;
   }
   if (action !== "mosaic" && action !== "capture") {
@@ -1608,13 +2408,13 @@ function onWorkspacePointerDown(event) {
     return;
   }
   if (overlayOpen()) {
-    if (!event.target.closest(".slot-panel, .sheet-card, .toolbar, .write-top, .m4-bar, .more-panel")) {
+    if (!event.target.closest(".slot-panel, .sheet-card, .toolbar, .write-top, .m4-bar, .more-panel, .preview-drawer, .select-hud, .float-bar, #float-bar")) {
       closeAllPanels();
       ignoreAfterPanel = true;
     }
     return;
   }
-  if (event.target.closest(".toolbar, .write-top, .sheet, .slot-panel, .m4-bar, .more-panel, .marquee")) {
+  if (event.target.closest(".toolbar, .write-top, .sheet, .slot-panel, .m4-bar, .more-panel, .marquee, .preview-drawer, .select-hud, .float-bar, #float-bar")) {
     return;
   }
 
@@ -1644,6 +2444,12 @@ function onWorkspacePointerDown(event) {
     }
     return;
   }
+  if (state.tool === "select") {
+    if (allowsSelectPointer(event)) {
+      startSelect(event, stage);
+    }
+    return;
+  }
   if (skipClickThrough) {
     return;
   }
@@ -1667,6 +2473,10 @@ function onWorkspacePointerMove(event) {
   if (gesture?.type === "pan") {
     event.preventDefault();
     movePan(event);
+    return;
+  }
+  if (state.selectDrag) {
+    moveSelect(event);
     return;
   }
   if (state.currentRect) {
@@ -1694,6 +2504,14 @@ function onWorkspacePointerUp(event) {
       } catch {
         // already released
       }
+    }
+    return;
+  }
+  if (state.selectDrag) {
+    endSelect(event);
+    if (pointers.size === 0) {
+      ignoreAfterPinch = false;
+      ignoreAfterPanel = false;
     }
     return;
   }
@@ -1992,6 +2810,59 @@ document.querySelectorAll("#more-panel [data-more]").forEach((btn) => {
     selectMoreAction(btn.dataset.more);
   });
 });
+document.querySelectorAll("#more-panel [data-rotate]").forEach((btn) => {
+  btn.addEventListener("pointerdown", (event) => {
+    event.stopPropagation();
+    armStayOnWrite();
+  });
+  btn.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    armStayOnWrite();
+    rotateCurrentPage(Number(btn.dataset.rotate));
+  });
+});
+els.imageInput.addEventListener("change", () => {
+  const file = els.imageInput.files?.[0];
+  els.imageInput.value = "";
+  if (file) {
+    addImageFile(file);
+  }
+});
+els.previewClose.addEventListener("click", closePreview);
+els.previewBackdrop.addEventListener("click", closePreview);
+document.querySelectorAll("#preview-filters [data-preview-filter]").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    state.previewFilter = btn.dataset.previewFilter;
+    renderPreviewList();
+  });
+});
+els.outlineInsert.addEventListener("click", insertOutlinePage);
+els.copyBtn.addEventListener("click", (event) => {
+  event.preventDefault();
+  event.stopPropagation();
+  copySelection();
+});
+els.pasteBtn.addEventListener("click", (event) => {
+  event.preventDefault();
+  event.stopPropagation();
+  pasteClipboard();
+});
+els.cropBtn.addEventListener("click", (event) => {
+  event.preventDefault();
+  event.stopPropagation();
+  beginCrop();
+});
+els.lockBtn.addEventListener("click", (event) => {
+  event.preventDefault();
+  event.stopPropagation();
+  toggleSelectedLock();
+});
+els.cropConfirm.addEventListener("click", (event) => {
+  event.preventDefault();
+  event.stopPropagation();
+  confirmCrop();
+});
 els.captureConfirm.addEventListener("click", (event) => {
   event.preventDefault();
   event.stopPropagation();
@@ -2020,7 +2891,7 @@ els.otherPdf.addEventListener("click", (event) => {
   if (performance.now() < stayOnWriteUntil) {
     return;
   }
-  if (!els.morePanel.hidden) {
+  if (!els.morePanel.hidden || !els.previewDrawer.hidden) {
     return;
   }
   if (event.target !== els.otherPdf) {
@@ -2078,7 +2949,7 @@ els.workspace.addEventListener("scroll", () => {
 els.writeScreen.addEventListener(
   "touchmove",
   (event) => {
-    if (event.target.closest(".sheet-card, .slot-panel, .toolbar, .write-top, .m4-bar, .more-panel, .marquee")) {
+    if (event.target.closest(".sheet-card, .slot-panel, .toolbar, .write-top, .m4-bar, .more-panel, .marquee, .preview-drawer, .select-hud, .float-bar, #float-bar")) {
       return;
     }
     event.preventDefault();
@@ -2087,7 +2958,7 @@ els.writeScreen.addEventListener(
 );
 
 document.addEventListener("pointerdown", (event) => {
-  if (event.target.closest(".slot-panel, [data-slot], #eraser-btn, #more-btn, .m4-bar, .marquee")) {
+  if (event.target.closest(".slot-panel, [data-slot], #eraser-btn, #more-btn, .m4-bar, .marquee, .select-hud, .float-bar, #float-bar, .preview-drawer")) {
     return;
   }
   closeAllPanels();
@@ -2109,6 +2980,13 @@ document.addEventListener("keydown", (event) => {
   if (key === "y") {
     event.preventDefault();
     redoInk();
+  }
+  if (els.writeScreen.hidden || state.interactMode === "view") {
+    return;
+  }
+  if (key === "c") {
+    event.preventDefault();
+    copySelection();
   }
 });
 
@@ -2140,6 +3018,9 @@ window.addEventListener("resize", () => {
     }
     if (state.pendingCapture || state.currentRect) {
       updateMarquee(Boolean(state.pendingCapture));
+    }
+    if (state.tool === "select") {
+      syncSelectHud();
     }
     if (state.pdf && !state.drawing) {
       rebuildPages();

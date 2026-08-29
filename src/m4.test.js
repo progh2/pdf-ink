@@ -41,12 +41,21 @@ describe("M4 #31 chrome", () => {
     const railCss = css.slice(css.indexOf(".toolbar-rail {"), css.indexOf(".write-screen[data-toolbar=\"left\"] .toolbar-rail"));
     assert.doesNotMatch(railCss, /space-between/);
     assert.match(html, /aria-label="되돌리기"/);
-    assert.doesNotMatch(html, /id="redo-btn"|data-more="select"/);
-    assert.doesNotMatch(header, /undo-btn|more-btn/);
+    assert.doesNotMatch(html, /id="redo-btn"/);
+    assert.doesNotMatch(header, /undo-btn|more-btn|select-btn/);
     assert.match(header, /id="interact-btn"/);
-    assert.deepEqual(M4_OVERFLOW_ITEMS, ["mosaic", "capture", "fullscreen"]);
-    assert.doesNotMatch(html, /data-more="select"|data-tool="select"/);
-    assert.doesNotMatch(html, /이미지|회전|미리보기|책갈피/);
+    assert.deepEqual(M4_OVERFLOW_ITEMS, ["mosaic", "capture", "fullscreen", "select", "image", "rotate", "preview"]);
+    assert.doesNotMatch(toolbar, /id="select-btn"|data-tool="select"/);
+    assert.match(toolbar, /id="undo-btn"/);
+    assert.doesNotMatch(toolbar, /책갈피|개요|미리보기|이미지|회전|선택/);
+    assert.match(html, /data-more="select">선택/);
+    assert.match(html, /data-more="image">이미지/);
+    assert.match(html, /data-rotate="-90">왼쪽/);
+    assert.match(html, /data-more="preview">미리보기/);
+    assert.doesNotMatch(html, /id="select-btn"|id="rotate-panel"|data-more="rotate"/);
+    assert.match(html, /id="preview-drawer"/);
+    assert.match(html, /data-preview-filter="bookmarks">책갈피/);
+    assert.doesNotMatch(html, /id="m4-bar"|id="m4-rail"|class="m4-rail"/);
     assert.match(css, /\.toolbar \{[\s\S]*height: 56px/);
     assert.match(css, /\.tool \{[\s\S]*width: var\(--touch\)/);
     assert.match(css, /--touch: 44px/);
@@ -62,7 +71,7 @@ describe("M4 #31 chrome", () => {
 
   it("does not start ink while mosaic/capture is armed, and keeps capture until confirm", () => {
     const startStroke = main.slice(main.indexOf("function startStroke"), main.indexOf("function moveStroke"));
-    const endRect = main.slice(main.indexOf("function endRect"), main.indexOf("let captureWriting"));
+    const endRect = main.slice(main.indexOf("function endRect"), main.indexOf("function startSelect"));
     assert.match(startStroke, /if \(state\.rectTool\)/);
     assert.match(main, /ignoreAfterPanel/);
     assert.doesNotMatch(endRect, /rectTool = null/);

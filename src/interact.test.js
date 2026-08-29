@@ -11,12 +11,14 @@ describe("보기 모드", () => {
     assert.equal(canCreateInk({ interactMode: "edit", penOnly: true, pointerType: "touch" }), false);
     assert.equal(canCreateInk({ interactMode: "edit", penOnly: false, pointerType: "pen", rectTool: "mosaic" }), false);
     assert.equal(canCreateInk({ interactMode: "edit", penOnly: false, pointerType: "mouse", rectTool: "capture" }), false);
+    assert.equal(canCreateInk({ interactMode: "edit", penOnly: false, pointerType: "mouse", tool: "select" }), false);
   });
 
   it("scrolls and pinches only while viewing", () => {
     assert.equal(shouldPanPointer({ interactMode: "view", pointerType: "pen" }), true);
     assert.equal(shouldPanPointer({ interactMode: "view", pointerType: "touch" }), true);
     assert.equal(shouldPanPointer({ interactMode: "edit", penOnly: false, pointerType: "mouse" }), false);
+    assert.equal(shouldPanPointer({ interactMode: "edit", penOnly: false, pointerType: "mouse", tool: "select" }), false);
   });
 });
 

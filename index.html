@@ -150,11 +150,51 @@
         <button type="button" data-more="mosaic">마스킹(모자이크)</button>
         <button type="button" data-more="capture">영역캡처</button>
         <button type="button" data-more="fullscreen" id="fullscreen-item">전체화면</button>
+        <button type="button" data-more="select">선택</button>
+        <button type="button" data-more="image">이미지</button>
+        <div class="more-rotate">
+          <button type="button" data-rotate="-90">왼쪽</button>
+          <button type="button" data-rotate="90">오른쪽</button>
+        </div>
+        <button type="button" data-more="preview">미리보기</button>
       </div>
+
+      <input id="image-input" type="file" accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp" hidden />
+
+      <aside class="preview-drawer" id="preview-drawer" hidden>
+        <div class="preview-head">
+          <h2>미리보기</h2>
+          <button type="button" class="preview-close" id="preview-close" aria-label="미리보기 닫기">닫기</button>
+        </div>
+        <div class="preview-filters" id="preview-filters">
+          <button type="button" data-preview-filter="all">전체</button>
+          <button type="button" data-preview-filter="bookmarks">책갈피</button>
+          <button type="button" data-preview-filter="outline">개요</button>
+        </div>
+        <div class="preview-list" id="preview-list"></div>
+        <button type="button" class="preview-insert" id="outline-insert">개요 페이지 넣기</button>
+      </aside>
+      <button type="button" class="preview-backdrop" id="preview-backdrop" hidden aria-label="미리보기 닫기"></button>
 
       <div class="marquee" id="marquee" hidden>
         <div class="marquee-box" id="marquee-box"></div>
         <button type="button" class="marquee-confirm" id="capture-confirm" hidden>복사</button>
+      </div>
+
+      <div class="select-layer" id="select-layer" hidden>
+        <div class="select-box" id="select-box">
+          <span class="select-handle" data-handle="nw"></span>
+          <span class="select-handle" data-handle="ne"></span>
+          <span class="select-handle" data-handle="se"></span>
+          <span class="select-handle" data-handle="sw"></span>
+        </div>
+      </div>
+      <div class="select-hud float-bar" id="float-bar" hidden>
+        <button type="button" id="copy-btn">복사</button>
+        <button type="button" id="paste-btn">붙여넣기</button>
+        <button type="button" id="crop-btn" hidden>크롭</button>
+        <button type="button" id="lock-btn" hidden>고정</button>
+        <button type="button" id="crop-confirm" hidden>적용</button>
       </div>
 
       <div class="slot-panel eraser-panel" id="eraser-panel" hidden>
