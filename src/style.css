@@ -199,6 +199,7 @@ body {
 }
 
 .write-body {
+  position: relative;
   flex: 1;
   min-height: 0;
   min-width: 0;
@@ -221,29 +222,8 @@ body {
 
 .write-screen[data-toolbar="left"] .write-body,
 .write-screen[data-toolbar="right"] .write-body {
-  display: grid;
-  grid-template-rows: minmax(0, 1fr);
+  flex-direction: column;
   align-items: stretch;
-}
-
-.write-screen[data-toolbar="left"] .write-body {
-  grid-template-columns: auto minmax(0, 1fr);
-  grid-template-areas: "rail paper";
-}
-
-.write-screen[data-toolbar="right"] .write-body {
-  grid-template-columns: minmax(0, 1fr) auto;
-  grid-template-areas: "paper rail";
-}
-
-.write-screen[data-toolbar="left"] .toolbar-rail,
-.write-screen[data-toolbar="right"] .toolbar-rail {
-  grid-area: rail;
-}
-
-.write-screen[data-toolbar="left"] .workspace,
-.write-screen[data-toolbar="right"] .workspace {
-  grid-area: paper;
 }
 
 .toolbar-rail {
@@ -257,7 +237,18 @@ body {
 
 .write-screen[data-toolbar="left"] .toolbar-rail,
 .write-screen[data-toolbar="right"] .toolbar-rail {
-  align-self: stretch;
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  pointer-events: none;
+}
+
+.write-screen[data-toolbar="left"] .toolbar-rail {
+  left: 0;
+}
+
+.write-screen[data-toolbar="right"] .toolbar-rail {
+  right: 0;
 }
 
 .toolbar {
@@ -278,6 +269,7 @@ body {
   width: 56px;
   height: auto;
   max-height: calc(100dvh - 80px);
+  pointer-events: auto;
 }
 
 .tool {
