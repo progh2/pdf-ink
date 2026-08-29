@@ -1,4 +1,5 @@
 const STROKE_PREFIX = "pdf-ink:strokes:";
+const PEN_ONLY_KEY = "pdf-ink:pen-only";
 const DB_NAME = "pdf-ink";
 const DB_VERSION = 2;
 const SESSION_STORE = "session";
@@ -21,6 +22,22 @@ export function loadStrokes(identity) {
     return { pages: data.pages };
   } catch {
     return { pages: {} };
+  }
+}
+
+export function loadPenOnly() {
+  try {
+    return localStorage.getItem(PEN_ONLY_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function savePenOnly(on) {
+  try {
+    localStorage.setItem(PEN_ONLY_KEY, on ? "1" : "0");
+  } catch {
+    // Preference is best-effort.
   }
 }
 

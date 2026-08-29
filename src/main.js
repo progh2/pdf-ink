@@ -6,9 +6,11 @@ import {
   listDocuments,
   loadDocument,
   loadLastSession,
+  loadPenOnly,
   loadStrokes,
   migrateLastIntoFiles,
   saveDocument,
+  savePenOnly,
   saveStrokes,
 } from "./storage.js";
 
@@ -25,6 +27,7 @@ const els = {
   dropzone: document.querySelector("#dropzone"),
   recents: document.querySelector("#recents"),
   otherPdf: document.querySelector("#other-pdf"),
+  penOnlyBtn: document.querySelector("#pen-only-btn"),
   docTitle: document.querySelector("#doc-title"),
   stage: document.querySelector("#page-stage"),
   pdfCanvas: document.querySelector("#pdf-canvas"),
@@ -47,6 +50,7 @@ const state = {
   tool: "pen",
   color: COLORS[0],
   width: WIDTHS[0],
+  penOnly: loadPenOnly(),
 };
 
 function showBanner(message) {
@@ -335,12 +339,32 @@ async function goToPage(nextPage) {
   await persistSession();
 }
 
+function allowsInkPointer(event) {
+  return !state.penOnly || event.pointerType === "pen";
+}
+
+function abortStroke() {
+  if (!state.drawing && !state.currentStroke) {
+    return;
+  }
+  state.currentStroke = null;
+  state.drawing = false;
+  drawStrokes();
+}
+
 function startStroke(event) {
   if (!state.pdf || (event.button !== undefined && event.button !== 0)) {
     return;
   }
+  if (!allowsInkPointer(event)) {
+    return;
+  }
   event.preventDefault();
-  els.inkCanvas.setPointerCapture(event.pointerId);
+  try {
+    els.inkCanvas.setPointerCapture(event.pointerId);
+  } catch {
+    // Capture is optional; some synthetic/test pointers reject it.
+  }
   state.drawing = true;
   state.currentStroke = newStroke(eventToNorm(event, els.inkCanvas));
   drawStrokes();
@@ -350,6 +374,9 @@ function moveStroke(event) {
   if (!state.drawing || !state.currentStroke) {
     return;
   }
+  if (!allowsInkPointer(event)) {
+    return;
+  }
   event.preventDefault();
   state.currentStroke.points.push(eventToNorm(event, els.inkCanvas));
   drawStrokes();
@@ -357,6 +384,9 @@ function moveStroke(event) {
 
 function endStroke(event) {
   if (!state.drawing || !state.currentStroke) {
+    return;
+  }
+  if (!allowsInkPointer(event)) {
     return;
   }
   event.preventDefault();
@@ -392,6 +422,19 @@ function syncToolSelection() {
   document.querySelectorAll("[data-width]").forEach((btn) => {
     btn.classList.toggle("is-selected", Number(btn.dataset.width) === state.width);
   });
+  syncPenOnly();
+}
+
+function syncPenOnly() {
+  els.penOnlyBtn.classList.toggle("is-on", state.penOnly);
+  els.penOnlyBtn.setAttribute("aria-pressed", state.penOnly ? "true" : "false");
+}
+
+function setPenOnly(on) {
+  state.penOnly = Boolean(on);
+  savePenOnly(state.penOnly);
+  syncPenOnly();
+  abortStroke();
 }
 
 document.querySelectorAll("[data-tool]").forEach((btn) => {
@@ -412,6 +455,9 @@ document.querySelectorAll("[data-width]").forEach((btn) => {
     state.width = Number(btn.dataset.width);
     syncToolSelection();
   });
+});
+els.penOnlyBtn.addEventListener("click", () => {
+  setPenOnly(!state.penOnly);
 });
 
 els.otherPdf.addEventListener("pointerdown", (event) => {
