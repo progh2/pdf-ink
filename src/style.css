@@ -199,6 +199,7 @@ body {
 }
 
 .write-body {
+  position: relative;
   flex: 1;
   min-height: 0;
   min-width: 0;
@@ -208,7 +209,7 @@ body {
 .write-screen[data-toolbar="top"] .write-body,
 .write-screen[data-toolbar="bottom"] .write-body {
   flex-direction: column;
-  align-items: center;
+  align-items: stretch;
 }
 
 .write-screen[data-toolbar="bottom"] .toolbar-rail {
@@ -221,12 +222,8 @@ body {
 
 .write-screen[data-toolbar="left"] .write-body,
 .write-screen[data-toolbar="right"] .write-body {
-  flex-direction: row;
-  align-items: center;
-}
-
-.write-screen[data-toolbar="right"] .toolbar-rail {
-  order: 2;
+  flex-direction: column;
+  align-items: stretch;
 }
 
 .toolbar-rail {
@@ -236,6 +233,22 @@ body {
   align-items: center;
   padding: 8px;
   z-index: 4;
+}
+
+.write-screen[data-toolbar="left"] .toolbar-rail,
+.write-screen[data-toolbar="right"] .toolbar-rail {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  pointer-events: none;
+}
+
+.write-screen[data-toolbar="left"] .toolbar-rail {
+  left: 0;
+}
+
+.write-screen[data-toolbar="right"] .toolbar-rail {
+  right: 0;
 }
 
 .toolbar {
@@ -256,6 +269,7 @@ body {
   width: 56px;
   height: auto;
   max-height: calc(100dvh - 80px);
+  pointer-events: auto;
 }
 
 .tool {
@@ -317,7 +331,7 @@ body {
 }
 
 .workspace {
-  flex: 1;
+  flex: 1 1 0;
   min-width: 0;
   min-height: 0;
   display: flex;
