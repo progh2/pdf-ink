@@ -111,7 +111,7 @@ describe("toolbar", () => {
     assert.deepEqual(SLOT_KINDS, ["pen", "highlighter", "pencil", "stamp"]);
     assert.doesNotMatch(toolbar, /id="undo-btn"|id="redo-btn"|id="more-btn"/);
     assert.match(m4, /id="undo-btn"/);
-    assert.doesNotMatch(m4, /id="redo-btn"/);
+    assert.match(m4, /id="redo-btn"/);
     assert.match(m4, /id="more-btn"/);
     assert.doesNotMatch(m4, /선택|select-btn|data-tool="select"/);
     assert.match(more, /마스킹\(모자이크\)/);

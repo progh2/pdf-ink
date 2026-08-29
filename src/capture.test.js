@@ -33,6 +33,38 @@ describe("영역캡처", () => {
     assert.equal(result.height, 7);
   });
 
+  it("bakes mosaic into the cropped PNG and keeps a paper background", () => {
+    const width = 16;
+    const height = 8;
+    const pdf = new Uint8ClampedArray(width * height * 4);
+    const ink = new Uint8ClampedArray(width * height * 4);
+    ink[0] = 10;
+    ink[1] = 200;
+    ink[2] = 30;
+    ink[3] = 255;
+    ink[4] = 240;
+    ink[5] = 20;
+    ink[6] = 20;
+    ink[7] = 255;
+    const result = captureRegionPng(
+      pdf,
+      ink,
+      width,
+      height,
+      [{ x: 0, y: 0, w: 8, h: 8, cell: 4 }],
+      { x: 0, y: 0, w: 8, h: 8 },
+    );
+    assert.equal(result.png[0], 0x89);
+    assert.equal(String.fromCharCode(result.png[1], result.png[2], result.png[3]), "PNG");
+    const first = result.pixels.slice(0, 4);
+    assert.equal(first[3], 255);
+    for (let i = 0; i < 4 * 4; i += 1) {
+      const px = (Math.floor(i / 4) * result.width + (i % 4)) * 4;
+      assert.deepEqual([...result.pixels.slice(px, px + 4)], [...first]);
+    }
+    assert.notDeepEqual([...first], [10, 200, 30, 255]);
+  });
+
   it("writes PNG only through the provided clipboard write", async () => {
     const written = [];
     await writePngClipboard(Uint8Array.of(137, 80, 78, 71), {

@@ -71,11 +71,15 @@ function zlibStore(data) {
 export function composePageRgba(pdf, ink, width, height, mosaicBoxesPx = []) {
   const out = new Uint8ClampedArray(width * height * 4);
   for (let i = 0; i < out.length; i += 4) {
+    const pdfA = (pdf[i + 3] || 0) / 255;
+    const paperR = (pdf[i] || 0) * pdfA + 255 * (1 - pdfA);
+    const paperG = (pdf[i + 1] || 0) * pdfA + 255 * (1 - pdfA);
+    const paperB = (pdf[i + 2] || 0) * pdfA + 255 * (1 - pdfA);
     const ia = (ink[i + 3] || 0) / 255;
     const pa = 1 - ia;
-    out[i] = Math.round((ink[i] || 0) * ia + (pdf[i] || 0) * pa);
-    out[i + 1] = Math.round((ink[i + 1] || 0) * ia + (pdf[i + 1] || 0) * pa);
-    out[i + 2] = Math.round((ink[i + 2] || 0) * ia + (pdf[i + 2] || 0) * pa);
+    out[i] = Math.round((ink[i] || 0) * ia + paperR * pa);
+    out[i + 1] = Math.round((ink[i + 1] || 0) * ia + paperG * pa);
+    out[i + 2] = Math.round((ink[i + 2] || 0) * ia + paperB * pa);
     out[i + 3] = 255;
   }
   for (const box of mosaicBoxesPx) {

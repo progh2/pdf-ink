@@ -81,6 +81,7 @@ const els = {
   zoomLockBtn: document.querySelector("#zoom-lock-btn"),
   interactBtn: document.querySelector("#interact-btn"),
   undoBtn: document.querySelector("#undo-btn"),
+  redoBtn: document.querySelector("#redo-btn"),
   moreBtn: document.querySelector("#more-btn"),
   morePanel: document.querySelector("#more-panel"),
   fullscreenItem: document.querySelector("#fullscreen-item"),
@@ -173,7 +174,8 @@ function persistStrokes() {
 }
 
 function syncHistoryButtons() {
-  els.undoBtn.disabled = !canUndo(state.history) && !canRedo(state.history);
+  els.undoBtn.disabled = !canUndo(state.history);
+  els.redoBtn.disabled = !canRedo(state.history);
 }
 
 function commitPageChange(pageNum, apply) {
@@ -750,6 +752,9 @@ function abortStroke() {
 }
 
 function startStroke(event, stage) {
+  if (state.interactMode === "view") {
+    return;
+  }
   if (!state.pdf || (event.button !== undefined && event.button !== 0)) {
     return;
   }
@@ -1256,6 +1261,9 @@ function updateMarquee(showConfirm) {
 }
 
 function startRect(event, stage) {
+  if (state.interactMode === "view") {
+    return;
+  }
   if (!state.pdf || (event.button !== undefined && event.button !== 0)) {
     return;
   }
@@ -1319,38 +1327,41 @@ function endRect(event) {
   }
 }
 
+let captureWriting = false;
+
 async function confirmCapture() {
   const pending = state.pendingCapture;
-  if (!pending) {
+  if (!pending || captureWriting) {
     return;
   }
-  const view = state.pageViews.find((item) => item.pageNum === pending.page);
-  if (!view?.pdfCanvas.width || !view.inkCanvas.width) {
-    showBanner("이 영역을 복사하지 못했습니다.");
-    return;
-  }
-  let pdf;
-  let ink;
+  captureWriting = true;
   try {
-    pdf = canvas2d(view.pdfCanvas).getImageData(0, 0, view.pdfCanvas.width, view.pdfCanvas.height);
-    ink = canvas2d(view.inkCanvas).getImageData(0, 0, view.inkCanvas.width, view.inkCanvas.height);
-  } catch {
-    showBanner("이 영역을 복사하지 못했습니다.");
-    return;
-  }
-  const boxes = mosaicBoxesPx(
-    pageStrokes(pending.page),
-    view.pdfCanvas.width,
-    view.pdfCanvas.height,
-    view.cssWidth || Number.parseFloat(view.inkCanvas.style.width) || 0,
-  );
-  const crop = {
-    x: pending.rect.x * view.pdfCanvas.width,
-    y: pending.rect.y * view.pdfCanvas.height,
-    w: pending.rect.w * view.pdfCanvas.width,
-    h: pending.rect.h * view.pdfCanvas.height,
-  };
-  try {
+    const view = state.pageViews.find((item) => item.pageNum === pending.page);
+    if (!view?.pdfCanvas.width || !view.inkCanvas.width) {
+      showBanner("이 영역을 복사하지 못했습니다.");
+      return;
+    }
+    let pdf;
+    let ink;
+    try {
+      pdf = canvas2d(view.pdfCanvas).getImageData(0, 0, view.pdfCanvas.width, view.pdfCanvas.height);
+      ink = canvas2d(view.inkCanvas).getImageData(0, 0, view.inkCanvas.width, view.inkCanvas.height);
+    } catch {
+      showBanner("이 영역을 복사하지 못했습니다.");
+      return;
+    }
+    const boxes = mosaicBoxesPx(
+      pageStrokes(pending.page),
+      view.pdfCanvas.width,
+      view.pdfCanvas.height,
+      view.cssWidth || Number.parseFloat(view.inkCanvas.style.width) || 0,
+    );
+    const crop = {
+      x: pending.rect.x * view.pdfCanvas.width,
+      y: pending.rect.y * view.pdfCanvas.height,
+      w: pending.rect.w * view.pdfCanvas.width,
+      h: pending.rect.h * view.pdfCanvas.height,
+    };
     const result = captureRegionPng(pdf.data, ink.data, view.pdfCanvas.width, view.pdfCanvas.height, boxes, crop);
     await writePngClipboard(result.png, navigator.clipboard, window.ClipboardItem);
     hideMarquee();
@@ -1364,6 +1375,8 @@ async function confirmCapture() {
     }, 1800);
   } catch {
     showBanner("클립보드에 복사하지 못했습니다.");
+  } finally {
+    captureWriting = false;
   }
 }
 
@@ -1920,10 +1933,8 @@ els.zoomLockBtn.addEventListener("click", () => {
 els.interactBtn.addEventListener("click", () => {
   setInteractMode(state.interactMode === "view" ? "edit" : "view");
 });
-bindHold(els.undoBtn, {
-  onShort: undoInk,
-  onLong: redoInk,
-});
+els.undoBtn.addEventListener("click", () => undoInk());
+els.redoBtn.addEventListener("click", () => redoInk());
 els.moreBtn.addEventListener("click", () => toggleMorePanel());
 document.querySelectorAll("#more-panel [data-more]").forEach((btn) => {
   btn.addEventListener("click", () => selectMoreAction(btn.dataset.more));

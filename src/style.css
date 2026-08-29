@@ -296,7 +296,9 @@ body {
   height: auto;
 }
 
-.write-screen.is-fullscreen .write-top {
+.write-screen.is-fullscreen .write-top,
+.write-screen.is-fullscreen .toolbar-rail,
+.write-screen.is-fullscreen .m4-rail {
   display: none;
 }
 

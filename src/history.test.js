@@ -51,6 +51,27 @@ describe("undo/redo", () => {
     assert.equal(canRedo(history), false);
   });
 
+  it("undo removes only the last stroke, redo brings it back", () => {
+    const pages = { 1: [] };
+    const history = createHistory();
+    const first = { type: "pen", points: [{ x: 0.2, y: 0.2 }], width: 2 };
+    const second = { type: "pen", points: [{ x: 0.8, y: 0.8 }], width: 2 };
+
+    let before = cloneItems(pages[1]);
+    pages[1].push(first);
+    recordChange(history, { page: 1, before, after: pages[1] });
+    before = cloneItems(pages[1]);
+    pages[1].push(second);
+    recordChange(history, { page: 1, before, after: pages[1] });
+
+    undoChange(history, pages);
+    assert.equal(pages[1].length, 1);
+    assert.deepEqual(pages[1][0], first);
+    redoChange(history, pages);
+    assert.equal(pages[1].length, 2);
+    assert.deepEqual(pages[1][1], second);
+  });
+
   it("keeps the stack in memory only", () => {
     assert.doesNotMatch(src, /localStorage|indexedDB|fetch\(/);
   });
