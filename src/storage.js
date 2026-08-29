@@ -1,9 +1,10 @@
 const STROKE_PREFIX = "pdf-ink:strokes:";
 const PEN_ONLY_KEY = "pdf-ink:pen-only";
 const DB_NAME = "pdf-ink";
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const SESSION_STORE = "session";
 const FILES_STORE = "files";
+const IMAGES_STORE = "images";
 
 export function fileIdentity(file) {
   return `${file.name}::${file.size}::${file.lastModified}`;
@@ -19,7 +20,12 @@ export function loadStrokes(identity) {
     if (!data || typeof data !== "object" || !data.pages || typeof data.pages !== "object") {
       return { pages: {} };
     }
-    return { pages: data.pages };
+    return {
+      pages: data.pages,
+      rotations: data.rotations && typeof data.rotations === "object" ? data.rotations : {},
+      sheets: Array.isArray(data.sheets) ? data.sheets : null,
+      bookmarks: Array.isArray(data.bookmarks) ? data.bookmarks : [],
+    };
   } catch {
     return { pages: {} };
   }
@@ -41,11 +47,14 @@ export function savePenOnly(on) {
   }
 }
 
-export function saveStrokes(identity, pages) {
+export function saveStrokes(identity, pages, meta = {}) {
   const payload = JSON.stringify({
-    version: 1,
+    version: 2,
     identity,
     pages,
+    rotations: meta.rotations || {},
+    sheets: meta.sheets || null,
+    bookmarks: meta.bookmarks || [],
     savedAt: Date.now(),
   });
   localStorage.setItem(STROKE_PREFIX + identity, payload);
@@ -63,6 +72,9 @@ function openDb() {
       if (!db.objectStoreNames.contains(FILES_STORE)) {
         db.createObjectStore(FILES_STORE, { keyPath: "identity" });
       }
+      if (!db.objectStoreNames.contains(IMAGES_STORE)) {
+        db.createObjectStore(IMAGES_STORE, { keyPath: "key" });
+      }
     };
     request.onsuccess = () => resolve(request.result);
   });
@@ -75,6 +87,9 @@ function toEntry(record) {
     buffer: record.buffer,
     page: record.page || 1,
     openedAt: record.openedAt || Date.now(),
+    rotations: record.rotations && typeof record.rotations === "object" ? record.rotations : {},
+    sheets: Array.isArray(record.sheets) ? record.sheets : null,
+    bookmarks: Array.isArray(record.bookmarks) ? record.bookmarks : [],
   };
 }
 
@@ -143,4 +158,34 @@ export async function migrateLastIntoFiles() {
     return;
   }
   await saveDocument(last);
+}
+
+export async function saveImageRecord(identity, id, blob, mime) {
+  const db = await openDb();
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction(IMAGES_STORE, "readwrite");
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.objectStore(IMAGES_STORE).put({
+      key: `${identity}::${id}`,
+      identity,
+      id,
+      blob,
+      mime,
+      size: blob.size,
+    });
+  });
+  db.close();
+}
+
+export async function loadImageRecord(identity, id) {
+  const db = await openDb();
+  const row = await new Promise((resolve, reject) => {
+    const tx = db.transaction(IMAGES_STORE, "readonly");
+    const request = tx.objectStore(IMAGES_STORE).get(`${identity}::${id}`);
+    request.onsuccess = () => resolve(request.result || null);
+    request.onerror = () => reject(request.error);
+  });
+  db.close();
+  return row;
 }

@@ -16,6 +16,12 @@
   <body>
     <div id="app">
       <input id="file-input" type="file" accept="application/pdf,.pdf" hidden />
+      <input
+        id="image-input"
+        type="file"
+        accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp"
+        hidden
+      />
       <p class="banner" id="banner" hidden></p>
 
       <section class="upload-screen" id="upload-screen">
@@ -59,6 +65,15 @@
         </div>
 
         <div class="write-body">
+          <aside class="preview-drawer" id="preview-drawer" hidden>
+            <div class="preview-actions">
+              <button type="button" id="bookmark-btn">책갈피</button>
+              <button type="button" id="bookmark-filter-btn">책갈피만 보기</button>
+              <button type="button" id="outline-insert-btn">개요 넣기</button>
+              <button type="button" id="outline-filter-btn">개요만 보기</button>
+            </div>
+            <div class="preview-thumbs" id="preview-thumbs"></div>
+          </aside>
           <div class="toolbar-rail">
             <div class="toolbar" id="toolbar">
               <div class="toolbar-cluster">
@@ -150,11 +165,34 @@
         <button type="button" data-more="mosaic">마스킹(모자이크)</button>
         <button type="button" data-more="capture">영역캡처</button>
         <button type="button" data-more="fullscreen" id="fullscreen-item">전체화면</button>
+        <button type="button" data-more="select">선택</button>
+        <button type="button" data-more="image">이미지</button>
+        <div class="more-rotate" data-more-row="rotate" aria-label="회전">
+          <span class="more-rotate-title">회전</span>
+          <button type="button" data-rotate="left">왼쪽</button>
+          <button type="button" data-rotate="right">오른쪽</button>
+        </div>
+        <button type="button" data-more="preview">미리보기</button>
       </div>
 
       <div class="marquee" id="marquee" hidden>
         <div class="marquee-box" id="marquee-box"></div>
         <button type="button" class="marquee-confirm" id="capture-confirm" hidden>복사</button>
+      </div>
+
+      <div class="select-layer" id="select-layer" hidden>
+        <div class="select-box" id="select-box"></div>
+        <button type="button" class="select-handle" data-handle="nw" aria-label="크기"></button>
+        <button type="button" class="select-handle" data-handle="ne" aria-label="크기"></button>
+        <button type="button" class="select-handle" data-handle="sw" aria-label="크기"></button>
+        <button type="button" class="select-handle" data-handle="se" aria-label="크기"></button>
+      </div>
+
+      <div class="float-bar" id="float-bar" hidden>
+        <button type="button" id="copy-btn">복사</button>
+        <button type="button" id="paste-btn">붙여넣기</button>
+        <button type="button" id="crop-btn">자르기</button>
+        <button type="button" id="lock-btn">고정</button>
       </div>
 
       <div class="slot-panel eraser-panel" id="eraser-panel" hidden>

@@ -607,6 +607,142 @@ body {
   background: var(--selected);
 }
 
+.more-rotate {
+  display: grid;
+  grid-template-columns: 36px 1fr 1fr;
+  height: 44px;
+  gap: 4px;
+  align-items: center;
+}
+
+.more-rotate-title {
+  font-size: 13px;
+  color: var(--title);
+}
+
+.more-rotate button {
+  height: 44px;
+}
+
+.preview-drawer {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 120px;
+  z-index: 5;
+  padding: 8px 16px;
+  overflow: auto;
+  background: #fff;
+  border-right: 1px solid #e6e1d6;
+}
+
+.preview-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.preview-actions button {
+  min-height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper);
+  color: var(--title);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.preview-actions button.is-selected {
+  background: var(--selected);
+}
+
+.preview-thumbs {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.preview-thumb {
+  width: 88px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper);
+  cursor: pointer;
+}
+
+.preview-thumb.is-current {
+  box-shadow: 0 0 0 2px #c4a574;
+}
+
+.preview-thumb.is-bookmark {
+  outline: 1px solid #c4a574;
+}
+
+.preview-thumb canvas {
+  display: block;
+  width: 88px;
+  height: auto;
+}
+
+.float-bar {
+  position: fixed;
+  z-index: 8;
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid #e6e1d6;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 10px 24px rgba(40, 32, 22, 0.12);
+}
+
+.float-bar button {
+  height: 44px;
+  min-width: 44px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--title);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.float-bar button.is-selected {
+  background: var(--selected);
+}
+
+.select-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 7;
+  pointer-events: none;
+}
+
+.select-box {
+  position: absolute;
+  border: 1.5px dashed #5c574e;
+  box-sizing: border-box;
+}
+
+.select-handle {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  padding: 0;
+  border: 1px solid #5c574e;
+  border-radius: 1px;
+  background: #fff;
+  pointer-events: auto;
+  cursor: nwse-resize;
+}
+
 .marquee {
   position: fixed;
   inset: 0;

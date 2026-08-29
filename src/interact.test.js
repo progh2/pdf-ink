@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { canCreateInk, rectFromPoints, shouldPanPointer } from "./interact.js";
+import { canCreateInk, canSelectPointer, rectFromPoints, shouldPanPointer } from "./interact.js";
 
 describe("보기 모드", () => {
   it("does not create strokes in view mode", () => {
@@ -17,6 +17,17 @@ describe("보기 모드", () => {
     assert.equal(shouldPanPointer({ interactMode: "view", pointerType: "pen" }), true);
     assert.equal(shouldPanPointer({ interactMode: "view", pointerType: "touch" }), true);
     assert.equal(shouldPanPointer({ interactMode: "edit", penOnly: false, pointerType: "mouse" }), false);
+    assert.equal(shouldPanPointer({ interactMode: "edit", penOnly: true, pointerType: "touch", rectTool: "select" }), true);
+    assert.equal(shouldPanPointer({ interactMode: "edit", penOnly: false, pointerType: "mouse", rectTool: "mosaic" }), false);
+  });
+});
+
+describe("선택 포인터", () => {
+  it("does not select in view mode, and pen-only keeps finger on pan", () => {
+    assert.equal(canSelectPointer({ interactMode: "view", pointerType: "pen" }), false);
+    assert.equal(canSelectPointer({ interactMode: "edit", penOnly: true, pointerType: "touch" }), false);
+    assert.equal(canSelectPointer({ interactMode: "edit", penOnly: true, pointerType: "pen" }), true);
+    assert.equal(canSelectPointer({ interactMode: "edit", penOnly: false, pointerType: "mouse" }), true);
   });
 });
 

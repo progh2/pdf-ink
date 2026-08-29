@@ -162,6 +162,16 @@ function stampHitsEraser(item, eraserPts, eraserHalf, cssWidth, cssHeight) {
 export function itemHitsEraser(item, eraser, cssWidth, cssHeight) {
   const eraserPts = toCssPoints(eraser.points, cssWidth, cssHeight);
   const eraserHalf = (eraser.width || 2) / 2;
+  if (item.type === "image") {
+    if (item.fixed) {
+      return false;
+    }
+    const left = item.x * cssWidth - eraserHalf;
+    const top = item.y * cssHeight - eraserHalf;
+    const right = (item.x + item.w) * cssWidth + eraserHalf;
+    const bottom = (item.y + item.h) * cssHeight + eraserHalf;
+    return eraserPts.some((point) => point.x >= left && point.x <= right && point.y >= top && point.y <= bottom);
+  }
   if (item.type === "mosaic") {
     const left = item.x * cssWidth - eraserHalf;
     const top = item.y * cssHeight - eraserHalf;
@@ -183,7 +193,10 @@ export function removeHitItems(items, eraser, cssWidth, cssHeight) {
 
 export function removeHitStamps(items, eraser, cssWidth, cssHeight) {
   return items.filter((item) => {
-    if (item.type !== "stamp" && item.type !== "mosaic") {
+    if (item.type !== "stamp" && item.type !== "mosaic" && item.type !== "image") {
+      return true;
+    }
+    if (item.type === "image" && item.fixed) {
       return true;
     }
     return !itemHitsEraser(item, eraser, cssWidth, cssHeight);
@@ -361,8 +374,40 @@ export function paintErase(ctx, stroke, scale, canvas) {
   ctx.restore();
 }
 
-export function paintItem(ctx, item, scale, canvas) {
+export function paintImage(ctx, item, canvas, bitmap) {
+  if (!bitmap) {
+    return;
+  }
+  const x = item.x * canvas.width;
+  const y = item.y * canvas.height;
+  const w = item.w * canvas.width;
+  const h = item.h * canvas.height;
+  const turn = ((Number(item.turn) || 0) % 360 + 360) % 360;
+  ctx.save();
+  ctx.translate(x + w / 2, y + h / 2);
+  if (turn) {
+    ctx.rotate((turn * Math.PI) / 180);
+  }
+  const dw = turn % 180 === 0 ? w : h;
+  const dh = turn % 180 === 0 ? h : w;
+  if (item.crop) {
+    const sx = item.crop.x * bitmap.width;
+    const sy = item.crop.y * bitmap.height;
+    const sw = Math.max(1, item.crop.w * bitmap.width);
+    const sh = Math.max(1, item.crop.h * bitmap.height);
+    ctx.drawImage(bitmap, sx, sy, sw, sh, -dw / 2, -dh / 2, dw, dh);
+  } else {
+    ctx.drawImage(bitmap, -dw / 2, -dh / 2, dw, dh);
+  }
+  ctx.restore();
+}
+
+export function paintItem(ctx, item, scale, canvas, images) {
   if (item.type === "mosaic") {
+    return;
+  }
+  if (item.type === "image") {
+    paintImage(ctx, item, canvas, images?.get?.(item.id));
     return;
   }
   if (item.type === "stamp") {

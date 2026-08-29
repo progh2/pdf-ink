@@ -117,7 +117,11 @@ describe("toolbar", () => {
     assert.match(more, /마스킹\(모자이크\)/);
     assert.match(more, /영역캡처/);
     assert.match(more, /전체화면/);
-    assert.doesNotMatch(more, /선택|이미지|회전|미리보기|책갈피/);
+    assert.match(more, /선택/);
+    assert.match(more, /이미지/);
+    assert.match(more, /회전/);
+    assert.match(more, /미리보기/);
+    assert.doesNotMatch(toolbar, /선택|이미지|회전|미리보기|책갈피/);
     assert.match(html, /id="interact-btn"/);
     assert.doesNotMatch(html, />저장</);
   });

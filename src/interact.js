@@ -19,10 +19,20 @@ export function shouldPanPointer({ interactMode, penOnly, pointerType, rectTool 
   if (normalizeInteractMode(interactMode) === "view") {
     return true;
   }
-  if (rectTool) {
+  if (rectTool === "mosaic" || rectTool === "capture") {
     return false;
   }
   return Boolean(penOnly && pointerType !== "pen");
+}
+
+export function canSelectPointer({ interactMode, penOnly, pointerType } = {}) {
+  if (normalizeInteractMode(interactMode) === "view") {
+    return false;
+  }
+  if (penOnly && pointerType !== "pen") {
+    return false;
+  }
+  return true;
 }
 
 export function clamp01(value) {
@@ -52,9 +62,13 @@ export function rectBigEnough(rect, minNorm = 0.012) {
   return Boolean(rect && rect.w >= minNorm && rect.h >= minNorm);
 }
 
-export const M4_OVERFLOW_ITEMS = ["mosaic", "capture", "fullscreen"];
+export const M4_OVERFLOW_ITEMS = ["mosaic", "capture", "fullscreen", "select", "image", "rotate", "preview"];
 export const M4_OVERFLOW_LABELS = {
   mosaic: "마스킹(모자이크)",
   capture: "영역캡처",
   fullscreen: "전체화면",
+  select: "선택",
+  image: "이미지",
+  rotate: "회전",
+  preview: "미리보기",
 };
