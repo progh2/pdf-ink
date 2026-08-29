@@ -6,11 +6,12 @@ export function cloneItems(items) {
   return JSON.parse(JSON.stringify(items || []));
 }
 
-export function recordChange(history, { page, before, after }) {
+export function recordChange(history, { page, before, after, extra = null }) {
   history.undo.push({
     page: String(page),
     before: cloneItems(before),
     after: cloneItems(after),
+    extra: extra == null ? null : cloneItems(extra),
   });
   if (history.undo.length > history.limit) {
     history.undo.shift();

@@ -29,7 +29,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const html = readFileSync(join(root, "index.html"), "utf8");
 const main = readFileSync(join(root, "src/main.js"), "utf8");
 const toolbar = html.slice(html.indexOf('id="toolbar"'), html.indexOf('id="workspace"'));
-const more = html.slice(html.indexOf('id="more-panel"'), html.indexOf('id="marquee"'));
+const more = html.slice(html.indexOf('id="more-panel"'), html.indexOf('id="rotate-panel"'));
 
 describe("pen palette", () => {
   it("uses the locked hex values", () => {
@@ -113,11 +113,16 @@ describe("toolbar", () => {
     assert.match(toolbar, /id="more-btn"/);
     assert.doesNotMatch(toolbar, /id="redo-btn"/);
     assert.doesNotMatch(html, /id="m4-bar"|id="m4-rail"/);
-    assert.doesNotMatch(toolbar, /선택|select-btn|data-tool="select"/);
+    assert.match(toolbar, /id="select-btn"/);
+    assert.match(toolbar, /data-tool="select"/);
     assert.match(more, /마스킹\(모자이크\)/);
     assert.match(more, /영역캡처/);
     assert.match(more, /전체화면/);
-    assert.doesNotMatch(more, /선택|이미지|회전|미리보기|책갈피/);
+    assert.match(more, /이미지/);
+    assert.match(more, /회전/);
+    assert.match(more, /미리보기/);
+    assert.doesNotMatch(more, /책갈피/);
+    assert.doesNotMatch(toolbar, /책갈피|개요 페이지/);
     assert.match(html, /id="interact-btn"/);
     assert.doesNotMatch(html, />저장</);
   });
