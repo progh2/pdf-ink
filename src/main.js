@@ -17,14 +17,12 @@ import {
   loadEraser,
   loadSlotIndex,
   loadSlots,
-  loadStamp,
   loadToolbarPosition,
   loadViewMode,
   loadZoomLock,
   saveEraser,
   saveSlotIndex,
   saveSlots,
-  saveStamp,
   saveToolbarPosition,
   saveViewMode,
   saveZoomLock,
@@ -36,7 +34,7 @@ import {
   pointerMidpoint,
   scaleFromPinch,
 } from "./viewport.js";
-import { isStrokeErase, paintItem, removeHitItems, stampTilt } from "./ink.js";
+import { isPixelErase, isStrokeErase, paintItem, removeHitItems, removeHitStamps, stampInkItem, stampTilt } from "./ink.js";
 import {
   HIGHLIGHTER_OPACITY_DEFAULT,
   HIGHLIGHTER_PALETTE,
@@ -84,8 +82,8 @@ const els = {
   slotOpacityRow: document.querySelector("#slot-opacity-row"),
   slotWidth: document.querySelector("#slot-width"),
   slotWidthRow: document.querySelector("#slot-width-row"),
-  stampBtn: document.querySelector("#stamp-btn"),
-  stampPanel: document.querySelector("#stamp-panel"),
+  slotStamp: document.querySelector("#slot-stamp"),
+  stampPreviewLabel: document.querySelector("#stamp-preview-label"),
   stampPhrases: document.querySelector("#stamp-phrases"),
   eraserBtn: document.querySelector("#eraser-btn"),
   eraserPanel: document.querySelector("#eraser-panel"),
@@ -114,7 +112,6 @@ const state = {
   zoomLock: loadZoomLock(),
   eraseMode: loadEraser().mode,
   eraserWidth: loadEraser().width,
-  stamp: loadStamp(),
   pendingStamp: null,
   userScale: 1,
   panX: 0,
@@ -132,6 +129,10 @@ let renderGen = 0;
 
 function activeSlot() {
   return state.slots[state.slotIndex] || state.slots[0];
+}
+
+function usesStamp() {
+  return state.tool !== "eraser" && activeSlot().type === "stamp";
 }
 
 function showBanner(message) {
@@ -542,14 +543,7 @@ function newStroke(point) {
 }
 
 function placeStamp(view, point) {
-  const item = {
-    type: "stamp",
-    stamp: normalizeStamp(state.stamp),
-    x: point.x,
-    y: point.y,
-    tilt: stampTilt(point.x, point.y),
-    color: STAMP_COLOR,
-  };
+  const item = stampInkItem(activeSlot().stamp, point.x, point.y, stampTilt(point.x, point.y));
   pageStrokes(view.pageNum).push(item);
   drawStrokesOn(view);
   persistStrokes();
@@ -634,7 +628,7 @@ function shouldPan(event) {
 }
 
 function overlayOpen() {
-  return !els.settingsSheet.hidden || !els.slotPanel.hidden || !els.stampPanel.hidden || !els.eraserPanel.hidden;
+  return !els.settingsSheet.hidden || !els.slotPanel.hidden || !els.eraserPanel.hidden;
 }
 
 function abortStroke() {
@@ -671,7 +665,7 @@ function startStroke(event, stage) {
   const point = eventToNorm(event, ink);
   state.drawPage = Number(stage.dataset.page) || state.page;
   state.drawCanvas = ink;
-  if (state.tool === "stamp") {
+  if (usesStamp()) {
     state.pendingStamp = {
       view,
       point,
@@ -733,10 +727,17 @@ function endStroke(event) {
   }
   const live = state.currentStroke;
   const view = state.pageViews.find((item) => item.pageNum === state.drawPage);
-  if (isStrokeErase(live) && view) {
+  if (view) {
     const cssWidth = view.cssWidth || Number.parseFloat(view.inkCanvas.style.width) || 0;
     const cssHeight = view.cssHeight || Number.parseFloat(view.inkCanvas.style.height) || 0;
-    state.pages[String(state.drawPage)] = removeHitItems(pageStrokes(state.drawPage), live, cssWidth, cssHeight);
+    if (isStrokeErase(live)) {
+      state.pages[String(state.drawPage)] = removeHitItems(pageStrokes(state.drawPage), live, cssWidth, cssHeight);
+    } else {
+      if (isPixelErase(live)) {
+        state.pages[String(state.drawPage)] = removeHitStamps(pageStrokes(state.drawPage), live, cssWidth, cssHeight);
+      }
+      pageStrokes(state.drawPage).push(live);
+    }
   } else {
     pageStrokes(state.drawPage).push(live);
   }
@@ -762,16 +763,14 @@ function syncSlots() {
   document.querySelectorAll("[data-slot]").forEach((btn) => {
     const index = Number(btn.dataset.slot);
     const slot = state.slots[index];
-    btn.classList.toggle("is-selected", state.tool !== "eraser" && state.tool !== "stamp" && index === state.slotIndex);
+    btn.classList.toggle("is-selected", state.tool !== "eraser" && index === state.slotIndex);
     btn.dataset.kind = slot.type;
-    btn.style.setProperty("--slot-color", slot.type === "pencil" ? PENCIL_COLOR : slot.color);
+    const mini =
+      slot.type === "pencil" ? PENCIL_COLOR : slot.type === "stamp" ? STAMP_COLOR : slot.color;
+    btn.style.setProperty("--slot-color", mini);
     btn.style.setProperty("--slot-width", String(slot.width));
     btn.setAttribute("aria-label", slotAriaLabel(slot));
   });
-  if (els.stampBtn) {
-    els.stampBtn.classList.toggle("is-selected", state.tool === "stamp");
-    els.stampBtn.setAttribute("aria-label", `${normalizeStamp(state.stamp)} 스탬프`);
-  }
 }
 
 function syncPenOnly() {
@@ -826,17 +825,12 @@ function closeSlotPanel() {
   state.editingSlot = null;
 }
 
-function closeStampPanel() {
-  els.stampPanel.hidden = true;
-}
-
 function closeEraserPanel() {
   els.eraserPanel.hidden = true;
 }
 
 function closeAllPanels() {
   closeSlotPanel();
-  closeStampPanel();
   closeEraserPanel();
 }
 
@@ -909,6 +903,17 @@ function renderPalette(slot) {
   }
 }
 
+function syncStampPicker() {
+  const slot = state.slots[state.editingSlot] || activeSlot();
+  const label = normalizeStamp(slot.stamp);
+  if (els.stampPreviewLabel) {
+    els.stampPreviewLabel.textContent = label;
+  }
+  els.stampPhrases.querySelectorAll("button").forEach((btn) => {
+    btn.classList.toggle("is-selected", btn.dataset.stamp === label);
+  });
+}
+
 function syncSlotEditor() {
   const slot = state.slots[state.editingSlot];
   if (!slot) {
@@ -917,18 +922,26 @@ function syncSlotEditor() {
   document.querySelectorAll("#slot-kinds [data-kind]").forEach((btn) => {
     btn.classList.toggle("is-selected", btn.dataset.kind === slot.type);
   });
-  renderPalette(slot);
+  const isStamp = slot.type === "stamp";
+  els.slotPalette.hidden = isStamp;
+  els.slotStamp.hidden = !isStamp;
+  if (isStamp) {
+    syncStampPicker();
+  } else {
+    renderPalette(slot);
+  }
   const showOpacity = slot.type === "highlighter";
   els.slotOpacityRow.hidden = !showOpacity;
   if (showOpacity) {
     els.slotOpacity.value = String(slot.opacity ?? HIGHLIGHTER_OPACITY_DEFAULT);
   }
-  els.slotWidthRow.hidden = false;
-  els.slotWidth.value = String(slot.width);
+  els.slotWidthRow.hidden = isStamp;
+  if (!isStamp) {
+    els.slotWidth.value = String(slot.width);
+  }
 }
 
 function openSlotEditor(index, slotBtn) {
-  closeStampPanel();
   closeEraserPanel();
   state.slotIndex = index;
   state.editingSlot = index;
@@ -955,6 +968,9 @@ function setSlotKind(kind) {
   if (kind === "highlighter" && !slot.opacity) {
     slot.opacity = HIGHLIGHTER_OPACITY_DEFAULT;
   }
+  if (kind === "stamp") {
+    slot.stamp = normalizeStamp(slot.stamp);
+  }
   persistSlotChange();
 }
 
@@ -964,28 +980,6 @@ function selectSlot(index) {
   saveSlotIndex(index);
   closeAllPanels();
   syncToolSelection();
-}
-
-function selectStamp() {
-  state.tool = "stamp";
-  closeSlotPanel();
-  closeEraserPanel();
-  syncToolSelection();
-}
-
-function openStampPicker() {
-  closeSlotPanel();
-  closeEraserPanel();
-  state.tool = "stamp";
-  syncToolSelection();
-  syncStampPicker();
-  placePanel(els.stampPanel, els.stampBtn);
-}
-
-function syncStampPicker() {
-  els.stampPhrases.querySelectorAll("button").forEach((btn) => {
-    btn.classList.toggle("is-selected", btn.dataset.stamp === state.stamp);
-  });
 }
 
 function selectEraserPixel() {
@@ -998,7 +992,6 @@ function selectEraserPixel() {
 
 function openEraserEditor() {
   closeSlotPanel();
-  closeStampPanel();
   state.tool = "eraser";
   syncToolSelection();
   syncEraserEditor();
@@ -1398,16 +1391,6 @@ bindHold(els.eraserBtn, {
   onShort: selectEraserPixel,
   onLong: openEraserEditor,
 });
-bindHold(els.stampBtn, {
-  onShort: () => {
-    if (state.tool === "stamp") {
-      openStampPicker();
-      return;
-    }
-    selectStamp();
-  },
-  onLong: openStampPicker,
-});
 
 document.querySelectorAll("#slot-kinds [data-kind]").forEach((btn) => {
   btn.addEventListener("click", () => setSlotKind(btn.dataset.kind));
@@ -1446,12 +1429,12 @@ for (const label of STAMP_LABELS) {
   btn.dataset.stamp = label;
   btn.textContent = label;
   btn.addEventListener("click", () => {
-    state.stamp = label;
-    saveStamp(label);
-    state.tool = "stamp";
-    syncStampPicker();
-    syncToolSelection();
-    closeStampPanel();
+    if (state.editingSlot == null) {
+      return;
+    }
+    state.slots[state.editingSlot].type = "stamp";
+    state.slots[state.editingSlot].stamp = label;
+    persistSlotChange();
   });
   els.stampPhrases.append(btn);
 }
@@ -1547,7 +1530,7 @@ els.writeScreen.addEventListener(
 );
 
 document.addEventListener("pointerdown", (event) => {
-  if (event.target.closest(".slot-panel, [data-slot], #stamp-btn, #eraser-btn")) {
+  if (event.target.closest(".slot-panel, [data-slot], #eraser-btn")) {
     return;
   }
   closeAllPanels();
@@ -1562,9 +1545,6 @@ window.addEventListener("resize", () => {
       if (btn) {
         placePanel(els.slotPanel, btn);
       }
-    }
-    if (!els.stampPanel.hidden) {
-      placePanel(els.stampPanel, els.stampBtn);
     }
     if (!els.eraserPanel.hidden) {
       placePanel(els.eraserPanel, els.eraserBtn);

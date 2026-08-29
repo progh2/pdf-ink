@@ -9,6 +9,7 @@ import {
   PEN_PALETTE,
   PENCIL_COLOR,
   SLOT_KINDS,
+  STAMP_COLOR,
   STAMP_DIAMETER_CSS,
   STAMP_LABELS,
   TOOLBAR_COLOR_CHIPS,
@@ -23,6 +24,7 @@ import {
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const html = readFileSync(join(root, "index.html"), "utf8");
 const main = readFileSync(join(root, "src/main.js"), "utf8");
+const toolbar = html.slice(html.indexOf('id="toolbar"'), html.indexOf('id="workspace"'));
 
 describe("pen palette", () => {
   it("uses the locked hex values", () => {
@@ -58,34 +60,38 @@ describe("highlighter palette", () => {
 });
 
 describe("색연필", () => {
-  it("defaults to the grading red", () => {
+  it("defaults to the grading red, not the old #E03C31", () => {
     assert.equal(PENCIL_COLOR, "#C23A32");
+    assert.notEqual(PENCIL_COLOR, "#E03C31");
     assert.equal(defaultColorForKind("pencil", "#1A1A1A"), "#C23A32");
     assert.equal(defaultColorForKind("pencil", "#C42B2B"), "#C23A32");
   });
 });
 
 describe("스탬프", () => {
-  it("has the five grading labels", () => {
+  it("has the five grading labels and a 72 CSS px circle", () => {
     assert.deepEqual(STAMP_LABELS, ["참 잘했어요", "반려", "승인", "진행해", "응아냐"]);
     assert.equal(STAMP_DIAMETER_CSS, 72);
+    assert.equal(STAMP_COLOR, "#C42B2B");
   });
 });
 
 describe("toolbar", () => {
-  it("has no color chips", () => {
+  it("has no color chips, no toolbar stamp circle, and four panel tabs", () => {
     assert.deepEqual(TOOLBAR_COLOR_CHIPS, []);
-    const toolbar = html.slice(html.indexOf('id="toolbar"'), html.indexOf('id="workspace"'));
     assert.doesNotMatch(toolbar, /slot-color|data-color=/);
-    assert.match(toolbar, /id="stamp-btn"/);
+    assert.doesNotMatch(toolbar, /stamp-btn|stamp-mini|stamp-tool/);
+    assert.doesNotMatch(toolbar, /#D64545|#2F6FED|#E6C200|#E03C31/i);
     assert.match(html, /id="slot-panel"/);
     assert.match(html, /id="slot-palette"/);
     assert.match(html, /data-kind="pen">펜/);
     assert.match(html, /data-kind="highlighter">형광/);
     assert.match(html, /data-kind="pencil">색연필/);
-    assert.doesNotMatch(html, /id="slot-kinds"[\s\S]*data-kind="stamp"/);
+    assert.match(html, /data-kind="stamp">스탬프/);
+    assert.match(html, /id="slot-stamp"/);
+    assert.match(html, /class="stamp-preview"/);
     assert.doesNotMatch(html, /스포이드|eyedropper/i);
-    assert.deepEqual(SLOT_KINDS, ["pen", "highlighter", "pencil"]);
+    assert.deepEqual(SLOT_KINDS, ["pen", "highlighter", "pencil", "stamp"]);
   });
 });
 
@@ -94,7 +100,7 @@ describe("slot defaults", () => {
     assert.equal(defaultColorForKind("pen", "#D64545"), "#C42B2B");
     assert.equal(defaultColorForKind("highlighter", "#E6C200"), "#FFE566");
     assert.ok(colorInPalette(defaultColorForKind("pen", "#1E4B8C"), PEN_PALETTE));
-    assert.match(slotAriaLabel({ type: "pen", color: "#1A1A1A", width: 2 }), /검정/);
+    assert.equal(slotAriaLabel({ type: "stamp", stamp: "반려", width: 2 }), "반려 스탬프");
   });
 });
 
@@ -103,5 +109,13 @@ describe("#32 stroke scale", () => {
     const scaleFn = main.slice(main.indexOf("function strokeScale"), main.indexOf("function drawStrokesOn"));
     assert.match(scaleFn, /inkCanvasScale/);
     assert.doesNotMatch(scaleFn, /getBoundingClientRect/);
+  });
+});
+
+describe("stamp persistence", () => {
+  it("stores stamps on the ink layer, not a separate stamp key", () => {
+    assert.match(main, /stampInkItem/);
+    assert.match(main, /persistStrokes/);
+    assert.doesNotMatch(main, /pdf-ink:stamp|loadStamp|saveStamp/);
   });
 });

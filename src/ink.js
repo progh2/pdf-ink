@@ -97,6 +97,21 @@ export function removeHitItems(items, eraser, cssWidth, cssHeight) {
   return items.filter((item) => !itemHitsEraser(item, eraser, cssWidth, cssHeight));
 }
 
+export function removeHitStamps(items, eraser, cssWidth, cssHeight) {
+  return items.filter((item) => item.type !== "stamp" || !itemHitsEraser(item, eraser, cssWidth, cssHeight));
+}
+
+export function stampInkItem(label, x, y, tilt = 0) {
+  return {
+    type: "stamp",
+    stamp: normalizeStamp(label),
+    x,
+    y,
+    tilt,
+    color: STAMP_COLOR,
+  };
+}
+
 function hashUnit(x, y, salt) {
   const n = Math.sin(x * 127.1 + y * 311.7 + salt * 74.7) * 43758.5453;
   return n - Math.floor(n);

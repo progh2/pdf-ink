@@ -8,7 +8,7 @@ import {
   highlighterAlpha,
   highlighterStrokeStyle,
 } from "./tools.js";
-import { itemHitsEraser, removeHitItems, stampTilt } from "./ink.js";
+import { itemHitsEraser, removeHitItems, removeHitStamps, stampInkItem, stampTilt } from "./ink.js";
 
 describe("highlighter alpha in ink", () => {
   it("keeps highlighter style translucent", () => {
@@ -87,5 +87,26 @@ describe("획 지우개", () => {
     };
     assert.equal(itemHitsEraser(stamp, hit, 400, 600), true);
     assert.equal(itemHitsEraser(stamp, miss, 400, 600), false);
+  });
+
+  it("lets the pixel eraser remove a stamp from the ink list", () => {
+    const stamp = stampInkItem("승인", 0.5, 0.5);
+    const pen = {
+      type: "pen",
+      width: 2,
+      points: [
+        { x: 0.1, y: 0.1 },
+        { x: 0.2, y: 0.1 },
+      ],
+    };
+    const eraser = {
+      type: "erase",
+      eraseMode: "pixel",
+      width: 4,
+      points: [{ x: 0.5, y: 0.5 }],
+    };
+    assert.deepEqual(removeHitStamps([stamp, pen], eraser, 400, 600), [pen]);
+    assert.equal(stamp.type, "stamp");
+    assert.equal(stamp.stamp, "승인");
   });
 });

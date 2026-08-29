@@ -24,11 +24,12 @@ export const STAMP_LABELS = ["참 잘했어요", "반려", "승인", "진행해"
 export const STAMP_DIAMETER_CSS = 72;
 export const STAMP_COLOR = "#C42B2B";
 
-export const SLOT_KINDS = ["pen", "highlighter", "pencil"];
+export const SLOT_KINDS = ["pen", "highlighter", "pencil", "stamp"];
 export const SLOT_KIND_LABELS = {
   pen: "펜",
   highlighter: "형광",
   pencil: "색연필",
+  stamp: "스탬프",
 };
 
 export const ERASER_MODES = ["pixel", "stroke"];
@@ -97,6 +98,9 @@ export function colorInPalette(hex, palette) {
 }
 
 export function defaultColorForKind(kind, current) {
+  if (kind === "stamp") {
+    return STAMP_COLOR;
+  }
   if (kind === "pencil") {
     return PENCIL_COLOR;
   }
@@ -138,6 +142,9 @@ export function colorLabel(hex, kind = "pen") {
 
 export function slotAriaLabel(slot) {
   const kind = normalizeKind(slot?.type);
+  if (kind === "stamp") {
+    return `${normalizeStamp(slot.stamp)} 스탬프`;
+  }
   const name = colorLabel(slot.color, kind);
   return `${name} ${SLOT_KIND_LABELS[kind]}, 굵기 ${slot.width}`;
 }

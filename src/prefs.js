@@ -15,12 +15,11 @@ const SLOT_INDEX_KEY = "pdf-ink:slot-index";
 const VIEW_MODE_KEY = "pdf-ink:view-mode";
 const ZOOM_LOCK_KEY = "pdf-ink:zoom-lock";
 const ERASER_KEY = "pdf-ink:eraser";
-const STAMP_KEY = "pdf-ink:stamp";
 
 export const DEFAULT_SLOTS = [
-  { type: "pen", color: "#1A1A1A", width: 2, opacity: HIGHLIGHTER_OPACITY_DEFAULT },
-  { type: "pen", color: "#C42B2B", width: 2, opacity: HIGHLIGHTER_OPACITY_DEFAULT },
-  { type: "pen", color: "#1E4B8C", width: 4, opacity: HIGHLIGHTER_OPACITY_DEFAULT },
+  { type: "pen", color: "#1A1A1A", width: 2, opacity: HIGHLIGHTER_OPACITY_DEFAULT, stamp: "참 잘했어요" },
+  { type: "pen", color: "#C42B2B", width: 2, opacity: HIGHLIGHTER_OPACITY_DEFAULT, stamp: "참 잘했어요" },
+  { type: "pen", color: "#1E4B8C", width: 4, opacity: HIGHLIGHTER_OPACITY_DEFAULT, stamp: "참 잘했어요" },
 ];
 
 export const DEFAULT_ERASER = { mode: "pixel", width: 4 };
@@ -39,6 +38,7 @@ export function coerceSlot(slot, fallback = DEFAULT_SLOTS[0]) {
     color: defaultColorForKind(type, slot.color || fallback.color),
     width: slotLineWidth(slot.width ?? fallback.width),
     opacity: clampOpacity(slot.opacity ?? fallback.opacity ?? HIGHLIGHTER_OPACITY_DEFAULT),
+    stamp: normalizeStamp(slot.stamp || fallback.stamp),
   };
 }
 
@@ -147,12 +147,4 @@ export function loadEraser() {
 
 export function saveEraser(eraser) {
   writeRaw(ERASER_KEY, JSON.stringify(coerceEraser(eraser)));
-}
-
-export function loadStamp() {
-  return normalizeStamp(readRaw(STAMP_KEY));
-}
-
-export function saveStamp(label) {
-  writeRaw(STAMP_KEY, normalizeStamp(label));
 }
