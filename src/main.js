@@ -146,6 +146,8 @@ const state = {
 const pointers = new Map();
 let gesture = null;
 let ignoreAfterPinch = false;
+let ignoreAfterPanel = false;
+let captureConfirmArmedAt = 0;
 let renderGen = 0;
 
 function activeSlot() {
@@ -750,13 +752,16 @@ function abortStroke() {
 }
 
 function startStroke(event, stage) {
+  if (state.rectTool) {
+    return;
+  }
   if (state.interactMode === "view") {
     return;
   }
   if (!state.pdf || (event.button !== undefined && event.button !== 0)) {
     return;
   }
-  if (!allowsInkPointer(event) || overlayOpen()) {
+  if (!allowsInkPointer(event) || overlayOpen() || ignoreAfterPanel) {
     return;
   }
   const ink = stage.querySelector(".ink-canvas");
@@ -1321,6 +1326,7 @@ function endRect(event) {
   }
   if (state.rectTool === "capture") {
     state.pendingCapture = { page, rect };
+    captureConfirmArmedAt = performance.now() + 400;
     updateMarquee(true);
   }
 }
@@ -1329,7 +1335,7 @@ let captureWriting = false;
 
 async function confirmCapture() {
   const pending = state.pendingCapture;
-  if (!pending || captureWriting) {
+  if (!pending || captureWriting || performance.now() < captureConfirmArmedAt) {
     return;
   }
   captureWriting = true;
@@ -1462,17 +1468,24 @@ function toggleMorePanel() {
 function selectMoreAction(action) {
   if (action === "fullscreen") {
     closeMorePanel();
+    ignoreAfterPanel = true;
     toggleFullscreen();
     return;
   }
   if (action !== "mosaic" && action !== "capture") {
     return;
   }
-  state.rectTool = state.rectTool === action ? null : action;
+  abortStroke();
+  if (state.rectTool === action && !ignoreAfterPanel) {
+    state.rectTool = null;
+  } else {
+    state.rectTool = action;
+  }
   state.interactMode = "edit";
   saveInteractMode("edit");
   hideMarquee();
   closeMorePanel();
+  ignoreAfterPanel = true;
   applyChrome();
   syncRectTool();
 }
@@ -1579,9 +1592,13 @@ function movePan(event) {
 }
 
 function onWorkspacePointerDown(event) {
+  if (event.target.closest("#other-pdf")) {
+    return;
+  }
   if (overlayOpen()) {
     if (!event.target.closest(".slot-panel, .sheet-card, .toolbar, .write-top, .m4-bar, .more-panel")) {
       closeAllPanels();
+      ignoreAfterPanel = true;
     }
     return;
   }
@@ -1598,6 +1615,8 @@ function onWorkspacePointerDown(event) {
   if (ignoreAfterPinch) {
     return;
   }
+  const skipClickThrough = ignoreAfterPanel;
+  ignoreAfterPanel = false;
   if (shouldPan(event)) {
     event.preventDefault();
     startPan(event);
@@ -1607,8 +1626,13 @@ function onWorkspacePointerDown(event) {
   if (!stage) {
     return;
   }
-  if (allowsRectPointer(event)) {
-    startRect(event, stage);
+  if (state.rectTool) {
+    if (allowsRectPointer(event)) {
+      startRect(event, stage);
+    }
+    return;
+  }
+  if (skipClickThrough) {
     return;
   }
   if (allowsInkPointer(event)) {
@@ -1665,12 +1689,14 @@ function onWorkspacePointerUp(event) {
     endRect(event);
     if (pointers.size === 0) {
       ignoreAfterPinch = false;
+      ignoreAfterPanel = false;
     }
     return;
   }
   endStroke(event);
   if (pointers.size === 0) {
     ignoreAfterPinch = false;
+    ignoreAfterPanel = false;
   }
 }
 
@@ -1935,9 +1961,23 @@ bindHold(els.undoBtn, {
   onShort: undoInk,
   onLong: redoInk,
 });
-els.moreBtn.addEventListener("click", () => toggleMorePanel());
+els.moreBtn.addEventListener("pointerdown", (event) => {
+  event.stopPropagation();
+});
+els.moreBtn.addEventListener("click", (event) => {
+  event.preventDefault();
+  event.stopPropagation();
+  toggleMorePanel();
+});
 document.querySelectorAll("#more-panel [data-more]").forEach((btn) => {
-  btn.addEventListener("click", () => selectMoreAction(btn.dataset.more));
+  btn.addEventListener("pointerdown", (event) => {
+    event.stopPropagation();
+  });
+  btn.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    selectMoreAction(btn.dataset.more);
+  });
 });
 els.captureConfirm.addEventListener("click", (event) => {
   event.preventDefault();
@@ -1961,6 +2001,12 @@ els.otherPdf.addEventListener("pointerdown", (event) => {
 els.otherPdf.addEventListener("click", (event) => {
   event.preventDefault();
   event.stopPropagation();
+  if (event.target.closest("#more-btn, #m4-bar, #undo-btn, .more-panel")) {
+    return;
+  }
+  if (!els.otherPdf.contains(event.target)) {
+    return;
+  }
   showUploadScreen();
 });
 els.dropzone.addEventListener("pointerdown", () => {
