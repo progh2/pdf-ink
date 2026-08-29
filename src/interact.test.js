@@ -3,7 +3,15 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
-import { canCreateInk, rectFromPoints, shouldPanPointer } from "./interact.js";
+import {
+  appendInkPoint,
+  beginInkPoints,
+  canCreateInk,
+  finishInkPoints,
+  isReusedInkStart,
+  rectFromPoints,
+  shouldPanPointer,
+} from "./interact.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const css = readFileSync(join(root, "src/style.css"), "utf8");
@@ -107,5 +115,54 @@ describe("rectFromPoints", () => {
       w: 1,
       h: 0.5,
     });
+  });
+});
+
+describe("#47 두 탭이 직선이 되면 안 됨", () => {
+  const aClient = { x: 40, y: 80 };
+  const bClient = { x: 220, y: 360 };
+  const aNorm = { x: 0.12, y: 0.2 };
+  const bNorm = { x: 0.7, y: 0.85 };
+
+  it("treats a pointerdown at the last pointerup as leftover, not a new start", () => {
+    assert.equal(isReusedInkStart(aClient, aClient), true);
+    assert.equal(isReusedInkStart(aClient, bClient), false);
+    assert.equal(isReusedInkStart(null, aClient), false);
+    assert.deepEqual(beginInkPoints(aNorm, aClient, aClient), []);
+    assert.deepEqual(beginInkPoints(bNorm, bClient, aClient), [bNorm]);
+  });
+
+  it("two sequential taps stay separate dots, not one A–B line", () => {
+    const first = finishInkPoints(beginInkPoints(aNorm, aClient, null), aNorm, aClient, null);
+    assert.deepEqual(first, [aNorm]);
+
+    let second = beginInkPoints(aNorm, aClient, aClient);
+    second = appendInkPoint(second, bNorm, bClient, aClient);
+    second = finishInkPoints(second, bNorm, bClient, aClient);
+    assert.deepEqual(second, [bNorm]);
+    assert.equal(second.length, 1);
+  });
+
+  it("a leftover-only second tap is ignored (no line, no ghost stroke)", () => {
+    const leftover = finishInkPoints(beginInkPoints(aNorm, aClient, aClient), aNorm, aClient, aClient);
+    assert.deepEqual(leftover, []);
+  });
+
+  it("a real drag still becomes one stroke", () => {
+    let pts = beginInkPoints(aNorm, aClient, null);
+    pts = appendInkPoint(pts, bNorm, bClient, null);
+    pts = finishInkPoints(pts, bNorm, bClient, null);
+    assert.deepEqual(pts, [aNorm, bNorm]);
+  });
+
+  it("wires the leftover-point helpers into stroke start/move/end", () => {
+    assert.match(main, /beginInkPoints\(/);
+    assert.match(main, /appendInkPoint\(/);
+    assert.match(main, /finishInkPoints\(/);
+    assert.match(main, /lastInkUpClient/);
+    assert.doesNotMatch(main, /shapeSnap|snapToShape|holdShape/);
+    assert.equal((html.match(/class="toolbar"/g) || []).length, 1);
+    assert.equal((toolbar.match(/data-slot="/g) || []).length, 3);
+    assert.match(main, /bindUndoHold\(els\.undoBtn,\s*\{\s*onUndo:\s*undoInk,\s*onRedo:\s*redoInk/);
   });
 });

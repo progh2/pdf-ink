@@ -37,7 +37,15 @@ import {
   scaleFromPinch,
 } from "./viewport.js";
 import { applyEraserToInk, isPixelErase, isStrokeErase, paintItem, paintStamp, removeHitItems, removeHitStamps, stampInkItem, stampTilt } from "./ink.js";
-import { canCreateInk, rectBigEnough, rectFromPoints, shouldPanPointer } from "./interact.js";
+import {
+  appendInkPoint,
+  beginInkPoints,
+  canCreateInk,
+  finishInkPoints,
+  rectBigEnough,
+  rectFromPoints,
+  shouldPanPointer,
+} from "./interact.js";
 import { canRedo, canUndo, cloneItems, createHistory, recordChange, redoChange, undoChange } from "./history.js";
 import { bindUndoHold } from "./undoHold.js";
 import { MOSAIC_CELL_CSS, mosaicBoxesPx, mosaicItem } from "./mosaic.js";
@@ -205,6 +213,7 @@ const pointers = new Map();
 let gesture = null;
 let ignoreAfterPinch = false;
 let ignoreAfterPanel = false;
+let lastInkUpClient = null;
 let captureConfirmArmedAt = 0;
 let renderGen = 0;
 let paperScrollHold = null;
@@ -1014,6 +1023,7 @@ function startStroke(event, stage) {
   holdPaperScroll();
   const view = state.pageViews.find((item) => item.stage === stage);
   const point = eventToNorm(event, ink);
+  const client = { x: event.clientX, y: event.clientY };
   state.drawPage = Number(stage.dataset.page) || state.page;
   state.drawCanvas = ink;
   if (usesStamp()) {
@@ -1030,6 +1040,7 @@ function startStroke(event, stage) {
   state.pendingStamp = null;
   state.drawing = true;
   state.currentStroke = newStroke(point);
+  state.currentStroke.points = beginInkPoints(point, client, lastInkUpClient);
   drawLive();
 }
 
@@ -1041,7 +1052,13 @@ function moveStroke(event) {
     return;
   }
   event.preventDefault();
-  state.currentStroke.points.push(eventToNorm(event, state.drawCanvas));
+  const client = { x: event.clientX, y: event.clientY };
+  state.currentStroke.points = appendInkPoint(
+    state.currentStroke.points,
+    eventToNorm(event, state.drawCanvas),
+    client,
+    lastInkUpClient,
+  );
   drawLive();
 }
 
@@ -1077,7 +1094,20 @@ function endStroke(event) {
       // Capture may already be released.
     }
   }
-  const live = state.currentStroke;
+  const client = { x: event.clientX, y: event.clientY };
+  const upNorm = state.drawCanvas ? eventToNorm(event, state.drawCanvas) : null;
+  const live = {
+    ...state.currentStroke,
+    points: finishInkPoints(state.currentStroke.points, upNorm, client, lastInkUpClient),
+  };
+  lastInkUpClient = client;
+  if (!live.points.length) {
+    state.currentStroke = null;
+    state.drawing = false;
+    releasePaperScroll();
+    drawLive();
+    return;
+  }
   const view = state.pageViews.find((item) => item.pageNum === state.drawPage);
   commitPageChange(state.drawPage, () => {
     if (view) {
