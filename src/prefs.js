@@ -1,44 +1,44 @@
 import { defaultToolbarPosition, slotLineWidth } from "./viewport.js";
+import {
+  HIGHLIGHTER_OPACITY_DEFAULT,
+  clampOpacity,
+  defaultColorForKind,
+  normalizeEraseMode,
+  normalizeHex,
+  normalizeKind,
+  normalizeStamp,
+} from "./tools.js";
 
 const TOOLBAR_POS_KEY = "pdf-ink:toolbar-pos";
 const SLOTS_KEY = "pdf-ink:pen-slots";
 const SLOT_INDEX_KEY = "pdf-ink:slot-index";
 const VIEW_MODE_KEY = "pdf-ink:view-mode";
 const ZOOM_LOCK_KEY = "pdf-ink:zoom-lock";
-
-export const SLOT_COLORS = ["#1A1A1A", "#D64545", "#2F6FED", "#E6C200"];
+const ERASER_KEY = "pdf-ink:eraser";
 
 export const DEFAULT_SLOTS = [
-  { type: "pen", color: "#1A1A1A", width: 2 },
-  { type: "pen", color: "#D64545", width: 2 },
-  { type: "pen", color: "#2F6FED", width: 4 },
+  { type: "pen", color: "#1A1A1A", width: 2, opacity: HIGHLIGHTER_OPACITY_DEFAULT, stamp: "참 잘했어요" },
+  { type: "pen", color: "#C42B2B", width: 2, opacity: HIGHLIGHTER_OPACITY_DEFAULT, stamp: "참 잘했어요" },
+  { type: "pen", color: "#1E4B8C", width: 4, opacity: HIGHLIGHTER_OPACITY_DEFAULT, stamp: "참 잘했어요" },
 ];
 
+export const DEFAULT_ERASER = { mode: "pixel", width: 4 };
+
 export function normalizeColor(value, fallback = "#1A1A1A") {
-  if (typeof value !== "string") {
-    return fallback;
-  }
-  const hex = value.trim();
-  if (/^#[0-9A-Fa-f]{6}$/.test(hex)) {
-    return `#${hex.slice(1).toUpperCase()}`;
-  }
-  if (/^#[0-9A-Fa-f]{3}$/.test(hex)) {
-    const r = hex[1];
-    const g = hex[2];
-    const b = hex[3];
-    return `#${r}${r}${g}${g}${b}${b}`.toUpperCase();
-  }
-  return fallback;
+  return normalizeHex(value, fallback);
 }
 
-function normalizeSlot(slot, fallback) {
+export function coerceSlot(slot, fallback = DEFAULT_SLOTS[0]) {
   if (!slot || typeof slot !== "object") {
     return { ...fallback };
   }
+  const type = normalizeKind(slot.type);
   return {
-    type: "pen",
-    color: normalizeColor(slot.color, fallback.color),
+    type,
+    color: defaultColorForKind(type, slot.color || fallback.color),
     width: slotLineWidth(slot.width ?? fallback.width),
+    opacity: clampOpacity(slot.opacity ?? fallback.opacity ?? HIGHLIGHTER_OPACITY_DEFAULT),
+    stamp: normalizeStamp(slot.stamp || fallback.stamp),
   };
 }
 
@@ -82,14 +82,17 @@ export function loadSlots() {
     if (!Array.isArray(data) || data.length < 3) {
       return DEFAULT_SLOTS.map((slot) => ({ ...slot }));
     }
-    return [0, 1, 2].map((index) => normalizeSlot(data[index], DEFAULT_SLOTS[index]));
+    return [0, 1, 2].map((index) => coerceSlot(data[index], DEFAULT_SLOTS[index]));
   } catch {
     return DEFAULT_SLOTS.map((slot) => ({ ...slot }));
   }
 }
 
 export function saveSlots(slots) {
-  writeRaw(SLOTS_KEY, JSON.stringify(slots.slice(0, 3).map((slot, index) => normalizeSlot(slot, DEFAULT_SLOTS[index]))));
+  writeRaw(
+    SLOTS_KEY,
+    JSON.stringify(slots.slice(0, 3).map((slot, index) => coerceSlot(slot, DEFAULT_SLOTS[index]))),
+  );
 }
 
 export function loadSlotIndex() {
@@ -118,4 +121,30 @@ export function loadZoomLock() {
 
 export function saveZoomLock(on) {
   writeRaw(ZOOM_LOCK_KEY, on ? "1" : "0");
+}
+
+export function coerceEraser(value) {
+  if (!value || typeof value !== "object") {
+    return { ...DEFAULT_ERASER };
+  }
+  return {
+    mode: normalizeEraseMode(value.mode),
+    width: slotLineWidth(value.width ?? DEFAULT_ERASER.width),
+  };
+}
+
+export function loadEraser() {
+  try {
+    const raw = readRaw(ERASER_KEY);
+    if (!raw) {
+      return { ...DEFAULT_ERASER };
+    }
+    return coerceEraser(JSON.parse(raw));
+  } catch {
+    return { ...DEFAULT_ERASER };
+  }
+}
+
+export function saveEraser(eraser) {
+  writeRaw(ERASER_KEY, JSON.stringify(coerceEraser(eraser)));
 }
