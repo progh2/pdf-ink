@@ -39,6 +39,7 @@ import {
 import { applyEraserToInk, isPixelErase, isStrokeErase, paintItem, paintStamp, removeHitItems, removeHitStamps, stampInkItem, stampTilt } from "./ink.js";
 import { canCreateInk, rectBigEnough, rectFromPoints, shouldPanPointer } from "./interact.js";
 import { canRedo, canUndo, cloneItems, createHistory, recordChange, redoChange, undoChange } from "./history.js";
+import { bindUndoHold } from "./undoHold.js";
 import { MOSAIC_CELL_CSS, mosaicBoxesPx, mosaicItem } from "./mosaic.js";
 import { captureRegionPng, composePageRgba, cropRgba, writePngClipboard } from "./capture.js";
 import {
@@ -534,7 +535,6 @@ function showDocumentUi() {
 let pickerBlockedUntil = 0;
 let dropzoneGesture = false;
 let stayOnWriteUntil = 0;
-let undoHoldLock = false;
 
 function armStayOnWrite(ms = 1600) {
   stayOnWriteUntil = performance.now() + ms;
@@ -1405,9 +1405,6 @@ function redrawHistoryPage(pageNum) {
 }
 
 function undoInk() {
-  if (undoHoldLock) {
-    return;
-  }
   const entry = undoChange(state.history, state.pages);
   if (!entry) {
     return;
@@ -1815,73 +1812,6 @@ function bindSlot(btn) {
   });
 }
 
-function bindUndoHold(btn) {
-  let pointerId = null;
-  let startedAt = 0;
-  let didLong = false;
-  let timer = 0;
-
-  const finish = (event) => {
-    if (pointerId == null) {
-      return;
-    }
-    if (event.pointerId != null && event.pointerId !== pointerId) {
-      return;
-    }
-    window.clearTimeout(timer);
-    timer = 0;
-    const held = performance.now() - startedAt;
-    const wasLong = didLong || held >= LONG_PRESS_MS;
-    pointerId = null;
-    undoHoldLock = wasLong;
-    if (!wasLong) {
-      undoInk();
-    }
-    window.setTimeout(() => {
-      undoHoldLock = false;
-    }, 200);
-  };
-
-  btn.addEventListener("pointerdown", (event) => {
-    if (event.button !== undefined && event.button !== 0) {
-      return;
-    }
-    if (pointerId != null) {
-      return;
-    }
-    event.preventDefault();
-    event.stopPropagation();
-    pointerId = event.pointerId;
-    startedAt = performance.now();
-    didLong = false;
-    undoHoldLock = false;
-    window.clearTimeout(timer);
-    try {
-      btn.setPointerCapture(event.pointerId);
-    } catch {
-      // optional
-    }
-    timer = window.setTimeout(() => {
-      if (pointerId == null) {
-        return;
-      }
-      didLong = true;
-      undoHoldLock = true;
-      redoInk();
-    }, LONG_PRESS_MS);
-  });
-  btn.addEventListener("pointerup", finish);
-  btn.addEventListener("pointercancel", finish);
-  btn.addEventListener("click", (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-  });
-  btn.addEventListener("contextmenu", (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-  });
-}
-
 function bindHold(btn, { onShort, onLong }) {
   let timer = 0;
   let longPress = false;
@@ -2039,7 +1969,7 @@ els.zoomLockBtn.addEventListener("click", () => {
 els.interactBtn.addEventListener("click", () => {
   setInteractMode(state.interactMode === "view" ? "edit" : "view");
 });
-bindUndoHold(els.undoBtn);
+bindUndoHold(els.undoBtn, { onUndo: undoInk, onRedo: redoInk });
 els.moreBtn.addEventListener("pointerdown", (event) => {
   event.stopPropagation();
   armStayOnWrite();

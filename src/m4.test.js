@@ -53,9 +53,8 @@ describe("M4 #31 chrome", () => {
     assert.match(css, /\.interact-lock \{[\s\S]*width: 32px;[\s\S]*color: #8a8478/);
     assert.match(css, /\.slot-panel \{[\s\S]*padding: 12px;[\s\S]*border: 1px solid #e6e1d6;[\s\S]*border-radius: 16px/);
     assert.match(css, /\.more-panel button \{[\s\S]*height: 44px/);
-    assert.match(main, /bindUndoHold\(els\.undoBtn\)/);
-    assert.match(main, /function bindUndoHold/);
-    assert.match(main, /didLong = true;[\s\S]*redoInk\(\)/);
+    assert.match(main, /bindUndoHold\(els\.undoBtn,\s*\{\s*onUndo:\s*undoInk,\s*onRedo:\s*redoInk/);
+    assert.match(main, /from "\.\/undoHold\.js"/);
     assert.match(main, /placeOverflowPanel[\s\S]*left = "-9999px"/);
     assert.match(css, /\.more-panel \{[\s\S]*left: -9999px/);
     assert.doesNotMatch(main, /redoBtn/);

@@ -344,7 +344,8 @@ body {
   background: var(--selected);
 }
 
-.slot {
+.slot,
+#undo-btn {
   touch-action: none;
   -webkit-touch-callout: none;
   -webkit-user-select: none;
