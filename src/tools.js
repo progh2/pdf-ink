@@ -23,6 +23,9 @@ export const PENCIL_LABEL = "색연필";
 export const STAMP_LABELS = ["참 잘했어요", "반려", "승인", "진행해", "응아냐"];
 export const STAMP_DIAMETER_CSS = 72;
 export const STAMP_COLOR = "#C42B2B";
+export const STAMP_LABEL_COLOR = "#5C574E";
+export const STAMP_LABEL_GAP_CSS = 8;
+export const STAMP_LABEL_SIZE_CSS = 14;
 
 export const SLOT_KINDS = ["pen", "highlighter", "pencil", "stamp"];
 export const SLOT_KIND_LABELS = {
@@ -132,6 +135,27 @@ export function stampLines(label) {
     return ["참 잘", "했어요"];
   }
   return [label];
+}
+
+/** Circle + label-below metrics. Canvas paintStamp and the slot-panel preview share this. */
+export function stampPaintLayout(label, scale = 1) {
+  const lines = stampLines(normalizeStamp(label));
+  const radius = (STAMP_DIAMETER_CSS / 2) * scale;
+  const gap = STAMP_LABEL_GAP_CSS * scale;
+  const fontSize = STAMP_LABEL_SIZE_CSS * scale;
+  const lineHeight = fontSize * 1.15;
+  const labelTop = radius + gap;
+  return {
+    radius,
+    gap,
+    fontSize,
+    lineHeight,
+    lines,
+    circleColor: STAMP_COLOR,
+    labelColor: STAMP_LABEL_COLOR,
+    labelTop,
+    labelBottom: labelTop + lines.length * lineHeight,
+  };
 }
 
 export function colorLabel(hex, kind = "pen") {

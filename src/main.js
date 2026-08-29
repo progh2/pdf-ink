@@ -34,7 +34,7 @@ import {
   pointerMidpoint,
   scaleFromPinch,
 } from "./viewport.js";
-import { isPixelErase, isStrokeErase, paintItem, removeHitItems, removeHitStamps, stampInkItem, stampTilt } from "./ink.js";
+import { applyEraserToInk, isPixelErase, isStrokeErase, paintItem, paintStamp, removeHitItems, removeHitStamps, stampInkItem, stampTilt } from "./ink.js";
 import {
   HIGHLIGHTER_OPACITY_DEFAULT,
   HIGHLIGHTER_PALETTE,
@@ -46,6 +46,7 @@ import {
   defaultColorForKind,
   normalizeStamp,
   slotAriaLabel,
+  stampPaintLayout,
 } from "./tools.js";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
@@ -83,6 +84,7 @@ const els = {
   slotWidth: document.querySelector("#slot-width"),
   slotWidthRow: document.querySelector("#slot-width-row"),
   slotStamp: document.querySelector("#slot-stamp"),
+  stampPreview: document.querySelector("#stamp-preview"),
   stampPhrases: document.querySelector("#stamp-phrases"),
   eraserBtn: document.querySelector("#eraser-btn"),
   eraserPanel: document.querySelector("#eraser-panel"),
@@ -204,6 +206,8 @@ function drawStrokesOn(view, liveStroke = null) {
   let items = pageStrokes(view.pageNum);
   if (liveStroke && isStrokeErase(liveStroke)) {
     items = removeHitItems(items, liveStroke, cssWidth, cssHeight);
+  } else if (liveStroke && isPixelErase(liveStroke)) {
+    items = removeHitStamps(items, liveStroke, cssWidth, cssHeight);
   }
   for (const item of items) {
     paintItem(ctx, item, scale, canvas);
@@ -729,12 +733,9 @@ function endStroke(event) {
   if (view) {
     const cssWidth = view.cssWidth || Number.parseFloat(view.inkCanvas.style.width) || 0;
     const cssHeight = view.cssHeight || Number.parseFloat(view.inkCanvas.style.height) || 0;
-    if (isStrokeErase(live)) {
-      state.pages[String(state.drawPage)] = removeHitItems(pageStrokes(state.drawPage), live, cssWidth, cssHeight);
+    if (isStrokeErase(live) || isPixelErase(live)) {
+      state.pages[String(state.drawPage)] = applyEraserToInk(pageStrokes(state.drawPage), live, cssWidth, cssHeight);
     } else {
-      if (isPixelErase(live)) {
-        state.pages[String(state.drawPage)] = removeHitStamps(pageStrokes(state.drawPage), live, cssWidth, cssHeight);
-      }
       pageStrokes(state.drawPage).push(live);
     }
   } else {
@@ -902,12 +903,33 @@ function renderPalette(slot) {
   }
 }
 
+function paintStampPreview(label) {
+  const canvas = els.stampPreview;
+  if (!canvas) {
+    return;
+  }
+  const layout = stampPaintLayout(label, 1);
+  const pad = 16;
+  const cssWidth = Math.ceil(layout.radius * 2 + pad * 2);
+  const cssHeight = Math.ceil(layout.radius + layout.labelBottom + pad);
+  const dpr = window.devicePixelRatio || 1;
+  canvas.style.width = `${cssWidth}px`;
+  canvas.style.height = `${cssHeight}px`;
+  canvas.width = Math.round(cssWidth * dpr);
+  canvas.height = Math.round(cssHeight * dpr);
+  const ctx = canvas.getContext("2d");
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  const item = stampInkItem(label, 0.5, (pad + layout.radius) / cssHeight, -0.1);
+  paintStamp(ctx, item, dpr, canvas);
+}
+
 function syncStampPicker() {
   const slot = state.slots[state.editingSlot] || activeSlot();
   const label = normalizeStamp(slot.stamp);
   els.stampPhrases.querySelectorAll("button").forEach((btn) => {
     btn.classList.toggle("is-selected", btn.dataset.stamp === label);
   });
+  paintStampPreview(label);
 }
 
 function syncSlotEditor() {

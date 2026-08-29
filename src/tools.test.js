@@ -10,9 +10,12 @@ import {
   PENCIL_COLOR,
   SLOT_KINDS,
   STAMP_COLOR,
+  STAMP_LABEL_COLOR,
+  STAMP_LABEL_GAP_CSS,
   TOOLBAR_STAMP_CIRCLE,
   STAMP_DIAMETER_CSS,
   STAMP_LABELS,
+  stampPaintLayout,
   TOOLBAR_COLOR_CHIPS,
   colorInPalette,
   defaultColorForKind,
@@ -74,6 +77,10 @@ describe("스탬프", () => {
     assert.deepEqual(STAMP_LABELS, ["참 잘했어요", "반려", "승인", "진행해", "응아냐"]);
     assert.equal(STAMP_DIAMETER_CSS, 72);
     assert.equal(STAMP_COLOR, "#C42B2B");
+    assert.equal(STAMP_LABEL_COLOR, "#5C574E");
+    assert.equal(STAMP_LABEL_GAP_CSS, 8);
+    const layout = stampPaintLayout("참 잘했어요");
+    assert.ok(layout.labelTop >= layout.radius + layout.gap);
   });
 });
 
@@ -95,6 +102,7 @@ describe("toolbar", () => {
     assert.match(html, /data-kind="pencil">색연필/);
     assert.match(html, /data-kind="stamp">스탬프/);
     assert.match(html, /id="slot-stamp"/);
+    assert.match(html, /id="stamp-preview"/);
     assert.match(html, /id="stamp-phrases"/);
     assert.deepEqual(STAMP_LABELS, ["참 잘했어요", "반려", "승인", "진행해", "응아냐"]);
     assert.doesNotMatch(html, /스포이드|eyedropper/i);
@@ -124,5 +132,14 @@ describe("stamp persistence", () => {
     assert.match(main, /stampInkItem/);
     assert.match(main, /persistStrokes/);
     assert.doesNotMatch(main, /pdf-ink:stamp|loadStamp|saveStamp/);
+  });
+});
+
+describe("stamp erase path", () => {
+  it("applies pixel and stroke erasers through applyEraserToInk so stamps leave the layer", () => {
+    assert.match(main, /applyEraserToInk/);
+    assert.match(main, /removeHitStamps/);
+    assert.match(main, /paintStampPreview/);
+    assert.match(main, /paintStamp\(/);
   });
 });

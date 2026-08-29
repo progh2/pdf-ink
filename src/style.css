@@ -502,6 +502,12 @@ body {
   gap: 8px;
 }
 
+.stamp-preview {
+  display: block;
+  margin: 0 auto;
+  pointer-events: none;
+}
+
 .stamp-phrases {
   display: flex;
   flex-direction: column;
