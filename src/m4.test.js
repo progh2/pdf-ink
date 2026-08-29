@@ -21,9 +21,13 @@ describe("M4 #31 chrome", () => {
     assert.doesNotMatch(toolbar, /undo-btn|redo-btn|more-btn|interact-btn/);
     assert.match(html, /id="m4-bar"/);
     assert.match(html, /aria-label="되돌리기"/);
-    assert.match(html.slice(html.indexOf('id="m4-bar"'), html.indexOf('id="workspace"')), /id="redo-btn"/);
-    assert.match(html, /aria-label="되돌리기 취소"/);
-    assert.doesNotMatch(html.slice(html.indexOf('id="m4-bar"'), html.indexOf('id="workspace"')), /선택/);
+    const m4 = html.slice(html.indexOf('id="m4-bar"'), html.indexOf('id="workspace"'));
+    const header = html.slice(html.indexOf('class="write-top"'), html.indexOf('class="write-body"'));
+    assert.doesNotMatch(m4, /id="redo-btn"|선택/);
+    assert.match(m4, /id="more-btn"/);
+    assert.doesNotMatch(header, /undo-btn|more-btn/);
+    assert.match(header, /id="interact-btn"/);
+    assert.match(css, /\[data-toolbar="bottom"\] \.m4-rail \{[\s\S]*?bottom: 0/);
     assert.deepEqual(M4_OVERFLOW_ITEMS, ["mosaic", "capture", "fullscreen"]);
     assert.doesNotMatch(html, /data-more="select"|data-tool="select"/);
     assert.doesNotMatch(html, /이미지|회전|미리보기|책갈피/);
@@ -33,8 +37,8 @@ describe("M4 #31 chrome", () => {
     assert.match(css, /\.interact-lock \{[\s\S]*width: 32px;[\s\S]*color: #8a8478/);
     assert.match(css, /\.slot-panel \{[\s\S]*padding: 12px;[\s\S]*border: 1px solid #e6e1d6;[\s\S]*border-radius: 16px/);
     assert.match(css, /\.more-panel button \{[\s\S]*height: 44px/);
-    assert.match(main, /els\.undoBtn\.addEventListener\("click"/);
-    assert.match(main, /els\.redoBtn\.addEventListener\("click"/);
+    assert.match(main, /bindHold\(els\.undoBtn/);
+    assert.doesNotMatch(main, /redoBtn/);
   });
 
   it("does not persist undo or capture buffers, and writes clipboard only on confirm", () => {

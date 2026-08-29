@@ -81,7 +81,6 @@ const els = {
   zoomLockBtn: document.querySelector("#zoom-lock-btn"),
   interactBtn: document.querySelector("#interact-btn"),
   undoBtn: document.querySelector("#undo-btn"),
-  redoBtn: document.querySelector("#redo-btn"),
   moreBtn: document.querySelector("#more-btn"),
   morePanel: document.querySelector("#more-panel"),
   fullscreenItem: document.querySelector("#fullscreen-item"),
@@ -174,8 +173,7 @@ function persistStrokes() {
 }
 
 function syncHistoryButtons() {
-  els.undoBtn.disabled = !canUndo(state.history);
-  els.redoBtn.disabled = !canRedo(state.history);
+  els.undoBtn.disabled = !canUndo(state.history) && !canRedo(state.history);
 }
 
 function commitPageChange(pageNum, apply) {
@@ -1413,16 +1411,16 @@ function redoInk() {
 }
 
 function overflowSide() {
-  if (state.toolbarPos === "top") {
+  if (state.toolbarPos === "bottom") {
     return "above";
   }
-  if (state.toolbarPos === "left") {
-    return "left";
+  if (state.toolbarPos === "top") {
+    return "below";
   }
-  if (state.toolbarPos === "right") {
+  if (state.toolbarPos === "left") {
     return "right";
   }
-  return "below";
+  return "left";
 }
 
 function placeOverflowPanel() {
@@ -1933,8 +1931,10 @@ els.zoomLockBtn.addEventListener("click", () => {
 els.interactBtn.addEventListener("click", () => {
   setInteractMode(state.interactMode === "view" ? "edit" : "view");
 });
-els.undoBtn.addEventListener("click", () => undoInk());
-els.redoBtn.addEventListener("click", () => redoInk());
+bindHold(els.undoBtn, {
+  onShort: undoInk,
+  onLong: redoInk,
+});
 els.moreBtn.addEventListener("click", () => toggleMorePanel());
 document.querySelectorAll("#more-panel [data-more]").forEach((btn) => {
   btn.addEventListener("click", () => selectMoreAction(btn.dataset.more));
