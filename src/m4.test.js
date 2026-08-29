@@ -13,26 +13,27 @@ const history = readFileSync(join(root, "src/history.js"), "utf8");
 const capture = readFileSync(join(root, "src/capture.js"), "utf8");
 
 describe("M4 #31 chrome", () => {
-  it("keeps undo/overflow on the toolbar rail opposite the slot capsule", () => {
+  it("keeps undo/overflow inside the slot toolbar capsule opposite the 3 slots", () => {
     const rail = html.slice(html.indexOf('class="toolbar-rail"'), html.indexOf('id="workspace"'));
-    const toolbar = html.slice(html.indexOf('id="toolbar"'), html.indexOf('id="m4-bar"'));
-    const m4 = html.slice(html.indexOf('id="m4-bar"'), html.indexOf('id="workspace"'));
+    const toolbar = html.slice(html.indexOf('id="toolbar"'), html.indexOf('id="workspace"'));
     const header = html.slice(html.indexOf('class="write-top"'), html.indexOf('class="write-body"'));
-    assert.doesNotMatch(html, /class="m4-rail"|id="m4-rail"/);
+    assert.doesNotMatch(html, /class="m4-rail"|id="m4-rail"|id="m4-bar"/);
     assert.match(rail, /id="toolbar"/);
-    assert.match(rail, /id="m4-bar"/);
     assert.match(rail, /id="undo-btn"/);
     assert.match(rail, /id="more-btn"/);
+    assert.match(toolbar, /id="undo-btn"/);
+    assert.match(toolbar, /id="more-btn"/);
+    assert.ok(toolbar.indexOf('data-slot="0"') < toolbar.indexOf('id="undo-btn"'));
+    assert.ok(toolbar.indexOf('id="settings-btn"') < toolbar.indexOf('id="undo-btn"'));
+    assert.ok(toolbar.indexOf('id="undo-btn"') < toolbar.indexOf('id="more-btn"'));
     assert.equal((toolbar.match(/data-slot="/g) || []).length, 3);
     assert.match(toolbar, /id="eraser-btn"/);
     assert.match(toolbar, /id="settings-btn"/);
-    assert.doesNotMatch(toolbar, /id="undo-btn"|id="redo-btn"|id="more-btn"|interact-btn/);
+    assert.doesNotMatch(toolbar, /id="redo-btn"|interact-btn/);
     assert.match(html, /aria-label="되돌리기"/);
-    assert.doesNotMatch(m4, /id="redo-btn"|선택/);
-    assert.match(m4, /id="more-btn"/);
+    assert.doesNotMatch(html, /id="redo-btn"|data-more="select"/);
     assert.doesNotMatch(header, /undo-btn|more-btn/);
     assert.match(header, /id="interact-btn"/);
-    assert.match(css, /\.toolbar-rail \{[\s\S]*justify-content: space-between/);
     assert.deepEqual(M4_OVERFLOW_ITEMS, ["mosaic", "capture", "fullscreen"]);
     assert.doesNotMatch(html, /data-more="select"|data-tool="select"/);
     assert.doesNotMatch(html, /이미지|회전|미리보기|책갈피/);

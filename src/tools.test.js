@@ -28,8 +28,7 @@ import {
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const html = readFileSync(join(root, "index.html"), "utf8");
 const main = readFileSync(join(root, "src/main.js"), "utf8");
-const toolbar = html.slice(html.indexOf('id="toolbar"'), html.indexOf('id="m4-bar"'));
-const m4 = html.slice(html.indexOf('id="m4-bar"'), html.indexOf('id="workspace"'));
+const toolbar = html.slice(html.indexOf('id="toolbar"'), html.indexOf('id="workspace"'));
 const more = html.slice(html.indexOf('id="more-panel"'), html.indexOf('id="marquee"'));
 
 describe("pen palette", () => {
@@ -109,11 +108,11 @@ describe("toolbar", () => {
     assert.deepEqual(STAMP_LABELS, ["참 잘했어요", "반려", "승인", "진행해", "응아냐"]);
     assert.doesNotMatch(html, /스포이드|eyedropper/i);
     assert.deepEqual(SLOT_KINDS, ["pen", "highlighter", "pencil", "stamp"]);
-    assert.doesNotMatch(toolbar, /id="undo-btn"|id="redo-btn"|id="more-btn"/);
-    assert.match(m4, /id="undo-btn"/);
-    assert.doesNotMatch(m4, /id="redo-btn"/);
-    assert.match(m4, /id="more-btn"/);
-    assert.doesNotMatch(m4, /선택|select-btn|data-tool="select"/);
+    assert.match(toolbar, /id="undo-btn"/);
+    assert.match(toolbar, /id="more-btn"/);
+    assert.doesNotMatch(toolbar, /id="redo-btn"/);
+    assert.doesNotMatch(html, /id="m4-bar"|id="m4-rail"/);
+    assert.doesNotMatch(toolbar, /선택|select-btn|data-tool="select"/);
     assert.match(more, /마스킹\(모자이크\)/);
     assert.match(more, /영역캡처/);
     assert.match(more, /전체화면/);
