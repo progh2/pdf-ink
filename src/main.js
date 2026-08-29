@@ -207,6 +207,37 @@ let ignoreAfterPinch = false;
 let ignoreAfterPanel = false;
 let captureConfirmArmedAt = 0;
 let renderGen = 0;
+let paperScrollHold = null;
+
+const WRITE_CHROME =
+  ".sheet-card, .slot-panel, .toolbar, .write-top, .m4-bar, .more-panel, .marquee, .preview-drawer, .select-hud, .float-bar, #float-bar";
+
+function isWriteChrome(target) {
+  return Boolean(target?.closest?.(WRITE_CHROME));
+}
+
+function holdPaperScroll() {
+  paperScrollHold = {
+    left: els.workspace.scrollLeft,
+    top: els.workspace.scrollTop,
+  };
+}
+
+function releasePaperScroll() {
+  paperScrollHold = null;
+}
+
+function restoreHeldPaperScroll() {
+  if (!paperScrollHold) {
+    return false;
+  }
+  const { left, top } = paperScrollHold;
+  if (els.workspace.scrollLeft !== left || els.workspace.scrollTop !== top) {
+    els.workspace.scrollLeft = left;
+    els.workspace.scrollTop = top;
+  }
+  return true;
+}
 
 function activeSlot() {
   return state.slots[state.slotIndex] || state.slots[0];
@@ -942,6 +973,7 @@ function overlayOpen() {
 
 function abortStroke() {
   state.pendingStamp = null;
+  releasePaperScroll();
   if (state.currentRect) {
     hideMarquee();
   }
@@ -979,6 +1011,7 @@ function startStroke(event, stage) {
   } catch {
     // Capture is optional; some synthetic/test pointers reject it.
   }
+  holdPaperScroll();
   const view = state.pageViews.find((item) => item.stage === stage);
   const point = eventToNorm(event, ink);
   state.drawPage = Number(stage.dataset.page) || state.page;
@@ -1027,6 +1060,7 @@ function endStroke(event) {
       placeStamp(view, state.pendingStamp.point);
     }
     state.pendingStamp = null;
+    releasePaperScroll();
     return;
   }
   if (!state.drawing || !state.currentStroke) {
@@ -1065,6 +1099,7 @@ function endStroke(event) {
   });
   state.currentStroke = null;
   state.drawing = false;
+  releasePaperScroll();
   drawLive();
 }
 
@@ -2421,6 +2456,7 @@ function onWorkspacePointerDown(event) {
   pointers.set(event.pointerId, { x: event.clientX, y: event.clientY, type: event.pointerType });
 
   if (pointers.size >= 2) {
+    event.preventDefault();
     startPinch();
     return;
   }
@@ -2454,6 +2490,7 @@ function onWorkspacePointerDown(event) {
     return;
   }
   if (allowsInkPointer(event)) {
+    event.preventDefault();
     startStroke(event, stage);
   }
 }
@@ -2939,6 +2976,9 @@ els.workspace.addEventListener("pointermove", onWorkspacePointerMove);
 els.workspace.addEventListener("pointerup", onWorkspacePointerUp);
 els.workspace.addEventListener("pointercancel", onWorkspacePointerUp);
 els.workspace.addEventListener("scroll", () => {
+  if (restoreHeldPaperScroll()) {
+    return;
+  }
   if (state.viewMode !== "scroll") {
     return;
   }
@@ -2946,16 +2986,15 @@ els.workspace.addEventListener("scroll", () => {
   renderVisiblePages();
 });
 
-els.writeScreen.addEventListener(
-  "touchmove",
-  (event) => {
-    if (event.target.closest(".sheet-card, .slot-panel, .toolbar, .write-top, .m4-bar, .more-panel, .marquee, .preview-drawer, .select-hud, .float-bar, #float-bar")) {
-      return;
-    }
-    event.preventDefault();
-  },
-  { passive: false },
-);
+function preventWriteSurfaceTouch(event) {
+  if (isWriteChrome(event.target)) {
+    return;
+  }
+  event.preventDefault();
+}
+
+els.writeScreen.addEventListener("touchstart", preventWriteSurfaceTouch, { passive: false });
+els.writeScreen.addEventListener("touchmove", preventWriteSurfaceTouch, { passive: false });
 
 document.addEventListener("pointerdown", (event) => {
   if (event.target.closest(".slot-panel, [data-slot], #eraser-btn, #more-btn, .m4-bar, .marquee, .select-hud, .float-bar, #float-bar, .preview-drawer")) {

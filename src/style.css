@@ -403,12 +403,15 @@ body {
   padding: 8px 12px;
   overflow: hidden;
   touch-action: none;
+  overscroll-behavior: none;
 }
 
 .write-screen[data-view="scroll"] .workspace {
   align-items: flex-start;
   justify-content: center;
   overflow: auto;
+  touch-action: none;
+  overscroll-behavior: none;
 }
 
 .viewport {
@@ -439,17 +442,20 @@ body {
   background: var(--paper);
   box-shadow: 0 8px 18px rgba(40, 32, 22, 0.08);
   touch-action: none;
+  overscroll-behavior: none;
 }
 
 .page-stage canvas {
   display: block;
   touch-action: none;
+  overscroll-behavior: none;
 }
 
 .ink-canvas {
   position: absolute;
   inset: 0;
   touch-action: none;
+  overscroll-behavior: none;
   cursor: crosshair;
 }
 
