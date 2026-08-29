@@ -130,7 +130,8 @@ const els = {
   captureConfirm: document.querySelector("#capture-confirm"),
   selectLayer: document.querySelector("#select-layer"),
   selectBox: document.querySelector("#select-box"),
-  selectHud: document.querySelector("#select-hud"),
+  floatBar: document.querySelector("#float-bar"),
+  selectHud: document.querySelector("#float-bar"),
   copyBtn: document.querySelector("#copy-btn"),
   pasteBtn: document.querySelector("#paste-btn"),
   cropBtn: document.querySelector("#crop-btn"),
@@ -1207,7 +1208,9 @@ function hideSelectUi() {
     return;
   }
   els.selectLayer.hidden = true;
-  els.selectHud.hidden = true;
+  if (els.floatBar) {
+    els.floatBar.hidden = true;
+  }
 }
 
 function closeAllPanels() {
@@ -1500,7 +1503,10 @@ function placeSelectBox(view, rect) {
 }
 
 function placeSelectHud(view, rect) {
-  els.selectHud.hidden = false;
+  if (!els.floatBar) {
+    return;
+  }
+  els.floatBar.hidden = false;
   let left = 12;
   let top = 56;
   if (view && rect) {
@@ -1508,13 +1514,14 @@ function placeSelectHud(view, rect) {
     left = box.left + rect.x * box.width;
     top = box.top + (rect.y + rect.h) * box.height + 8;
   }
-  const width = els.selectHud.offsetWidth || 220;
-  els.selectHud.style.left = `${Math.min(window.innerWidth - width - 8, Math.max(8, left))}px`;
-  els.selectHud.style.top = `${Math.min(window.innerHeight - 48, Math.max(8, top))}px`;
+  const width = els.floatBar.offsetWidth || 220;
+  const height = els.floatBar.offsetHeight || 56;
+  els.floatBar.style.left = `${Math.min(window.innerWidth - width - 8, Math.max(8, left))}px`;
+  els.floatBar.style.top = `${Math.min(window.innerHeight - height - 8, Math.max(8, top))}px`;
 }
 
 function syncSelectHud() {
-  if (!els.selectHud) {
+  if (!els.floatBar || !els.selectLayer) {
     return;
   }
   if (state.tool !== "select" || state.interactMode === "view" || els.writeScreen.hidden) {
@@ -1530,6 +1537,8 @@ function syncSelectHud() {
     hideSelectUi();
     return;
   }
+  els.selectLayer.hidden = false;
+  els.floatBar.hidden = false;
   els.cropBtn.hidden = !image || cropping;
   els.lockBtn.hidden = !image || cropping;
   els.lockBtn.classList.toggle("is-on", Boolean(image?.locked));
@@ -1545,11 +1554,15 @@ function syncSelectHud() {
     return;
   }
   const bounds = selectedBounds(items, state.selectIndices, view?.cssWidth || 400, view?.cssHeight || 600);
-  if (!bounds || !view) {
+  if (!bounds) {
     hideSelectUi();
     return;
   }
-  placeSelectBox(view, bounds);
+  els.selectLayer.hidden = false;
+  els.floatBar.hidden = false;
+  if (view) {
+    placeSelectBox(view, bounds);
+  }
   placeSelectHud(view, bounds);
 }
 
@@ -1774,8 +1787,12 @@ function endSelect(event) {
   const view = state.pageViews.find((item) => item.pageNum === drag.page);
   if (drag.mode === "marquee") {
     const rect = rectFromPoints(drag.a, drag.b);
-    if (rectBigEnough(rect) && view) {
-      state.selectIndices = pickItemsInRect(pageStrokes(drag.page), rect, view.cssWidth, view.cssHeight);
+    const cssW = view?.cssWidth || 400;
+    const cssH = view?.cssHeight || 600;
+    if (rectBigEnough(rect)) {
+      state.selectIndices = pickItemsInRect(pageStrokes(drag.page), rect, cssW, cssH);
+    } else {
+      state.selectIndices = pickItemsAt(pageStrokes(drag.page), drag.a, cssW, cssH);
     }
     hideMarquee();
     state.selectDrag = null;
@@ -2391,13 +2408,13 @@ function onWorkspacePointerDown(event) {
     return;
   }
   if (overlayOpen()) {
-    if (!event.target.closest(".slot-panel, .sheet-card, .toolbar, .write-top, .m4-bar, .more-panel, .preview-drawer, .select-hud")) {
+    if (!event.target.closest(".slot-panel, .sheet-card, .toolbar, .write-top, .m4-bar, .more-panel, .preview-drawer, .select-hud, .float-bar, #float-bar")) {
       closeAllPanels();
       ignoreAfterPanel = true;
     }
     return;
   }
-  if (event.target.closest(".toolbar, .write-top, .sheet, .slot-panel, .m4-bar, .more-panel, .marquee, .preview-drawer, .select-hud")) {
+  if (event.target.closest(".toolbar, .write-top, .sheet, .slot-panel, .m4-bar, .more-panel, .marquee, .preview-drawer, .select-hud, .float-bar, #float-bar")) {
     return;
   }
 
@@ -2427,13 +2444,13 @@ function onWorkspacePointerDown(event) {
     }
     return;
   }
-  if (skipClickThrough) {
-    return;
-  }
   if (state.tool === "select") {
     if (allowsSelectPointer(event)) {
       startSelect(event, stage);
     }
+    return;
+  }
+  if (skipClickThrough) {
     return;
   }
   if (allowsInkPointer(event)) {
@@ -2932,7 +2949,7 @@ els.workspace.addEventListener("scroll", () => {
 els.writeScreen.addEventListener(
   "touchmove",
   (event) => {
-    if (event.target.closest(".sheet-card, .slot-panel, .toolbar, .write-top, .m4-bar, .more-panel, .marquee, .preview-drawer, .select-hud")) {
+    if (event.target.closest(".sheet-card, .slot-panel, .toolbar, .write-top, .m4-bar, .more-panel, .marquee, .preview-drawer, .select-hud, .float-bar, #float-bar")) {
       return;
     }
     event.preventDefault();
@@ -2941,7 +2958,7 @@ els.writeScreen.addEventListener(
 );
 
 document.addEventListener("pointerdown", (event) => {
-  if (event.target.closest(".slot-panel, [data-slot], #eraser-btn, #more-btn, .m4-bar, .marquee, .select-hud, .preview-drawer")) {
+  if (event.target.closest(".slot-panel, [data-slot], #eraser-btn, #more-btn, .m4-bar, .marquee, .select-hud, .float-bar, #float-bar, .preview-drawer")) {
     return;
   }
   closeAllPanels();

@@ -9,6 +9,9 @@ export function isSelectable(item) {
   if (item.erase || item.type === "erase") {
     return false;
   }
+  if (item.type === "image" && item.locked) {
+    return false;
+  }
   return true;
 }
 

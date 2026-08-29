@@ -57,7 +57,7 @@ describe("M4 #25 chrome", () => {
     assert.match(css, /\.preview-drawer \{[\s\S]*width: 120px/);
     assert.match(css, /\.preview-thumb \{[\s\S]*width: 88px/);
     assert.match(css, /\.preview-list \{[\s\S]*gap: 8px/);
-    assert.match(css, /\.select-hud button \{[\s\S]*height: 44px/);
+    assert.match(css, /\.select-hud button,[\s\S]*\.float-bar button \{[\s\S]*height: 44px/);
     assert.equal(IMAGE_HANDLE_CSS, 8);
     assert.match(css, /\.select-handle \{[\s\S]*width: 8px;[\s\S]*height: 8px/);
     assert.match(main, /insertOutlineAfter/);
@@ -65,6 +65,23 @@ describe("M4 #25 chrome", () => {
     assert.doesNotMatch(main.slice(main.indexOf("function redoInk"), main.indexOf("function overflowSide")), /showUploadScreen|pages\s*=\s*\{\}/);
     assert.match(main, /bindUndoHold\(els\.undoBtn/);
     assert.match(main, /function redoInk/);
+  });
+
+  it("unhides select-layer and float-bar when select indices exist", () => {
+    assert.match(html, /id="select-layer"/);
+    assert.match(html, /id="float-bar"/);
+    assert.match(html, /id="copy-btn">복사/);
+    assert.match(html, /id="paste-btn">붙여넣기/);
+    assert.doesNotMatch(toolbar, /id="select-btn"|data-tool="select"/);
+    assert.doesNotMatch(html, /id="select-btn"/);
+    assert.match(css, /\.select-layer \{[\s\S]*z-index: 8/);
+    assert.match(css, /\.float-bar \{[\s\S]*z-index: 8/);
+    assert.match(css, /\.float-bar button \{[\s\S]*height: 44px/);
+    assert.match(main, /if \(!state\.selectIndices\.length && !cropping\)/);
+    assert.match(main, /els\.selectLayer\.hidden = false/);
+    assert.match(main, /els\.floatBar\.hidden = false/);
+    assert.match(main, /els\.cropBtn\.hidden = !image \|\| cropping/);
+    assert.match(main, /els\.lockBtn\.hidden = !image \|\| cropping/);
   });
 
   it("rejects SVG and never reads the clipboard", () => {

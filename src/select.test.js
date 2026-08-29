@@ -29,6 +29,8 @@ describe("선택", () => {
     assert.equal(isSelectable(stroke), true);
     assert.equal(isSelectable(stamp), true);
     assert.equal(isSelectable(erase), false);
+    assert.equal(isSelectable({ type: "image", locked: true }), false);
+    assert.equal(isSelectable({ type: "image", locked: false }), true);
   });
 
   it("grabs a stroke or stamp at a point and in a box", () => {

@@ -652,7 +652,7 @@ body {
 .select-layer {
   position: fixed;
   inset: 0;
-  z-index: 6;
+  z-index: 8;
   pointer-events: none;
 }
 
@@ -699,7 +699,8 @@ body {
   display: none;
 }
 
-.select-hud {
+.select-hud,
+.float-bar {
   position: fixed;
   z-index: 8;
   display: flex;
@@ -711,7 +712,8 @@ body {
   box-shadow: 0 8px 18px rgba(40, 32, 22, 0.1);
 }
 
-.select-hud button {
+.select-hud button,
+.float-bar button {
   height: 44px;
   padding: 0 12px;
   border: 0;
