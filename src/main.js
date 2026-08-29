@@ -36,6 +36,7 @@ import {
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
 
 const LONG_PRESS_MS = 450;
+const SLOT_PRESS_SLOP = 24;
 const SLOT_LABELS = ["검정", "빨강", "파랑", "노랑"];
 
 const els = {
@@ -1007,42 +1008,97 @@ function bindSlot(btn) {
   let longPress = false;
   let startX = 0;
   let startY = 0;
+  let active = false;
+  let pointerId = null;
 
-  const cancel = () => {
+  const clearTimer = () => {
     window.clearTimeout(timer);
     timer = 0;
+  };
+
+  const detachLift = () => {
+    window.removeEventListener("pointerup", onLift, true);
+    window.removeEventListener("pointercancel", onPointerCancel, true);
+    window.removeEventListener("touchend", onLift, true);
+  };
+
+  const stopPress = () => {
+    clearTimer();
+    active = false;
+    pointerId = null;
+    detachLift();
+  };
+
+  const samePointer = (event) =>
+    event.pointerId == null || pointerId == null || event.pointerId === pointerId;
+
+  const onLift = (event) => {
+    if (!active || !samePointer(event)) {
+      return;
+    }
+    const wasLong = longPress;
+    stopPress();
+    if (wasLong) {
+      return;
+    }
+    if (state.tool === "pen" && state.slotIndex === index) {
+      openSlotEditor(index, btn);
+      return;
+    }
+    selectSlot(index);
+  };
+
+  const onPointerCancel = (event) => {
+    if (!active || !samePointer(event)) {
+      return;
+    }
+    // Browser often cancels a touch pointer for the context menu while the
+    // finger is still down. Keep the long-press timer in that case.
+    if (event.buttons > 0 || event.pointerType !== "mouse") {
+      return;
+    }
+    stopPress();
   };
 
   btn.addEventListener("pointerdown", (event) => {
     if (event.button !== undefined && event.button !== 0) {
       return;
     }
+    event.preventDefault();
+    try {
+      btn.setPointerCapture(event.pointerId);
+    } catch {
+      // Capture is optional; some synthetic pointers reject it.
+    }
+    active = true;
+    pointerId = event.pointerId;
     longPress = false;
     startX = event.clientX;
     startY = event.clientY;
-    cancel();
+    clearTimer();
+    detachLift();
+    window.addEventListener("pointerup", onLift, true);
+    window.addEventListener("pointercancel", onPointerCancel, true);
+    window.addEventListener("touchend", onLift, true);
     timer = window.setTimeout(() => {
+      if (!active) {
+        return;
+      }
       longPress = true;
       openSlotEditor(index, btn);
     }, LONG_PRESS_MS);
   });
   btn.addEventListener("pointermove", (event) => {
-    if (timer && Math.hypot(event.clientX - startX, event.clientY - startY) > 10) {
-      cancel();
+    if (!active || !timer || !samePointer(event)) {
+      return;
+    }
+    if (Math.hypot(event.clientX - startX, event.clientY - startY) > SLOT_PRESS_SLOP) {
+      clearTimer();
     }
   });
-  const finish = () => {
-    const wasLong = longPress;
-    cancel();
-    if (!wasLong) {
-      selectSlot(index);
-    }
-  };
-  btn.addEventListener("pointerup", finish);
-  btn.addEventListener("pointercancel", cancel);
-  btn.addEventListener("pointerleave", cancel);
   btn.addEventListener("contextmenu", (event) => {
     event.preventDefault();
+    event.stopPropagation();
   });
 }
 
