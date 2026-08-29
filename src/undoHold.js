@@ -1,4 +1,4 @@
-export const UNDO_HOLD_MS = 450;
+export const UNDO_HOLD_MS = 400;
 
 function defaultNow() {
   return typeof performance !== "undefined" ? performance.now() : Date.now();
