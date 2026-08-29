@@ -27,75 +27,131 @@
         </div>
       </section>
 
-      <section class="write-screen" id="write-screen" hidden>
+      <section class="write-screen" id="write-screen" hidden data-toolbar="top" data-view="page">
         <div class="write-top">
           <button type="button" class="other-pdf" id="other-pdf">다른 PDF</button>
           <h1 class="doc-title" id="doc-title"></h1>
-        </div>
-        <div class="workspace">
-          <div class="page-stage" id="page-stage">
-            <canvas id="pdf-canvas"></canvas>
-            <canvas id="ink-canvas"></canvas>
+          <div class="write-top-end">
+            <button type="button" class="zoom-lock" id="zoom-lock-btn" aria-label="배율 고정" aria-pressed="false">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <rect x="6" y="11" width="12" height="9" rx="1.6" fill="none" stroke="currentColor" stroke-width="1.8" />
+                <path d="M8.5 11V8.4a3.5 3.5 0 0 1 7 0V11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+              </svg>
+            </button>
+            <span class="page-label" id="page-label">1 / 1</span>
           </div>
         </div>
 
-        <div class="toolbar" id="toolbar">
-          <button type="button" class="tool is-selected" data-tool="pen" aria-label="펜">
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path
-                d="M14.7 4.3a2 2 0 0 1 2.8 2.8l-10 10-3.2.8.8-3.2 10-10z"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="1.8"
-                stroke-linejoin="round"
-              />
-            </svg>
-          </button>
-          <button type="button" class="tool" data-tool="eraser" aria-label="지우개">
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path
-                d="M6.2 13.2 12.8 6.6a2 2 0 0 1 2.8 0l2 2a2 2 0 0 1 0 2.8l-7.4 7.4H6.2l-2-2a2 2 0 0 1 0-2.8l2-2z"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="1.8"
-                stroke-linejoin="round"
-              />
-              <path d="M9 20h10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
-            </svg>
-          </button>
-          <button type="button" class="tool swatch is-selected" data-color="#1A1A1A" aria-label="검정"></button>
-          <button type="button" class="tool swatch" data-color="#D64545" aria-label="빨강"></button>
-          <button type="button" class="tool swatch" data-color="#2F6FED" aria-label="파랑"></button>
-          <button type="button" class="tool swatch" data-color="#E6C200" aria-label="노랑"></button>
-          <button type="button" class="tool width-btn" data-width="2" aria-label="얇게">
-            <span class="width-dot"></span>
-          </button>
-          <button type="button" class="tool width-btn" data-width="4" aria-label="중간">
-            <span class="width-dot"></span>
-          </button>
-          <button type="button" class="tool width-btn" data-width="8" aria-label="굵게">
-            <span class="width-dot"></span>
-          </button>
-          <button type="button" class="tool" id="prev-btn" aria-label="이전 페이지">
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M14.5 6 8.5 12l6 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
-            </svg>
-          </button>
-          <button type="button" class="tool" id="next-btn" aria-label="다음 페이지">
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M9.5 6 15.5 12l-6 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
-            </svg>
-          </button>
-          <span class="page-label" id="page-label">1 / 1</span>
-          <span class="toolbar-rule" aria-hidden="true"></span>
-          <button type="button" class="pen-only" id="pen-only-btn" aria-label="펜만" aria-pressed="false">
-            <span class="pen-only-label">펜만</span>
-            <span class="pen-only-track" aria-hidden="true">
-              <span class="pen-only-knob"></span>
-            </span>
-          </button>
+        <div class="write-body">
+          <div class="toolbar-rail">
+            <div class="toolbar" id="toolbar">
+              <button type="button" class="tool slot is-selected" data-slot="0" aria-label="슬롯 1">
+                <span class="slot-mark">
+                  <span class="slot-ring"></span>
+                  <span class="slot-dot"></span>
+                </span>
+              </button>
+              <button type="button" class="tool slot" data-slot="1" aria-label="슬롯 2">
+                <span class="slot-mark">
+                  <span class="slot-ring"></span>
+                  <span class="slot-dot"></span>
+                </span>
+              </button>
+              <button type="button" class="tool slot" data-slot="2" aria-label="슬롯 3">
+                <span class="slot-mark">
+                  <span class="slot-ring"></span>
+                  <span class="slot-dot"></span>
+                </span>
+              </button>
+              <button type="button" class="tool" data-tool="eraser" aria-label="지우개">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    d="M6.2 13.2 12.8 6.6a2 2 0 0 1 2.8 0l2 2a2 2 0 0 1 0 2.8l-7.4 7.4H6.2l-2-2a2 2 0 0 1 0-2.8l2-2z"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linejoin="round"
+                  />
+                  <path d="M9 20h10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+                </svg>
+              </button>
+              <button type="button" class="tool" id="prev-btn" aria-label="이전 페이지">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M14.5 6 8.5 12l6 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+              </button>
+              <button type="button" class="tool" id="next-btn" aria-label="다음 페이지">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M9.5 6 15.5 12l-6 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+              </button>
+              <button type="button" class="tool" id="settings-btn" aria-label="설정">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.8" />
+                  <path
+                    d="M12 4.5v1.6M12 17.9v1.6M4.5 12h1.6M17.9 12h1.6M6.4 6.4l1.1 1.1M16.5 16.5l1.1 1.1M6.4 17.6l1.1-1.1M16.5 7.5l1.1-1.1"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                  />
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="workspace" id="workspace">
+            <div class="viewport" id="viewport">
+              <div class="page-stack" id="page-stack"></div>
+            </div>
+          </div>
         </div>
       </section>
+
+      <div class="slot-panel" id="slot-panel" hidden>
+        <div class="slot-colors" id="slot-colors">
+          <button type="button" class="slot-color" data-color="#1A1A1A" aria-label="검정"></button>
+          <button type="button" class="slot-color" data-color="#D64545" aria-label="빨강"></button>
+          <button type="button" class="slot-color" data-color="#2F6FED" aria-label="파랑"></button>
+          <button type="button" class="slot-color" data-color="#E6C200" aria-label="노랑"></button>
+        </div>
+        <div class="slot-width-row">
+          <input id="slot-width" type="range" min="1" max="10" step="1" aria-label="굵기" />
+        </div>
+      </div>
+
+      <div class="sheet" id="settings-sheet" hidden>
+        <button type="button" class="sheet-backdrop" id="settings-backdrop" aria-label="설정 닫기"></button>
+        <div class="sheet-card" role="dialog" aria-labelledby="settings-title">
+          <h2 id="settings-title">설정</h2>
+          <div class="setting-block">
+            <p class="setting-label">툴바 위치</p>
+            <div class="choice-row choice-4" id="toolbar-pos-choices">
+              <button type="button" data-pos="top">위</button>
+              <button type="button" data-pos="left">왼</button>
+              <button type="button" data-pos="right">오</button>
+              <button type="button" data-pos="bottom">아래</button>
+            </div>
+          </div>
+          <div class="setting-block">
+            <p class="setting-label">보기</p>
+            <div class="choice-row choice-2" id="view-mode-choices">
+              <button type="button" data-view="page">페이지</button>
+              <button type="button" data-view="scroll">세로 스크롤</button>
+            </div>
+          </div>
+          <div class="setting-block setting-switch">
+            <span class="setting-label-inline">펜만</span>
+            <button type="button" class="pen-only" id="pen-only-btn" aria-label="펜만" aria-pressed="false">
+              <span class="pen-only-label">펜만</span>
+              <span class="pen-only-track" aria-hidden="true">
+                <span class="pen-only-knob"></span>
+              </span>
+            </button>
+          </div>
+          <button type="button" class="sheet-done" id="settings-done">확인</button>
+        </div>
+      </div>
     </div>
     <script type="module" src="/src/main.js"></script>
   </body>
