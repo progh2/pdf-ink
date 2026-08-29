@@ -32,10 +32,14 @@
           <button type="button" class="other-pdf" id="other-pdf">다른 PDF</button>
           <h1 class="doc-title" id="doc-title"></h1>
           <div class="write-top-end">
-            <button type="button" class="zoom-lock" id="zoom-lock-btn" aria-label="배율 고정" aria-pressed="false">
-              <svg viewBox="0 0 24 24" aria-hidden="true">
+            <button type="button" class="interact-lock" id="interact-btn" aria-label="편집" aria-pressed="false">
+              <svg class="lock-closed" viewBox="0 0 24 24" aria-hidden="true">
                 <rect x="6" y="11" width="12" height="9" rx="1.6" fill="none" stroke="currentColor" stroke-width="1.8" />
                 <path d="M8.5 11V8.4a3.5 3.5 0 0 1 7 0V11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+              </svg>
+              <svg class="lock-open" viewBox="0 0 24 24" aria-hidden="true" hidden>
+                <rect x="6" y="11" width="12" height="9" rx="1.6" fill="none" stroke="currentColor" stroke-width="1.8" />
+                <path d="M15.5 11V8.4a3.5 3.5 0 0 0-7 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
               </svg>
             </button>
             <span class="page-label" id="page-label">1 / 1</span>
@@ -95,6 +99,24 @@
             </div>
           </div>
 
+          <div class="m4-rail" id="m4-rail">
+            <div class="toolbar m4-bar" id="m4-bar">
+              <button type="button" class="tool" id="undo-btn" aria-label="되돌리기" disabled>
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M8 8H5.5a.5.5 0 0 0-.5.5V11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+                  <path d="M6 9.5c1.6-2.6 4.4-4 7.4-3.6 3.4.4 6 3.2 6.2 6.6.2 3.6-2.5 6.8-6 7.4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+                </svg>
+              </button>
+              <button type="button" class="tool" id="more-btn" aria-label="더보기">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <circle cx="6.5" cy="12" r="1.4" fill="currentColor" />
+                  <circle cx="12" cy="12" r="1.4" fill="currentColor" />
+                  <circle cx="17.5" cy="12" r="1.4" fill="currentColor" />
+                </svg>
+              </button>
+            </div>
+          </div>
+
           <div class="workspace" id="workspace">
             <div class="viewport" id="viewport">
               <div class="page-stack" id="page-stack"></div>
@@ -121,6 +143,17 @@
         <div class="slot-width-row" id="slot-width-row">
           <input id="slot-width" type="range" min="1" max="10" step="1" aria-label="굵기" />
         </div>
+      </div>
+
+      <div class="slot-panel more-panel" id="more-panel" hidden>
+        <button type="button" data-more="mosaic">마스킹(모자이크)</button>
+        <button type="button" data-more="capture">영역캡처</button>
+        <button type="button" data-more="fullscreen" id="fullscreen-item">전체화면</button>
+      </div>
+
+      <div class="marquee" id="marquee" hidden>
+        <div class="marquee-box" id="marquee-box"></div>
+        <button type="button" class="marquee-confirm" id="capture-confirm" hidden>복사</button>
       </div>
 
       <div class="slot-panel eraser-panel" id="eraser-panel" hidden>
@@ -157,6 +190,15 @@
             <span class="setting-label-inline">펜만</span>
             <button type="button" class="pen-only" id="pen-only-btn" aria-label="펜만" aria-pressed="false">
               <span class="pen-only-label">펜만</span>
+              <span class="pen-only-track" aria-hidden="true">
+                <span class="pen-only-knob"></span>
+              </span>
+            </button>
+          </div>
+          <div class="setting-block setting-switch">
+            <span class="setting-label-inline">배율 고정</span>
+            <button type="button" class="pen-only" id="zoom-lock-btn" aria-label="배율 고정" aria-pressed="false">
+              <span class="pen-only-label">고정</span>
               <span class="pen-only-track" aria-hidden="true">
                 <span class="pen-only-knob"></span>
               </span>

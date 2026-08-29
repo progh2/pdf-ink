@@ -165,27 +165,27 @@ body {
   margin-left: auto;
 }
 
-.zoom-lock {
+.interact-lock {
   width: 32px;
   height: 32px;
   padding: 0;
   border: 0;
   border-radius: 10px;
   background: transparent;
-  color: var(--muted);
+  color: #8a8478;
   display: grid;
   place-items: center;
   cursor: pointer;
 }
 
-.zoom-lock svg {
+.interact-lock svg {
   width: 20px;
   height: 20px;
 }
 
-.zoom-lock.is-on {
+.interact-lock.is-on {
   background: var(--selected);
-  color: var(--ink);
+  color: #8a8478;
 }
 
 .page-label {
@@ -249,6 +249,55 @@ body {
 
 .write-screen[data-toolbar="right"] .toolbar-rail {
   right: 0;
+}
+
+.m4-rail {
+  position: absolute;
+  z-index: 4;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 8px;
+  pointer-events: none;
+}
+
+.write-screen[data-toolbar="bottom"] .m4-rail {
+  top: 0;
+  left: 0;
+  right: 0;
+}
+
+.write-screen[data-toolbar="top"] .m4-rail {
+  bottom: 0;
+  left: 0;
+  right: 0;
+}
+
+.write-screen[data-toolbar="left"] .m4-rail {
+  top: 0;
+  right: 0;
+  bottom: 0;
+}
+
+.write-screen[data-toolbar="right"] .m4-rail {
+  top: 0;
+  left: 0;
+  bottom: 0;
+}
+
+.m4-bar {
+  pointer-events: auto;
+}
+
+.write-screen[data-toolbar="left"] .m4-bar,
+.write-screen[data-toolbar="right"] .m4-bar {
+  flex-direction: column;
+  width: 56px;
+  height: auto;
+}
+
+.write-screen.is-fullscreen .write-top {
+  display: none;
 }
 
 .toolbar {
@@ -406,6 +455,16 @@ body {
   cursor: crosshair;
 }
 
+.mask-canvas {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.write-screen[data-interact="view"] .ink-canvas {
+  cursor: grab;
+}
+
 .slot-panel {
   position: fixed;
   z-index: 8;
@@ -527,6 +586,54 @@ body {
 
 .stamp-phrases button.is-selected {
   background: #ede8dc;
+}
+
+.more-panel {
+  width: 240px;
+  gap: 8px;
+}
+
+.more-panel button {
+  height: 44px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--title);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.more-panel button.is-selected {
+  background: var(--selected);
+}
+
+.marquee {
+  position: fixed;
+  inset: 0;
+  z-index: 7;
+  pointer-events: none;
+}
+
+.marquee-box {
+  position: absolute;
+  border: 1.5px dashed #5c574e;
+  background: rgba(255, 255, 255, 0.12);
+  box-sizing: border-box;
+}
+
+.marquee-confirm {
+  position: absolute;
+  height: 36px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+  pointer-events: auto;
+  cursor: pointer;
 }
 
 .slot-opacity-row input[type="range"],

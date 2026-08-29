@@ -14,6 +14,7 @@ const SLOTS_KEY = "pdf-ink:pen-slots";
 const SLOT_INDEX_KEY = "pdf-ink:slot-index";
 const VIEW_MODE_KEY = "pdf-ink:view-mode";
 const ZOOM_LOCK_KEY = "pdf-ink:zoom-lock";
+const INTERACT_KEY = "pdf-ink:interact-mode";
 const ERASER_KEY = "pdf-ink:eraser";
 
 export const DEFAULT_SLOTS = [
@@ -121,6 +122,14 @@ export function loadZoomLock() {
 
 export function saveZoomLock(on) {
   writeRaw(ZOOM_LOCK_KEY, on ? "1" : "0");
+}
+
+export function loadInteractMode() {
+  return readRaw(INTERACT_KEY) === "view" ? "view" : "edit";
+}
+
+export function saveInteractMode(mode) {
+  writeRaw(INTERACT_KEY, mode === "view" ? "view" : "edit");
 }
 
 export function coerceEraser(value) {
