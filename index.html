@@ -63,7 +63,10 @@
                   <span class="slot-dot"></span>
                 </span>
               </button>
-              <button type="button" class="tool" data-tool="eraser" aria-label="지우개">
+              <button type="button" class="tool stamp-tool" id="stamp-btn" aria-label="스탬프">
+                <span class="stamp-mini"></span>
+              </button>
+              <button type="button" class="tool" id="eraser-btn" data-tool="eraser" aria-label="지우개">
                 <svg viewBox="0 0 24 24" aria-hidden="true">
                   <path
                     d="M6.2 13.2 12.8 6.6a2 2 0 0 1 2.8 0l2 2a2 2 0 0 1 0 2.8l-7.4 7.4H6.2l-2-2a2 2 0 0 1 0-2.8l2-2z"
@@ -104,14 +107,31 @@
       </section>
 
       <div class="slot-panel" id="slot-panel" hidden>
-        <div class="slot-colors" id="slot-colors">
-          <button type="button" class="slot-color" data-color="#1A1A1A" aria-label="검정"></button>
-          <button type="button" class="slot-color" data-color="#D64545" aria-label="빨강"></button>
-          <button type="button" class="slot-color" data-color="#2F6FED" aria-label="파랑"></button>
-          <button type="button" class="slot-color" data-color="#E6C200" aria-label="노랑"></button>
+        <div class="slot-kinds" id="slot-kinds">
+          <button type="button" data-kind="pen">펜</button>
+          <button type="button" data-kind="highlighter">형광</button>
+          <button type="button" data-kind="pencil">색연필</button>
+        </div>
+        <div class="slot-palette" id="slot-palette"></div>
+        <div class="slot-opacity-row" id="slot-opacity-row" hidden>
+          <input id="slot-opacity" type="range" min="1" max="100" step="1" value="40" aria-label="투명도" />
+        </div>
+        <div class="slot-width-row" id="slot-width-row">
+          <input id="slot-width" type="range" min="1" max="10" step="1" aria-label="굵기" />
+        </div>
+      </div>
+
+      <div class="slot-panel stamp-panel" id="stamp-panel" hidden>
+        <div class="stamp-phrases" id="stamp-phrases"></div>
+      </div>
+
+      <div class="slot-panel eraser-panel" id="eraser-panel" hidden>
+        <div class="choice-row choice-2" id="eraser-mode-choices">
+          <button type="button" data-erase-mode="pixel">픽셀 지우개</button>
+          <button type="button" data-erase-mode="stroke">획 지우개</button>
         </div>
         <div class="slot-width-row">
-          <input id="slot-width" type="range" min="1" max="10" step="1" aria-label="굵기" />
+          <input id="eraser-width" type="range" min="1" max="10" step="1" aria-label="지우개 굵기" />
         </div>
       </div>
 

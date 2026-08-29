@@ -14,17 +14,20 @@ import {
   saveStrokes,
 } from "./storage.js";
 import {
+  loadEraser,
   loadSlotIndex,
   loadSlots,
+  loadStamp,
   loadToolbarPosition,
   loadViewMode,
   loadZoomLock,
+  saveEraser,
   saveSlotIndex,
   saveSlots,
+  saveStamp,
   saveToolbarPosition,
   saveViewMode,
   saveZoomLock,
-  SLOT_COLORS,
 } from "./prefs.js";
 import {
   constrainPan,
@@ -33,12 +36,25 @@ import {
   pointerMidpoint,
   scaleFromPinch,
 } from "./viewport.js";
+import { isStrokeErase, paintItem, removeHitItems, stampTilt } from "./ink.js";
+import {
+  HIGHLIGHTER_OPACITY_DEFAULT,
+  HIGHLIGHTER_PALETTE,
+  PEN_PALETTE,
+  PENCIL_COLOR,
+  STAMP_COLOR,
+  STAMP_LABELS,
+  clampOpacity,
+  defaultColorForKind,
+  normalizeStamp,
+  slotAriaLabel,
+} from "./tools.js";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
 
 const LONG_PRESS_MS = 450;
 const SLOT_PRESS_SLOP = 24;
-const SLOT_LABELS = ["검정", "빨강", "파랑", "노랑"];
+const STAMP_TAP_SLOP = 16;
 
 const els = {
   fileInput: document.querySelector("#file-input"),
@@ -63,7 +79,17 @@ const els = {
   settingsBackdrop: document.querySelector("#settings-backdrop"),
   settingsDone: document.querySelector("#settings-done"),
   slotPanel: document.querySelector("#slot-panel"),
+  slotPalette: document.querySelector("#slot-palette"),
+  slotOpacity: document.querySelector("#slot-opacity"),
+  slotOpacityRow: document.querySelector("#slot-opacity-row"),
   slotWidth: document.querySelector("#slot-width"),
+  slotWidthRow: document.querySelector("#slot-width-row"),
+  stampBtn: document.querySelector("#stamp-btn"),
+  stampPanel: document.querySelector("#stamp-panel"),
+  stampPhrases: document.querySelector("#stamp-phrases"),
+  eraserBtn: document.querySelector("#eraser-btn"),
+  eraserPanel: document.querySelector("#eraser-panel"),
+  eraserWidth: document.querySelector("#eraser-width"),
 };
 
 const state = {
@@ -86,6 +112,10 @@ const state = {
   toolbarPos: loadToolbarPosition(window.innerWidth, window.innerHeight),
   viewMode: loadViewMode(),
   zoomLock: loadZoomLock(),
+  eraseMode: loadEraser().mode,
+  eraserWidth: loadEraser().width,
+  stamp: loadStamp(),
+  pendingStamp: null,
   userScale: 1,
   panX: 0,
   panY: 0,
@@ -164,46 +194,22 @@ function strokeScale(view) {
   return inkCanvasScale(canvas.width, cssWidth);
 }
 
-function paintStroke(ctx, stroke, scale, canvas) {
-  const points = stroke.points || [];
-  if (!points.length) {
-    return;
-  }
-  ctx.save();
-  ctx.globalCompositeOperation = stroke.erase ? "destination-out" : "source-over";
-  ctx.strokeStyle = stroke.color || "#1A1A1A";
-  ctx.lineCap = "round";
-  ctx.lineJoin = "round";
-  ctx.lineWidth = (stroke.width || 2) * scale;
-  ctx.beginPath();
-  points.forEach((point, index) => {
-    const x = point.x * canvas.width;
-    const y = point.y * canvas.height;
-    if (index === 0) {
-      ctx.moveTo(x, y);
-    } else {
-      ctx.lineTo(x, y);
-    }
-  });
-  if (points.length === 1) {
-    const x = points[0].x * canvas.width;
-    const y = points[0].y * canvas.height;
-    ctx.lineTo(x + 0.1, y);
-  }
-  ctx.stroke();
-  ctx.restore();
-}
-
 function drawStrokesOn(view, liveStroke = null) {
   const canvas = view.inkCanvas;
   const ctx = canvas.getContext("2d");
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   const scale = strokeScale(view);
-  for (const stroke of pageStrokes(view.pageNum)) {
-    paintStroke(ctx, stroke, scale, canvas);
+  const cssWidth = view.cssWidth || Number.parseFloat(canvas.style.width) || 0;
+  const cssHeight = view.cssHeight || Number.parseFloat(canvas.style.height) || 0;
+  let items = pageStrokes(view.pageNum);
+  if (liveStroke && isStrokeErase(liveStroke)) {
+    items = removeHitItems(items, liveStroke, cssWidth, cssHeight);
   }
-  if (liveStroke?.points.length) {
-    paintStroke(ctx, liveStroke, scale, canvas);
+  for (const item of items) {
+    paintItem(ctx, item, scale, canvas);
+  }
+  if (liveStroke && (liveStroke.points?.length || liveStroke.type === "stamp")) {
+    paintItem(ctx, liveStroke, scale, canvas);
   }
 }
 
@@ -453,7 +459,7 @@ async function showUploadScreen() {
   blockFilePicker();
   persistStrokes();
   abortStroke();
-  closeSlotPanel();
+  closeAllPanels();
   closeSettings();
   els.writeScreen.hidden = true;
   els.uploadScreen.hidden = false;
@@ -514,13 +520,39 @@ function displayName(fileName) {
 }
 
 function newStroke(point) {
+  if (state.tool === "eraser") {
+    return {
+      type: "erase",
+      points: [point],
+      color: "#000000",
+      width: state.eraserWidth,
+      erase: true,
+      eraseMode: state.eraseMode,
+    };
+  }
   const slot = activeSlot();
   return {
+    type: slot.type,
     points: [point],
-    color: slot.color,
+    color: slot.type === "pencil" ? PENCIL_COLOR : slot.color,
     width: slot.width,
-    erase: state.tool === "eraser",
+    opacity: slot.type === "highlighter" ? slot.opacity : undefined,
+    erase: false,
   };
+}
+
+function placeStamp(view, point) {
+  const item = {
+    type: "stamp",
+    stamp: normalizeStamp(state.stamp),
+    x: point.x,
+    y: point.y,
+    tilt: stampTilt(point.x, point.y),
+    color: STAMP_COLOR,
+  };
+  pageStrokes(view.pageNum).push(item);
+  drawStrokesOn(view);
+  persistStrokes();
 }
 
 async function openPdfBuffer(buffer, { identity, name, page = 1 }) {
@@ -602,10 +634,11 @@ function shouldPan(event) {
 }
 
 function overlayOpen() {
-  return !els.settingsSheet.hidden || !els.slotPanel.hidden;
+  return !els.settingsSheet.hidden || !els.slotPanel.hidden || !els.stampPanel.hidden || !els.eraserPanel.hidden;
 }
 
 function abortStroke() {
+  state.pendingStamp = null;
   if (!state.drawing && !state.currentStroke) {
     return;
   }
@@ -634,10 +667,24 @@ function startStroke(event, stage) {
   } catch {
     // Capture is optional; some synthetic/test pointers reject it.
   }
+  const view = state.pageViews.find((item) => item.stage === stage);
+  const point = eventToNorm(event, ink);
   state.drawPage = Number(stage.dataset.page) || state.page;
   state.drawCanvas = ink;
+  if (state.tool === "stamp") {
+    state.pendingStamp = {
+      view,
+      point,
+      startX: event.clientX,
+      startY: event.clientY,
+    };
+    state.drawing = false;
+    state.currentStroke = null;
+    return;
+  }
+  state.pendingStamp = null;
   state.drawing = true;
-  state.currentStroke = newStroke(eventToNorm(event, ink));
+  state.currentStroke = newStroke(point);
   drawLive();
 }
 
@@ -654,6 +701,22 @@ function moveStroke(event) {
 }
 
 function endStroke(event) {
+  if (state.pendingStamp) {
+    if (event.pointerId != null && state.drawCanvas) {
+      try {
+        state.drawCanvas.releasePointerCapture(event.pointerId);
+      } catch {
+        // Capture may already be released.
+      }
+    }
+    const moved = Math.hypot(event.clientX - state.pendingStamp.startX, event.clientY - state.pendingStamp.startY);
+    const view = state.pendingStamp.view || state.pageViews.find((item) => item.pageNum === state.drawPage);
+    if (moved <= STAMP_TAP_SLOP && view) {
+      placeStamp(view, state.pendingStamp.point);
+    }
+    state.pendingStamp = null;
+    return;
+  }
   if (!state.drawing || !state.currentStroke) {
     return;
   }
@@ -668,7 +731,15 @@ function endStroke(event) {
       // Capture may already be released.
     }
   }
-  pageStrokes(state.drawPage).push(state.currentStroke);
+  const live = state.currentStroke;
+  const view = state.pageViews.find((item) => item.pageNum === state.drawPage);
+  if (isStrokeErase(live) && view) {
+    const cssWidth = view.cssWidth || Number.parseFloat(view.inkCanvas.style.width) || 0;
+    const cssHeight = view.cssHeight || Number.parseFloat(view.inkCanvas.style.height) || 0;
+    state.pages[String(state.drawPage)] = removeHitItems(pageStrokes(state.drawPage), live, cssWidth, cssHeight);
+  } else {
+    pageStrokes(state.drawPage).push(live);
+  }
   state.currentStroke = null;
   state.drawing = false;
   drawLive();
@@ -683,20 +754,24 @@ function pickFile() {
   els.fileInput.click();
 }
 
-function colorName(color) {
-  const index = SLOT_COLORS.findIndex((item) => item.toLowerCase() === color.toLowerCase());
-  return SLOT_LABELS[index] || "펜";
+function persistEraser() {
+  saveEraser({ mode: state.eraseMode, width: state.eraserWidth });
 }
 
 function syncSlots() {
   document.querySelectorAll("[data-slot]").forEach((btn) => {
     const index = Number(btn.dataset.slot);
     const slot = state.slots[index];
-    btn.classList.toggle("is-selected", index === state.slotIndex);
-    btn.style.setProperty("--slot-color", slot.color);
+    btn.classList.toggle("is-selected", state.tool !== "eraser" && state.tool !== "stamp" && index === state.slotIndex);
+    btn.dataset.kind = slot.type;
+    btn.style.setProperty("--slot-color", slot.type === "pencil" ? PENCIL_COLOR : slot.color);
     btn.style.setProperty("--slot-width", String(slot.width));
-    btn.setAttribute("aria-label", `${colorName(slot.color)} 슬롯, 굵기 ${slot.width}`);
+    btn.setAttribute("aria-label", slotAriaLabel(slot));
   });
+  if (els.stampBtn) {
+    els.stampBtn.classList.toggle("is-selected", state.tool === "stamp");
+    els.stampBtn.setAttribute("aria-label", `${normalizeStamp(state.stamp)} 스탬프`);
+  }
 }
 
 function syncPenOnly() {
@@ -741,7 +816,7 @@ function closeSettings() {
 }
 
 function openSettings() {
-  closeSlotPanel();
+  closeAllPanels();
   applyChrome();
   els.settingsSheet.hidden = false;
 }
@@ -751,29 +826,42 @@ function closeSlotPanel() {
   state.editingSlot = null;
 }
 
-function placeSlotPanel(slotBtn) {
-  const panel = els.slotPanel;
+function closeStampPanel() {
+  els.stampPanel.hidden = true;
+}
+
+function closeEraserPanel() {
+  els.eraserPanel.hidden = true;
+}
+
+function closeAllPanels() {
+  closeSlotPanel();
+  closeStampPanel();
+  closeEraserPanel();
+}
+
+function placePanel(panel, anchorBtn) {
   panel.hidden = false;
   const bar = els.toolbar.getBoundingClientRect();
-  const slot = slotBtn.getBoundingClientRect();
+  const anchor = anchorBtn.getBoundingClientRect();
   const width = 240;
   const height = panel.getBoundingClientRect().height || 88;
   const gap = 8;
-  let top = slot.bottom + gap;
-  let left = slot.left + slot.width / 2 - width / 2;
+  let top = anchor.bottom + gap;
+  let left = anchor.left + anchor.width / 2 - width / 2;
 
   if (state.toolbarPos === "top") {
     top = bar.bottom + gap;
-    left = slot.left + slot.width / 2 - width / 2;
+    left = anchor.left + anchor.width / 2 - width / 2;
   } else if (state.toolbarPos === "bottom") {
     top = bar.top - gap - height;
-    left = slot.left + slot.width / 2 - width / 2;
+    left = anchor.left + anchor.width / 2 - width / 2;
   } else if (state.toolbarPos === "left") {
     left = bar.right + gap;
-    top = slot.top + slot.height / 2 - height / 2;
+    top = anchor.top + anchor.height / 2 - height / 2;
   } else {
     left = bar.left - gap - width;
-    top = slot.top + slot.height / 2 - height / 2;
+    top = anchor.top + anchor.height / 2 - height / 2;
   }
 
   left = Math.min(window.innerWidth - width - 8, Math.max(8, left));
@@ -782,25 +870,73 @@ function placeSlotPanel(slotBtn) {
   panel.style.top = `${top}px`;
 }
 
+function paletteFor(kind) {
+  if (kind === "highlighter") {
+    return HIGHLIGHTER_PALETTE;
+  }
+  if (kind === "pencil") {
+    return [{ label: "색연필", hex: PENCIL_COLOR }];
+  }
+  return PEN_PALETTE;
+}
+
+function renderPalette(slot) {
+  const root = els.slotPalette;
+  root.replaceChildren();
+  root.dataset.kind = slot.type;
+  const colors = paletteFor(slot.type);
+  for (const item of colors) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "slot-color";
+    if (slot.type === "pencil") {
+      btn.classList.add("is-chalk");
+    }
+    btn.dataset.color = item.hex;
+    btn.setAttribute("aria-label", item.label);
+    btn.style.setProperty("--swatch", item.hex);
+    btn.classList.toggle("is-selected", item.hex.toLowerCase() === slot.color.toLowerCase());
+    if (slot.type !== "pencil") {
+      btn.addEventListener("click", () => {
+        if (state.editingSlot == null) {
+          return;
+        }
+        state.slots[state.editingSlot].color = item.hex;
+        persistSlotChange();
+      });
+    }
+    root.append(btn);
+  }
+}
+
 function syncSlotEditor() {
   const slot = state.slots[state.editingSlot];
   if (!slot) {
     return;
   }
-  els.slotWidth.value = String(slot.width);
-  document.querySelectorAll(".slot-color").forEach((btn) => {
-    btn.classList.toggle("is-selected", btn.dataset.color.toLowerCase() === slot.color.toLowerCase());
+  document.querySelectorAll("#slot-kinds [data-kind]").forEach((btn) => {
+    btn.classList.toggle("is-selected", btn.dataset.kind === slot.type);
   });
+  renderPalette(slot);
+  const showOpacity = slot.type === "highlighter";
+  els.slotOpacityRow.hidden = !showOpacity;
+  if (showOpacity) {
+    els.slotOpacity.value = String(slot.opacity ?? HIGHLIGHTER_OPACITY_DEFAULT);
+  }
+  els.slotWidthRow.hidden = false;
+  els.slotWidth.value = String(slot.width);
 }
 
 function openSlotEditor(index, slotBtn) {
+  closeStampPanel();
+  closeEraserPanel();
   state.slotIndex = index;
   state.editingSlot = index;
   state.tool = "pen";
   saveSlotIndex(index);
   syncToolSelection();
   syncSlotEditor();
-  placeSlotPanel(slotBtn);
+  placePanel(els.slotPanel, slotBtn);
 }
 
 function persistSlotChange() {
@@ -809,19 +945,78 @@ function persistSlotChange() {
   syncSlotEditor();
 }
 
+function setSlotKind(kind) {
+  if (state.editingSlot == null) {
+    return;
+  }
+  const slot = state.slots[state.editingSlot];
+  slot.type = kind;
+  slot.color = defaultColorForKind(kind, slot.color);
+  if (kind === "highlighter" && !slot.opacity) {
+    slot.opacity = HIGHLIGHTER_OPACITY_DEFAULT;
+  }
+  persistSlotChange();
+}
+
 function selectSlot(index) {
   state.slotIndex = index;
   state.tool = "pen";
   saveSlotIndex(index);
-  closeSlotPanel();
+  closeAllPanels();
   syncToolSelection();
+}
+
+function selectStamp() {
+  state.tool = "stamp";
+  closeSlotPanel();
+  closeEraserPanel();
+  syncToolSelection();
+}
+
+function openStampPicker() {
+  closeSlotPanel();
+  closeEraserPanel();
+  state.tool = "stamp";
+  syncToolSelection();
+  syncStampPicker();
+  placePanel(els.stampPanel, els.stampBtn);
+}
+
+function syncStampPicker() {
+  els.stampPhrases.querySelectorAll("button").forEach((btn) => {
+    btn.classList.toggle("is-selected", btn.dataset.stamp === state.stamp);
+  });
+}
+
+function selectEraserPixel() {
+  state.tool = "eraser";
+  state.eraseMode = "pixel";
+  persistEraser();
+  closeAllPanels();
+  syncToolSelection();
+}
+
+function openEraserEditor() {
+  closeSlotPanel();
+  closeStampPanel();
+  state.tool = "eraser";
+  syncToolSelection();
+  syncEraserEditor();
+  placePanel(els.eraserPanel, els.eraserBtn);
+}
+
+function syncEraserEditor() {
+  document.querySelectorAll("#eraser-mode-choices [data-erase-mode]").forEach((btn) => {
+    btn.classList.toggle("is-selected", btn.dataset.eraseMode === state.eraseMode);
+  });
+  els.eraserWidth.value = String(state.eraserWidth);
 }
 
 async function setToolbarPosition(position) {
   state.toolbarPos = position;
   saveToolbarPosition(position);
   applyChrome();
-  closeSlotPanel();
+  closeAllPanels();
   if (state.pdf) {
     await rebuildPages();
   }
@@ -935,7 +1130,7 @@ function movePan(event) {
 function onWorkspacePointerDown(event) {
   if (overlayOpen()) {
     if (!event.target.closest(".slot-panel, .sheet-card, .toolbar, .write-top")) {
-      closeSlotPanel();
+      closeAllPanels();
     }
     return;
   }
@@ -1110,22 +1305,119 @@ function bindSlot(btn) {
   });
 }
 
-document.querySelectorAll("[data-slot]").forEach(bindSlot);
-document.querySelectorAll("[data-tool]").forEach((btn) => {
-  btn.addEventListener("click", () => {
-    state.tool = btn.dataset.tool;
-    closeSlotPanel();
-    syncToolSelection();
-  });
-});
-document.querySelectorAll(".slot-color").forEach((btn) => {
-  btn.addEventListener("click", () => {
-    if (state.editingSlot == null) {
+function bindHold(btn, { onShort, onLong }) {
+  let timer = 0;
+  let longPress = false;
+  let startX = 0;
+  let startY = 0;
+  let active = false;
+  let pointerId = null;
+
+  const clearTimer = () => {
+    window.clearTimeout(timer);
+    timer = 0;
+  };
+  const detachLift = () => {
+    window.removeEventListener("pointerup", onLift, true);
+    window.removeEventListener("pointercancel", onPointerCancel, true);
+    window.removeEventListener("touchend", onLift, true);
+  };
+  const stopPress = () => {
+    clearTimer();
+    active = false;
+    pointerId = null;
+    detachLift();
+  };
+  const samePointer = (event) => event.pointerId == null || pointerId == null || event.pointerId === pointerId;
+
+  const onLift = (event) => {
+    if (!active || !samePointer(event)) {
       return;
     }
-    state.slots[state.editingSlot].color = btn.dataset.color;
-    persistSlotChange();
+    const wasLong = longPress;
+    stopPress();
+    if (wasLong) {
+      return;
+    }
+    onShort();
+  };
+  const onPointerCancel = (event) => {
+    if (!active || !samePointer(event)) {
+      return;
+    }
+    if (event.buttons > 0 || event.pointerType !== "mouse") {
+      return;
+    }
+    stopPress();
+  };
+
+  btn.addEventListener("pointerdown", (event) => {
+    if (event.button !== undefined && event.button !== 0) {
+      return;
+    }
+    event.preventDefault();
+    try {
+      btn.setPointerCapture(event.pointerId);
+    } catch {
+      // Capture is optional; some synthetic pointers reject it.
+    }
+    active = true;
+    pointerId = event.pointerId;
+    longPress = false;
+    startX = event.clientX;
+    startY = event.clientY;
+    clearTimer();
+    detachLift();
+    window.addEventListener("pointerup", onLift, true);
+    window.addEventListener("pointercancel", onPointerCancel, true);
+    window.addEventListener("touchend", onLift, true);
+    timer = window.setTimeout(() => {
+      if (!active) {
+        return;
+      }
+      longPress = true;
+      onLong();
+    }, LONG_PRESS_MS);
   });
+  btn.addEventListener("pointermove", (event) => {
+    if (!active || !timer || !samePointer(event)) {
+      return;
+    }
+    if (Math.hypot(event.clientX - startX, event.clientY - startY) > SLOT_PRESS_SLOP) {
+      clearTimer();
+    }
+  });
+  btn.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+  });
+}
+
+document.querySelectorAll("[data-slot]").forEach(bindSlot);
+bindHold(els.eraserBtn, {
+  onShort: selectEraserPixel,
+  onLong: openEraserEditor,
+});
+bindHold(els.stampBtn, {
+  onShort: () => {
+    if (state.tool === "stamp") {
+      openStampPicker();
+      return;
+    }
+    selectStamp();
+  },
+  onLong: openStampPicker,
+});
+
+document.querySelectorAll("#slot-kinds [data-kind]").forEach((btn) => {
+  btn.addEventListener("click", () => setSlotKind(btn.dataset.kind));
+});
+els.slotOpacity.addEventListener("input", () => {
+  if (state.editingSlot == null) {
+    return;
+  }
+  state.slots[state.editingSlot].opacity = clampOpacity(els.slotOpacity.value);
+  persistSlotChange();
 });
 els.slotWidth.addEventListener("input", () => {
   if (state.editingSlot == null) {
@@ -1134,6 +1426,35 @@ els.slotWidth.addEventListener("input", () => {
   state.slots[state.editingSlot].width = Number(els.slotWidth.value);
   persistSlotChange();
 });
+document.querySelectorAll("#eraser-mode-choices [data-erase-mode]").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    state.eraseMode = btn.dataset.eraseMode;
+    state.tool = "eraser";
+    persistEraser();
+    syncEraserEditor();
+    syncToolSelection();
+  });
+});
+els.eraserWidth.addEventListener("input", () => {
+  state.eraserWidth = Number(els.eraserWidth.value);
+  persistEraser();
+});
+
+for (const label of STAMP_LABELS) {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.dataset.stamp = label;
+  btn.textContent = label;
+  btn.addEventListener("click", () => {
+    state.stamp = label;
+    saveStamp(label);
+    state.tool = "stamp";
+    syncStampPicker();
+    syncToolSelection();
+    closeStampPanel();
+  });
+  els.stampPhrases.append(btn);
+}
 
 document.querySelectorAll("#toolbar-pos-choices [data-pos]").forEach((btn) => {
   btn.addEventListener("click", () => setToolbarPosition(btn.dataset.pos));
@@ -1226,9 +1547,10 @@ els.writeScreen.addEventListener(
 );
 
 document.addEventListener("pointerdown", (event) => {
-  if (!els.slotPanel.hidden && !event.target.closest(".slot-panel, [data-slot]")) {
-    closeSlotPanel();
+  if (event.target.closest(".slot-panel, [data-slot], #stamp-btn, #eraser-btn")) {
+    return;
   }
+  closeAllPanels();
 });
 
 let resizeTimer = 0;
@@ -1238,8 +1560,14 @@ window.addEventListener("resize", () => {
     if (!els.slotPanel.hidden && state.editingSlot != null) {
       const btn = document.querySelector(`[data-slot="${state.editingSlot}"]`);
       if (btn) {
-        placeSlotPanel(btn);
+        placePanel(els.slotPanel, btn);
       }
+    }
+    if (!els.stampPanel.hidden) {
+      placePanel(els.stampPanel, els.stampBtn);
+    }
+    if (!els.eraserPanel.hidden) {
+      placePanel(els.eraserPanel, els.eraserBtn);
     }
     if (state.pdf && !state.drawing) {
       rebuildPages();
