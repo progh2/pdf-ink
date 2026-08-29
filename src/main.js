@@ -536,7 +536,7 @@ let dropzoneGesture = false;
 let stayOnWriteUntil = 0;
 let undoHoldLock = false;
 
-function armStayOnWrite(ms = 800) {
+function armStayOnWrite(ms = 1600) {
   stayOnWriteUntil = performance.now() + ms;
 }
 
@@ -982,6 +982,8 @@ function closeEraserPanel() {
 
 function closeMorePanel() {
   els.morePanel.hidden = true;
+  els.morePanel.style.left = "-9999px";
+  els.morePanel.style.top = "-9999px";
   syncRectTool();
 }
 
@@ -1440,8 +1442,11 @@ function overflowSide() {
 
 function placeOverflowPanel() {
   const panel = els.morePanel;
-  panel.hidden = false;
   const anchor = els.moreBtn.getBoundingClientRect();
+  panel.style.visibility = "hidden";
+  panel.style.left = "-9999px";
+  panel.style.top = "-9999px";
+  panel.hidden = false;
   const width = 240;
   const height = panel.getBoundingClientRect().height || 160;
   const gap = 8;
@@ -1461,6 +1466,7 @@ function placeOverflowPanel() {
   top = Math.min(window.innerHeight - height - 8, Math.max(8, top));
   panel.style.left = `${left}px`;
   panel.style.top = `${top}px`;
+  panel.style.visibility = "";
   syncRectTool();
 }
 
@@ -1809,6 +1815,73 @@ function bindSlot(btn) {
   });
 }
 
+function bindUndoHold(btn) {
+  let pointerId = null;
+  let startedAt = 0;
+  let didLong = false;
+  let timer = 0;
+
+  const finish = (event) => {
+    if (pointerId == null) {
+      return;
+    }
+    if (event.pointerId != null && event.pointerId !== pointerId) {
+      return;
+    }
+    window.clearTimeout(timer);
+    timer = 0;
+    const held = performance.now() - startedAt;
+    const wasLong = didLong || held >= LONG_PRESS_MS;
+    pointerId = null;
+    undoHoldLock = wasLong;
+    if (!wasLong) {
+      undoInk();
+    }
+    window.setTimeout(() => {
+      undoHoldLock = false;
+    }, 200);
+  };
+
+  btn.addEventListener("pointerdown", (event) => {
+    if (event.button !== undefined && event.button !== 0) {
+      return;
+    }
+    if (pointerId != null) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    pointerId = event.pointerId;
+    startedAt = performance.now();
+    didLong = false;
+    undoHoldLock = false;
+    window.clearTimeout(timer);
+    try {
+      btn.setPointerCapture(event.pointerId);
+    } catch {
+      // optional
+    }
+    timer = window.setTimeout(() => {
+      if (pointerId == null) {
+        return;
+      }
+      didLong = true;
+      undoHoldLock = true;
+      redoInk();
+    }, LONG_PRESS_MS);
+  });
+  btn.addEventListener("pointerup", finish);
+  btn.addEventListener("pointercancel", finish);
+  btn.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+  });
+  btn.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+  });
+}
+
 function bindHold(btn, { onShort, onLong }) {
   let timer = 0;
   let longPress = false;
@@ -1966,27 +2039,7 @@ els.zoomLockBtn.addEventListener("click", () => {
 els.interactBtn.addEventListener("click", () => {
   setInteractMode(state.interactMode === "view" ? "edit" : "view");
 });
-bindHold(els.undoBtn, {
-  onShort: () => {
-    if (undoHoldLock) {
-      return;
-    }
-    undoInk();
-  },
-  onLong: () => {
-    undoHoldLock = true;
-    redoInk();
-  },
-});
-els.undoBtn.addEventListener("click", (event) => {
-  event.preventDefault();
-  event.stopPropagation();
-});
-els.undoBtn.addEventListener("pointerup", () => {
-  window.setTimeout(() => {
-    undoHoldLock = false;
-  }, 80);
-});
+bindUndoHold(els.undoBtn);
 els.moreBtn.addEventListener("pointerdown", (event) => {
   event.stopPropagation();
   armStayOnWrite();
@@ -2031,6 +2084,9 @@ els.otherPdf.addEventListener("pointerdown", (event) => {
 els.otherPdf.addEventListener("click", (event) => {
   event.preventDefault();
   event.stopPropagation();
+  if (!event.isTrusted) {
+    return;
+  }
   if (performance.now() < stayOnWriteUntil) {
     return;
   }

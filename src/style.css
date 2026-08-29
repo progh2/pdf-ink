@@ -588,6 +588,8 @@ body {
 .more-panel {
   width: 240px;
   gap: 8px;
+  left: -9999px;
+  top: -9999px;
 }
 
 .more-panel button {
