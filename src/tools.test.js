@@ -10,6 +10,7 @@ import {
   PENCIL_COLOR,
   SLOT_KINDS,
   STAMP_COLOR,
+  TOOLBAR_STAMP_CIRCLE,
   STAMP_DIAMETER_CSS,
   STAMP_LABELS,
   TOOLBAR_COLOR_CHIPS,
@@ -77,11 +78,16 @@ describe("스탬프", () => {
 });
 
 describe("toolbar", () => {
-  it("has no color chips, no toolbar stamp circle, and four panel tabs", () => {
+  it("has no color chips and no stamp circle beside the slots", () => {
+    assert.equal(TOOLBAR_STAMP_CIRCLE, false);
     assert.deepEqual(TOOLBAR_COLOR_CHIPS, []);
     assert.doesNotMatch(toolbar, /slot-color|data-color=/);
-    assert.doesNotMatch(toolbar, /stamp-btn|stamp-mini|stamp-tool/);
+    assert.doesNotMatch(toolbar, /stamp-btn|stamp-mini|stamp-tool|stamp-preview/);
     assert.doesNotMatch(toolbar, /#D64545|#2F6FED|#E6C200|#E03C31/i);
+    assert.equal((toolbar.match(/data-slot="/g) || []).length, 3);
+    assert.match(toolbar, /id="eraser-btn"/);
+    assert.match(toolbar, /id="prev-btn"/);
+    assert.match(toolbar, /id="next-btn"/);
     assert.match(html, /id="slot-panel"/);
     assert.match(html, /id="slot-palette"/);
     assert.match(html, /data-kind="pen">펜/);
@@ -89,7 +95,8 @@ describe("toolbar", () => {
     assert.match(html, /data-kind="pencil">색연필/);
     assert.match(html, /data-kind="stamp">스탬프/);
     assert.match(html, /id="slot-stamp"/);
-    assert.match(html, /class="stamp-preview"/);
+    assert.match(html, /id="stamp-phrases"/);
+    assert.deepEqual(STAMP_LABELS, ["참 잘했어요", "반려", "승인", "진행해", "응아냐"]);
     assert.doesNotMatch(html, /스포이드|eyedropper/i);
     assert.deepEqual(SLOT_KINDS, ["pen", "highlighter", "pencil", "stamp"]);
   });

@@ -83,7 +83,6 @@ const els = {
   slotWidth: document.querySelector("#slot-width"),
   slotWidthRow: document.querySelector("#slot-width-row"),
   slotStamp: document.querySelector("#slot-stamp"),
-  stampPreviewLabel: document.querySelector("#stamp-preview-label"),
   stampPhrases: document.querySelector("#stamp-phrases"),
   eraserBtn: document.querySelector("#eraser-btn"),
   eraserPanel: document.querySelector("#eraser-panel"),
@@ -906,9 +905,6 @@ function renderPalette(slot) {
 function syncStampPicker() {
   const slot = state.slots[state.editingSlot] || activeSlot();
   const label = normalizeStamp(slot.stamp);
-  if (els.stampPreviewLabel) {
-    els.stampPreviewLabel.textContent = label;
-  }
   els.stampPhrases.querySelectorAll("button").forEach((btn) => {
     btn.classList.toggle("is-selected", btn.dataset.stamp === label);
   });

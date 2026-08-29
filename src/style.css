@@ -499,30 +499,12 @@ body {
 .slot-stamp {
   display: flex;
   flex-direction: column;
-  align-items: center;
   gap: 8px;
-}
-
-.stamp-preview {
-  width: 72px;
-  height: 72px;
-  border-radius: 50%;
-  border: 2.5px solid #c42b2b;
-  box-sizing: border-box;
-  background: transparent;
-}
-
-.stamp-preview-label {
-  margin: 0;
-  color: #5c574e;
-  font-size: 14px;
-  text-align: center;
 }
 
 .stamp-phrases {
   display: flex;
   flex-direction: column;
-  align-self: stretch;
   gap: 8px;
 }
 

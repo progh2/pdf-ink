@@ -41,6 +41,9 @@ export const ERASER_MODE_LABELS = {
 /** Colors never appear as a toolbar row; they live in the slot panel only. */
 export const TOOLBAR_COLOR_CHIPS = [];
 
+/** Stamp is the 4th slot-panel tab. A 36px circle beside slots is a spec fail. */
+export const TOOLBAR_STAMP_CIRCLE = false;
+
 const OLD_PEN_COLOR = {
   "#D64545": "#C42B2B",
   "#2F6FED": "#1E4B8C",
