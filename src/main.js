@@ -360,7 +360,11 @@ function startStroke(event) {
     return;
   }
   event.preventDefault();
-  els.inkCanvas.setPointerCapture(event.pointerId);
+  try {
+    els.inkCanvas.setPointerCapture(event.pointerId);
+  } catch {
+    // Capture is optional; some synthetic/test pointers reject it.
+  }
   state.drawing = true;
   state.currentStroke = newStroke(eventToNorm(event, els.inkCanvas));
   drawStrokes();
