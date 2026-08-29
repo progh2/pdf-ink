@@ -426,7 +426,7 @@ function syncToolSelection() {
 }
 
 function syncPenOnly() {
-  els.penOnlyBtn.classList.toggle("is-selected", state.penOnly);
+  els.penOnlyBtn.classList.toggle("is-on", state.penOnly);
   els.penOnlyBtn.setAttribute("aria-pressed", state.penOnly ? "true" : "false");
 }
 
