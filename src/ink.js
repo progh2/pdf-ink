@@ -2,10 +2,9 @@ import {
   HIGHLIGHTER_OPACITY_DEFAULT,
   PENCIL_COLOR,
   STAMP_COLOR,
-  STAMP_DIAMETER_CSS,
   highlighterStrokeStyle,
   normalizeStamp,
-  stampLines,
+  stampPaintLayout,
 } from "./tools.js";
 
 export function distPointToSegment(point, start, end) {
@@ -80,13 +79,91 @@ function toCssPoints(points, cssWidth, cssHeight) {
   }));
 }
 
+function rotateAround(point, origin, angle) {
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+  const dx = point.x - origin.x;
+  const dy = point.y - origin.y;
+  return { x: origin.x + dx * cos - dy * sin, y: origin.y + dx * sin + dy * cos };
+}
+
+function pointInRect(point, rect) {
+  return point.x >= rect.left && point.x <= rect.right && point.y >= rect.top && point.y <= rect.bottom;
+}
+
+function polylineHitsCircle(points, center, radius) {
+  for (const [start, end] of asSegments(points)) {
+    if (distPointToSegment(center, start, end) <= radius) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function polylineHitsRect(points, rect, pad) {
+  const grown = {
+    left: rect.left - pad,
+    top: rect.top - pad,
+    right: rect.right + pad,
+    bottom: rect.bottom + pad,
+  };
+  const edges = [
+    [
+      { x: grown.left, y: grown.top },
+      { x: grown.right, y: grown.top },
+    ],
+    [
+      { x: grown.right, y: grown.top },
+      { x: grown.right, y: grown.bottom },
+    ],
+    [
+      { x: grown.right, y: grown.bottom },
+      { x: grown.left, y: grown.bottom },
+    ],
+    [
+      { x: grown.left, y: grown.bottom },
+      { x: grown.left, y: grown.top },
+    ],
+  ];
+  for (const [start, end] of asSegments(points)) {
+    if (pointInRect(start, grown) || pointInRect(end, grown)) {
+      return true;
+    }
+    for (const [a, b] of edges) {
+      if (segmentsIntersect(start, end, a, b)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+function stampHitsEraser(item, eraserPts, eraserHalf, cssWidth, cssHeight) {
+  const center = { x: item.x * cssWidth, y: item.y * cssHeight };
+  const tilt = Number.isFinite(item.tilt) ? item.tilt : stampTilt(item.x, item.y);
+  const local = eraserPts.map((point) => rotateAround(point, center, -tilt));
+  const layout = stampPaintLayout(item.stamp, 1);
+  if (polylineHitsCircle(local, center, layout.radius + eraserHalf)) {
+    return true;
+  }
+  const width = Math.max(...layout.lines.map((line) => line.length), 1) * layout.fontSize;
+  return polylineHitsRect(
+    local,
+    {
+      left: center.x - width / 2,
+      top: center.y + layout.labelTop,
+      right: center.x + width / 2,
+      bottom: center.y + layout.labelBottom,
+    },
+    eraserHalf,
+  );
+}
+
 export function itemHitsEraser(item, eraser, cssWidth, cssHeight) {
   const eraserPts = toCssPoints(eraser.points, cssWidth, cssHeight);
   const eraserHalf = (eraser.width || 2) / 2;
   if (item.type === "stamp") {
-    const center = { x: item.x * cssWidth, y: item.y * cssHeight };
-    const radius = STAMP_DIAMETER_CSS / 2 + eraserHalf;
-    return eraserPts.some((point) => Math.hypot(point.x - center.x, point.y - center.y) <= radius);
+    return stampHitsEraser(item, eraserPts, eraserHalf, cssWidth, cssHeight);
   }
   const strokePts = toCssPoints(item.points, cssWidth, cssHeight);
   const threshold = ((item.width || 2) + (eraser.width || 2)) / 2;
@@ -99,6 +176,16 @@ export function removeHitItems(items, eraser, cssWidth, cssHeight) {
 
 export function removeHitStamps(items, eraser, cssWidth, cssHeight) {
   return items.filter((item) => item.type !== "stamp" || !itemHitsEraser(item, eraser, cssWidth, cssHeight));
+}
+
+export function applyEraserToInk(items, eraser, cssWidth, cssHeight) {
+  if (isStrokeErase(eraser)) {
+    return removeHitItems(items, eraser, cssWidth, cssHeight);
+  }
+  if (isPixelErase(eraser)) {
+    return removeHitStamps(items, eraser, cssWidth, cssHeight).concat(eraser);
+  }
+  return items.concat(eraser);
 }
 
 export function stampInkItem(label, x, y, tilt = 0) {
@@ -218,29 +305,26 @@ export function paintPencil(ctx, stroke, scale, canvas) {
 export function paintStamp(ctx, item, scale, canvas) {
   const cx = item.x * canvas.width;
   const cy = item.y * canvas.height;
-  const radius = (STAMP_DIAMETER_CSS / 2) * scale;
   const tilt = Number.isFinite(item.tilt) ? item.tilt : stampTilt(item.x, item.y);
-  const lines = stampLines(normalizeStamp(item.stamp));
+  const layout = stampPaintLayout(item.stamp, scale);
 
   ctx.save();
   ctx.translate(cx, cy);
   ctx.rotate(tilt);
-  ctx.strokeStyle = STAMP_COLOR;
-  ctx.fillStyle = STAMP_COLOR;
+  ctx.strokeStyle = layout.circleColor;
   ctx.lineWidth = Math.max(1.6 * scale, 2.2 * scale);
   ctx.globalAlpha = 0.88;
   ctx.beginPath();
-  ctx.arc(0, 0, radius, 0, Math.PI * 2);
+  ctx.arc(0, 0, layout.radius, 0, Math.PI * 2);
   ctx.stroke();
 
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = layout.labelColor;
   ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  const fontSize = lines.length > 1 ? radius * 0.3 : radius * 0.34;
-  ctx.font = `700 ${Math.max(10 * scale, fontSize)}px "Apple SD Gothic Neo", "Noto Sans KR", sans-serif`;
-  const lineHeight = fontSize * 1.15;
-  const startY = -((lines.length - 1) * lineHeight) / 2;
-  lines.forEach((line, index) => {
-    ctx.fillText(line, 0, startY + index * lineHeight);
+  ctx.textBaseline = "top";
+  ctx.font = `700 ${Math.max(10 * scale, layout.fontSize)}px "Apple SD Gothic Neo", "Noto Sans KR", sans-serif`;
+  layout.lines.forEach((line, index) => {
+    ctx.fillText(line, 0, layout.labelTop + index * layout.lineHeight);
   });
   ctx.restore();
 }
