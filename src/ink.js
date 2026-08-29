@@ -162,6 +162,13 @@ function stampHitsEraser(item, eraserPts, eraserHalf, cssWidth, cssHeight) {
 export function itemHitsEraser(item, eraser, cssWidth, cssHeight) {
   const eraserPts = toCssPoints(eraser.points, cssWidth, cssHeight);
   const eraserHalf = (eraser.width || 2) / 2;
+  if (item.type === "mosaic") {
+    const left = item.x * cssWidth - eraserHalf;
+    const top = item.y * cssHeight - eraserHalf;
+    const right = (item.x + item.w) * cssWidth + eraserHalf;
+    const bottom = (item.y + item.h) * cssHeight + eraserHalf;
+    return eraserPts.some((point) => point.x >= left && point.x <= right && point.y >= top && point.y <= bottom);
+  }
   if (item.type === "stamp") {
     return stampHitsEraser(item, eraserPts, eraserHalf, cssWidth, cssHeight);
   }
@@ -175,7 +182,12 @@ export function removeHitItems(items, eraser, cssWidth, cssHeight) {
 }
 
 export function removeHitStamps(items, eraser, cssWidth, cssHeight) {
-  return items.filter((item) => item.type !== "stamp" || !itemHitsEraser(item, eraser, cssWidth, cssHeight));
+  return items.filter((item) => {
+    if (item.type !== "stamp" && item.type !== "mosaic") {
+      return true;
+    }
+    return !itemHitsEraser(item, eraser, cssWidth, cssHeight);
+  });
 }
 
 export function applyEraserToInk(items, eraser, cssWidth, cssHeight) {
@@ -350,6 +362,9 @@ export function paintErase(ctx, stroke, scale, canvas) {
 }
 
 export function paintItem(ctx, item, scale, canvas) {
+  if (item.type === "mosaic") {
+    return;
+  }
   if (item.type === "stamp") {
     paintStamp(ctx, item, scale, canvas);
     return;

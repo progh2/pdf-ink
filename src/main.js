@@ -15,12 +15,14 @@ import {
 } from "./storage.js";
 import {
   loadEraser,
+  loadInteractMode,
   loadSlotIndex,
   loadSlots,
   loadToolbarPosition,
   loadViewMode,
   loadZoomLock,
   saveEraser,
+  saveInteractMode,
   saveSlotIndex,
   saveSlots,
   saveToolbarPosition,
@@ -35,6 +37,10 @@ import {
   scaleFromPinch,
 } from "./viewport.js";
 import { applyEraserToInk, isPixelErase, isStrokeErase, paintItem, paintStamp, removeHitItems, removeHitStamps, stampInkItem, stampTilt } from "./ink.js";
+import { canCreateInk, rectBigEnough, rectFromPoints, shouldPanPointer } from "./interact.js";
+import { canRedo, canUndo, cloneItems, createHistory, recordChange, redoChange, undoChange } from "./history.js";
+import { MOSAIC_CELL_CSS, mosaicBoxesPx, mosaicItem } from "./mosaic.js";
+import { captureRegionPng, composePageRgba, cropRgba, writePngClipboard } from "./capture.js";
 import {
   HIGHLIGHTER_OPACITY_DEFAULT,
   HIGHLIGHTER_PALETTE,
@@ -73,6 +79,14 @@ const els = {
   nextBtn: document.querySelector("#next-btn"),
   pageLabel: document.querySelector("#page-label"),
   zoomLockBtn: document.querySelector("#zoom-lock-btn"),
+  interactBtn: document.querySelector("#interact-btn"),
+  undoBtn: document.querySelector("#undo-btn"),
+  moreBtn: document.querySelector("#more-btn"),
+  morePanel: document.querySelector("#more-panel"),
+  fullscreenItem: document.querySelector("#fullscreen-item"),
+  marquee: document.querySelector("#marquee"),
+  marqueeBox: document.querySelector("#marquee-box"),
+  captureConfirm: document.querySelector("#capture-confirm"),
   settingsBtn: document.querySelector("#settings-btn"),
   settingsSheet: document.querySelector("#settings-sheet"),
   settingsBackdrop: document.querySelector("#settings-backdrop"),
@@ -110,7 +124,13 @@ const state = {
   penOnly: loadPenOnly(),
   toolbarPos: loadToolbarPosition(window.innerWidth, window.innerHeight),
   viewMode: loadViewMode(),
+  interactMode: loadInteractMode(),
   zoomLock: loadZoomLock(),
+  history: createHistory(),
+  rectTool: null,
+  currentRect: null,
+  pendingCapture: null,
+  immersive: false,
   eraseMode: loadEraser().mode,
   eraserWidth: loadEraser().width,
   pendingStamp: null,
@@ -126,6 +146,8 @@ const state = {
 const pointers = new Map();
 let gesture = null;
 let ignoreAfterPinch = false;
+let ignoreAfterPanel = false;
+let captureConfirmArmedAt = 0;
 let renderGen = 0;
 
 function activeSlot() {
@@ -150,6 +172,30 @@ function persistStrokes() {
   } catch {
     showBanner("필기를 저장하지 못했습니다. 브라우저 저장 공간이 부족할 수 있습니다.");
   }
+}
+
+function syncHistoryButtons() {
+  els.undoBtn.disabled = !canUndo(state.history) && !canRedo(state.history);
+}
+
+function commitPageChange(pageNum, apply) {
+  const key = String(pageNum);
+  const before = cloneItems(pageStrokes(pageNum));
+  apply(key);
+  const after = cloneItems(pageStrokes(pageNum));
+  recordChange(state.history, { page: key, before, after });
+  persistStrokes();
+  syncHistoryButtons();
+}
+
+function resetEditorExtras() {
+  state.history = createHistory();
+  state.rectTool = null;
+  state.currentRect = null;
+  state.pendingCapture = null;
+  hideMarquee();
+  syncHistoryButtons();
+  syncRectTool();
 }
 
 async function persistSession() {
@@ -196,9 +242,13 @@ function strokeScale(view) {
   return inkCanvasScale(canvas.width, cssWidth);
 }
 
+function canvas2d(canvas) {
+  return canvas.getContext("2d", { willReadFrequently: true });
+}
+
 function drawStrokesOn(view, liveStroke = null) {
   const canvas = view.inkCanvas;
-  const ctx = canvas.getContext("2d");
+  const ctx = canvas2d(canvas);
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   const scale = strokeScale(view);
   const cssWidth = view.cssWidth || Number.parseFloat(canvas.style.width) || 0;
@@ -214,6 +264,38 @@ function drawStrokesOn(view, liveStroke = null) {
   }
   if (liveStroke && (liveStroke.points?.length || liveStroke.type === "stamp")) {
     paintItem(ctx, liveStroke, scale, canvas);
+  }
+  paintMosaicOverlay(view);
+}
+
+function paintMosaicOverlay(view) {
+  const canvas = view.maskCanvas;
+  if (!canvas) {
+    return;
+  }
+  const ctx = canvas2d(canvas);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  const boxes = mosaicBoxesPx(
+    pageStrokes(view.pageNum),
+    canvas.width,
+    canvas.height,
+    view.cssWidth || Number.parseFloat(view.inkCanvas.style.width) || 0,
+  );
+  if (!boxes.length || !view.pdfCanvas.width || !view.inkCanvas.width) {
+    return;
+  }
+  let pdf;
+  let ink;
+  try {
+    pdf = canvas2d(view.pdfCanvas).getImageData(0, 0, canvas.width, canvas.height);
+    ink = canvas2d(view.inkCanvas).getImageData(0, 0, canvas.width, canvas.height);
+  } catch {
+    return;
+  }
+  const composed = composePageRgba(pdf.data, ink.data, canvas.width, canvas.height, boxes);
+  for (const box of boxes) {
+    const cropped = cropRgba(composed, canvas.width, canvas.height, box);
+    ctx.putImageData(new ImageData(cropped.data, cropped.width, cropped.height), Math.floor(box.x), Math.floor(box.y));
   }
 }
 
@@ -242,8 +324,10 @@ function makeStage(pageNum) {
   pdfCanvas.className = "pdf-canvas";
   const inkCanvas = document.createElement("canvas");
   inkCanvas.className = "ink-canvas";
-  stage.append(pdfCanvas, inkCanvas);
-  return { pageNum, stage, pdfCanvas, inkCanvas, rendered: false, token: 0 };
+  const maskCanvas = document.createElement("canvas");
+  maskCanvas.className = "mask-canvas";
+  stage.append(pdfCanvas, inkCanvas, maskCanvas);
+  return { pageNum, stage, pdfCanvas, inkCanvas, maskCanvas, rendered: false, token: 0 };
 }
 
 function applyPageSize(view, cssWidth, cssHeight, pixelWidth, pixelHeight) {
@@ -251,7 +335,7 @@ function applyPageSize(view, cssWidth, cssHeight, pixelWidth, pixelHeight) {
   view.cssHeight = cssHeight;
   view.stage.style.width = `${cssWidth}px`;
   view.stage.style.height = `${cssHeight}px`;
-  for (const canvas of [view.pdfCanvas, view.inkCanvas]) {
+  for (const canvas of [view.pdfCanvas, view.inkCanvas, view.maskCanvas]) {
     canvas.width = pixelWidth;
     canvas.height = pixelHeight;
     canvas.style.width = `${cssWidth}px`;
@@ -277,7 +361,7 @@ async function renderPageView(view) {
     state.pageCssWidth = css.width;
     state.pageCssHeight = css.height;
   }
-  const ctx = view.pdfCanvas.getContext("2d");
+  const ctx = canvas2d(view.pdfCanvas);
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, view.pdfCanvas.width, view.pdfCanvas.height);
   await page.render({ canvasContext: ctx, viewport: pixel }).promise;
@@ -449,6 +533,12 @@ function showDocumentUi() {
 
 let pickerBlockedUntil = 0;
 let dropzoneGesture = false;
+let stayOnWriteUntil = 0;
+let undoHoldLock = false;
+
+function armStayOnWrite(ms = 1600) {
+  stayOnWriteUntil = performance.now() + ms;
+}
 
 function blockFilePicker(ms = 500) {
   pickerBlockedUntil = performance.now() + ms;
@@ -463,6 +553,7 @@ async function showUploadScreen() {
   blockFilePicker();
   persistStrokes();
   abortStroke();
+  resetEditorExtras();
   closeAllPanels();
   closeSettings();
   els.writeScreen.hidden = true;
@@ -547,9 +638,10 @@ function newStroke(point) {
 
 function placeStamp(view, point) {
   const item = stampInkItem(activeSlot().stamp, point.x, point.y, stampTilt(point.x, point.y));
-  pageStrokes(view.pageNum).push(item);
+  commitPageChange(view.pageNum, () => {
+    pageStrokes(view.pageNum).push(item);
+  });
   drawStrokesOn(view);
-  persistStrokes();
 }
 
 async function openPdfBuffer(buffer, { identity, name, page = 1 }) {
@@ -567,6 +659,7 @@ async function openPdfBuffer(buffer, { identity, name, page = 1 }) {
   state.pageCount = pdf.numPages;
   state.page = Math.min(Math.max(1, page), pdf.numPages);
   state.pages = loadStrokes(identity).pages;
+  resetEditorExtras();
   if (!state.zoomLock) {
     state.userScale = 1;
     state.panX = 0;
@@ -623,19 +716,36 @@ async function goToPage(nextPage) {
 }
 
 function allowsInkPointer(event) {
-  return !state.penOnly || event.pointerType === "pen";
+  return canCreateInk({
+    interactMode: state.interactMode,
+    penOnly: state.penOnly,
+    pointerType: event.pointerType,
+    rectTool: state.rectTool,
+  });
 }
 
 function shouldPan(event) {
-  return state.penOnly && event.pointerType !== "pen";
+  return shouldPanPointer({
+    interactMode: state.interactMode,
+    penOnly: state.penOnly,
+    pointerType: event.pointerType,
+    rectTool: state.rectTool,
+  });
+}
+
+function allowsRectPointer(event) {
+  return state.interactMode === "edit" && state.rectTool && (!state.penOnly || event.pointerType === "pen");
 }
 
 function overlayOpen() {
-  return !els.settingsSheet.hidden || !els.slotPanel.hidden || !els.eraserPanel.hidden;
+  return !els.settingsSheet.hidden || !els.slotPanel.hidden || !els.eraserPanel.hidden || !els.morePanel.hidden;
 }
 
 function abortStroke() {
   state.pendingStamp = null;
+  if (state.currentRect) {
+    hideMarquee();
+  }
   if (!state.drawing && !state.currentStroke) {
     return;
   }
@@ -648,10 +758,16 @@ function abortStroke() {
 }
 
 function startStroke(event, stage) {
+  if (state.rectTool) {
+    return;
+  }
+  if (state.interactMode === "view") {
+    return;
+  }
   if (!state.pdf || (event.button !== undefined && event.button !== 0)) {
     return;
   }
-  if (!allowsInkPointer(event) || overlayOpen()) {
+  if (!allowsInkPointer(event) || overlayOpen() || ignoreAfterPanel) {
     return;
   }
   const ink = stage.querySelector(".ink-canvas");
@@ -730,21 +846,22 @@ function endStroke(event) {
   }
   const live = state.currentStroke;
   const view = state.pageViews.find((item) => item.pageNum === state.drawPage);
-  if (view) {
-    const cssWidth = view.cssWidth || Number.parseFloat(view.inkCanvas.style.width) || 0;
-    const cssHeight = view.cssHeight || Number.parseFloat(view.inkCanvas.style.height) || 0;
-    if (isStrokeErase(live) || isPixelErase(live)) {
-      state.pages[String(state.drawPage)] = applyEraserToInk(pageStrokes(state.drawPage), live, cssWidth, cssHeight);
+  commitPageChange(state.drawPage, () => {
+    if (view) {
+      const cssWidth = view.cssWidth || Number.parseFloat(view.inkCanvas.style.width) || 0;
+      const cssHeight = view.cssHeight || Number.parseFloat(view.inkCanvas.style.height) || 0;
+      if (isStrokeErase(live) || isPixelErase(live)) {
+        state.pages[String(state.drawPage)] = applyEraserToInk(pageStrokes(state.drawPage), live, cssWidth, cssHeight);
+      } else {
+        pageStrokes(state.drawPage).push(live);
+      }
     } else {
       pageStrokes(state.drawPage).push(live);
     }
-  } else {
-    pageStrokes(state.drawPage).push(live);
-  }
+  });
   state.currentStroke = null;
   state.drawing = false;
   drawLive();
-  persistStrokes();
 }
 
 function pickFile() {
@@ -783,6 +900,31 @@ function syncZoomLock() {
   els.zoomLockBtn.setAttribute("aria-pressed", state.zoomLock ? "true" : "false");
 }
 
+function syncInteract() {
+  const viewing = state.interactMode === "view";
+  els.interactBtn.classList.toggle("is-on", viewing);
+  els.interactBtn.setAttribute("aria-pressed", viewing ? "true" : "false");
+  els.interactBtn.setAttribute("aria-label", viewing ? "보기" : "편집");
+  const closed = els.interactBtn.querySelector(".lock-closed");
+  const opened = els.interactBtn.querySelector(".lock-open");
+  if (closed && opened) {
+    closed.hidden = !viewing;
+    opened.hidden = viewing;
+  }
+}
+
+function syncRectTool() {
+  els.writeScreen.dataset.rect = state.rectTool || "";
+  els.moreBtn.classList.toggle("is-selected", Boolean(state.rectTool) || !els.morePanel.hidden);
+  document.querySelectorAll("#more-panel [data-more]").forEach((btn) => {
+    btn.classList.toggle("is-selected", btn.dataset.more === state.rectTool);
+  });
+}
+
+function syncFullscreenItem() {
+  els.fullscreenItem.textContent = isFullscreen() ? "전체화면 종료" : "전체화면";
+}
+
 function syncToolSelection() {
   document.querySelectorAll("[data-tool]").forEach((btn) => {
     btn.classList.toggle("is-selected", btn.dataset.tool === state.tool);
@@ -799,15 +941,24 @@ function setPenOnly(on) {
   abortStroke();
 }
 
+function isFullscreen() {
+  return Boolean(document.fullscreenElement) || state.immersive;
+}
+
 function applyChrome() {
   els.writeScreen.dataset.toolbar = state.toolbarPos;
   els.writeScreen.dataset.view = state.viewMode;
+  els.writeScreen.dataset.interact = state.interactMode;
+  els.writeScreen.dataset.rect = state.rectTool || "";
+  els.writeScreen.classList.toggle("is-fullscreen", isFullscreen());
   document.querySelectorAll("#toolbar-pos-choices [data-pos]").forEach((btn) => {
     btn.classList.toggle("is-selected", btn.dataset.pos === state.toolbarPos);
   });
   document.querySelectorAll("#view-mode-choices [data-view]").forEach((btn) => {
     btn.classList.toggle("is-selected", btn.dataset.view === state.viewMode);
   });
+  syncInteract();
+  syncFullscreenItem();
 }
 
 function closeSettings() {
@@ -829,9 +980,17 @@ function closeEraserPanel() {
   els.eraserPanel.hidden = true;
 }
 
+function closeMorePanel() {
+  els.morePanel.hidden = true;
+  els.morePanel.style.left = "-9999px";
+  els.morePanel.style.top = "-9999px";
+  syncRectTool();
+}
+
 function closeAllPanels() {
   closeSlotPanel();
   closeEraserPanel();
+  closeMorePanel();
 }
 
 function placePanel(panel, anchorBtn) {
@@ -995,17 +1154,23 @@ function setSlotKind(kind) {
 function selectSlot(index) {
   state.slotIndex = index;
   state.tool = "pen";
+  state.rectTool = null;
+  hideMarquee();
   saveSlotIndex(index);
   closeAllPanels();
   syncToolSelection();
+  syncRectTool();
 }
 
 function selectEraserPixel() {
   state.tool = "eraser";
   state.eraseMode = "pixel";
+  state.rectTool = null;
+  hideMarquee();
   persistEraser();
   closeAllPanels();
   syncToolSelection();
+  syncRectTool();
 }
 
 function openEraserEditor() {
@@ -1055,6 +1220,309 @@ function setZoomLock(on) {
   state.zoomLock = Boolean(on);
   saveZoomLock(state.zoomLock);
   syncZoomLock();
+}
+
+function setInteractMode(mode) {
+  state.interactMode = mode === "view" ? "view" : "edit";
+  saveInteractMode(state.interactMode);
+  if (state.interactMode === "view") {
+    abortStroke();
+    state.rectTool = null;
+    hideMarquee();
+  }
+  applyChrome();
+  syncRectTool();
+}
+
+function hideMarquee() {
+  state.currentRect = null;
+  state.pendingCapture = null;
+  els.marquee.hidden = true;
+  els.captureConfirm.hidden = true;
+}
+
+function updateMarquee(showConfirm) {
+  const source = state.currentRect || state.pendingCapture;
+  if (!source) {
+    return;
+  }
+  const rect = source.rect || rectFromPoints(source.a, source.b);
+  const view = state.pageViews.find((item) => item.pageNum === source.page);
+  if (!view) {
+    return;
+  }
+  const box = view.stage.getBoundingClientRect();
+  const left = box.left + rect.x * box.width;
+  const top = box.top + rect.y * box.height;
+  const width = Math.max(1, rect.w * box.width);
+  const height = Math.max(1, rect.h * box.height);
+  els.marquee.hidden = false;
+  els.marqueeBox.style.left = `${left}px`;
+  els.marqueeBox.style.top = `${top}px`;
+  els.marqueeBox.style.width = `${width}px`;
+  els.marqueeBox.style.height = `${height}px`;
+  if (showConfirm) {
+    els.captureConfirm.hidden = false;
+    const confirmW = els.captureConfirm.offsetWidth || 64;
+    els.captureConfirm.style.left = `${Math.min(window.innerWidth - confirmW - 8, Math.max(8, left))}px`;
+    els.captureConfirm.style.top = `${Math.min(window.innerHeight - 44, top + height + 8)}px`;
+  } else {
+    els.captureConfirm.hidden = true;
+  }
+}
+
+function startRect(event, stage) {
+  if (state.interactMode === "view") {
+    return;
+  }
+  if (!state.pdf || (event.button !== undefined && event.button !== 0)) {
+    return;
+  }
+  const ink = stage.querySelector(".ink-canvas");
+  if (!ink) {
+    return;
+  }
+  event.preventDefault();
+  try {
+    ink.setPointerCapture(event.pointerId);
+  } catch {
+    // optional
+  }
+  const point = eventToNorm(event, ink);
+  state.drawPage = Number(stage.dataset.page) || state.page;
+  state.drawCanvas = ink;
+  state.pendingCapture = null;
+  state.currentRect = { page: state.drawPage, a: point, b: point };
+  updateMarquee(false);
+}
+
+function moveRect(event) {
+  if (!state.currentRect || !state.drawCanvas) {
+    return;
+  }
+  event.preventDefault();
+  state.currentRect.b = eventToNorm(event, state.drawCanvas);
+  updateMarquee(false);
+}
+
+function endRect(event) {
+  if (!state.currentRect) {
+    return;
+  }
+  if (event.pointerId != null && state.drawCanvas) {
+    try {
+      state.drawCanvas.releasePointerCapture(event.pointerId);
+    } catch {
+      // already released
+    }
+  }
+  const rect = rectFromPoints(state.currentRect.a, state.currentRect.b);
+  const page = state.currentRect.page;
+  const view = state.pageViews.find((item) => item.pageNum === page);
+  state.currentRect = null;
+  if (!rectBigEnough(rect) || !view) {
+    hideMarquee();
+    return;
+  }
+  if (state.rectTool === "mosaic") {
+    commitPageChange(page, () => {
+      pageStrokes(page).push(mosaicItem(rect, MOSAIC_CELL_CSS));
+    });
+    hideMarquee();
+    drawStrokesOn(view);
+    return;
+  }
+  if (state.rectTool === "capture") {
+    state.pendingCapture = { page, rect };
+    captureConfirmArmedAt = performance.now() + 400;
+    updateMarquee(true);
+  }
+}
+
+let captureWriting = false;
+
+async function confirmCapture() {
+  const pending = state.pendingCapture;
+  if (!pending || captureWriting || performance.now() < captureConfirmArmedAt) {
+    return;
+  }
+  captureWriting = true;
+  try {
+    const view = state.pageViews.find((item) => item.pageNum === pending.page);
+    if (!view?.pdfCanvas.width || !view.inkCanvas.width) {
+      showBanner("이 영역을 복사하지 못했습니다.");
+      return;
+    }
+    let pdf;
+    let ink;
+    try {
+      pdf = canvas2d(view.pdfCanvas).getImageData(0, 0, view.pdfCanvas.width, view.pdfCanvas.height);
+      ink = canvas2d(view.inkCanvas).getImageData(0, 0, view.inkCanvas.width, view.inkCanvas.height);
+    } catch {
+      showBanner("이 영역을 복사하지 못했습니다.");
+      return;
+    }
+    const boxes = mosaicBoxesPx(
+      pageStrokes(pending.page),
+      view.pdfCanvas.width,
+      view.pdfCanvas.height,
+      view.cssWidth || Number.parseFloat(view.inkCanvas.style.width) || 0,
+    );
+    const crop = {
+      x: pending.rect.x * view.pdfCanvas.width,
+      y: pending.rect.y * view.pdfCanvas.height,
+      w: pending.rect.w * view.pdfCanvas.width,
+      h: pending.rect.h * view.pdfCanvas.height,
+    };
+    const result = captureRegionPng(pdf.data, ink.data, view.pdfCanvas.width, view.pdfCanvas.height, boxes, crop);
+    await writePngClipboard(result.png, navigator.clipboard, window.ClipboardItem);
+    hideMarquee();
+    state.rectTool = null;
+    syncRectTool();
+    showBanner("영역을 복사했습니다.");
+    window.setTimeout(() => {
+      if (els.banner.textContent === "영역을 복사했습니다.") {
+        showBanner("");
+      }
+    }, 1800);
+  } catch {
+    showBanner("클립보드에 복사하지 못했습니다.");
+  } finally {
+    captureWriting = false;
+  }
+}
+
+function redrawHistoryPage(pageNum) {
+  const num = Number(pageNum);
+  const view = state.pageViews.find((item) => item.pageNum === num);
+  if (view) {
+    drawStrokesOn(view);
+    return;
+  }
+  if (num !== state.page) {
+    goToPage(num);
+  }
+}
+
+function undoInk() {
+  if (undoHoldLock) {
+    return;
+  }
+  const entry = undoChange(state.history, state.pages);
+  if (!entry) {
+    return;
+  }
+  persistStrokes();
+  syncHistoryButtons();
+  redrawHistoryPage(entry.page);
+}
+
+function redoInk() {
+  const entry = redoChange(state.history, state.pages);
+  if (!entry) {
+    return;
+  }
+  persistStrokes();
+  syncHistoryButtons();
+  redrawHistoryPage(entry.page);
+}
+
+function overflowSide() {
+  if (state.toolbarPos === "bottom") {
+    return "above";
+  }
+  if (state.toolbarPos === "top") {
+    return "below";
+  }
+  if (state.toolbarPos === "left") {
+    return "right";
+  }
+  return "left";
+}
+
+function placeOverflowPanel() {
+  const panel = els.morePanel;
+  const anchor = els.moreBtn.getBoundingClientRect();
+  panel.style.visibility = "hidden";
+  panel.style.left = "-9999px";
+  panel.style.top = "-9999px";
+  panel.hidden = false;
+  const width = 240;
+  const height = panel.getBoundingClientRect().height || 160;
+  const gap = 8;
+  const side = overflowSide();
+  let top = anchor.bottom + gap;
+  let left = anchor.left + anchor.width / 2 - width / 2;
+  if (side === "above") {
+    top = anchor.top - gap - height;
+  } else if (side === "left") {
+    left = anchor.left - gap - width;
+    top = anchor.top + anchor.height / 2 - height / 2;
+  } else if (side === "right") {
+    left = anchor.right + gap;
+    top = anchor.top + anchor.height / 2 - height / 2;
+  }
+  left = Math.min(window.innerWidth - width - 8, Math.max(8, left));
+  top = Math.min(window.innerHeight - height - 8, Math.max(8, top));
+  panel.style.left = `${left}px`;
+  panel.style.top = `${top}px`;
+  panel.style.visibility = "";
+  syncRectTool();
+}
+
+function toggleMorePanel() {
+  if (els.morePanel.hidden) {
+    closeSlotPanel();
+    closeEraserPanel();
+    placeOverflowPanel();
+  } else {
+    closeMorePanel();
+  }
+}
+
+function selectMoreAction(action) {
+  if (action === "fullscreen") {
+    closeMorePanel();
+    ignoreAfterPanel = true;
+    toggleFullscreen();
+    return;
+  }
+  if (action !== "mosaic" && action !== "capture") {
+    return;
+  }
+  abortStroke();
+  if (state.rectTool === action && !ignoreAfterPanel) {
+    state.rectTool = null;
+  } else {
+    state.rectTool = action;
+  }
+  state.interactMode = "edit";
+  saveInteractMode("edit");
+  hideMarquee();
+  closeMorePanel();
+  ignoreAfterPanel = true;
+  applyChrome();
+  syncRectTool();
+}
+
+async function toggleFullscreen() {
+  try {
+    if (document.fullscreenElement) {
+      await document.exitFullscreen();
+      return;
+    }
+    if (document.documentElement.requestFullscreen) {
+      await document.documentElement.requestFullscreen();
+      return;
+    }
+  } catch {
+    // Fall back to hiding app chrome.
+  }
+  state.immersive = !state.immersive;
+  applyChrome();
+  if (state.pdf) {
+    await rebuildPages();
+  }
 }
 
 function startPinch() {
@@ -1139,13 +1607,17 @@ function movePan(event) {
 }
 
 function onWorkspacePointerDown(event) {
+  if (event.target.closest("#other-pdf")) {
+    return;
+  }
   if (overlayOpen()) {
-    if (!event.target.closest(".slot-panel, .sheet-card, .toolbar, .write-top")) {
+    if (!event.target.closest(".slot-panel, .sheet-card, .toolbar, .write-top, .m4-bar, .more-panel")) {
       closeAllPanels();
+      ignoreAfterPanel = true;
     }
     return;
   }
-  if (event.target.closest(".toolbar, .write-top, .sheet, .slot-panel")) {
+  if (event.target.closest(".toolbar, .write-top, .sheet, .slot-panel, .m4-bar, .more-panel, .marquee")) {
     return;
   }
 
@@ -1158,13 +1630,27 @@ function onWorkspacePointerDown(event) {
   if (ignoreAfterPinch) {
     return;
   }
+  const skipClickThrough = ignoreAfterPanel;
+  ignoreAfterPanel = false;
   if (shouldPan(event)) {
     event.preventDefault();
     startPan(event);
     return;
   }
   const stage = event.target.closest(".page-stage");
-  if (stage && allowsInkPointer(event)) {
+  if (!stage) {
+    return;
+  }
+  if (state.rectTool) {
+    if (allowsRectPointer(event)) {
+      startRect(event, stage);
+    }
+    return;
+  }
+  if (skipClickThrough) {
+    return;
+  }
+  if (allowsInkPointer(event)) {
     startStroke(event, stage);
   }
 }
@@ -1184,6 +1670,10 @@ function onWorkspacePointerMove(event) {
   if (gesture?.type === "pan") {
     event.preventDefault();
     movePan(event);
+    return;
+  }
+  if (state.currentRect) {
+    moveRect(event);
     return;
   }
   moveStroke(event);
@@ -1210,9 +1700,18 @@ function onWorkspacePointerUp(event) {
     }
     return;
   }
+  if (state.currentRect) {
+    endRect(event);
+    if (pointers.size === 0) {
+      ignoreAfterPinch = false;
+      ignoreAfterPanel = false;
+    }
+    return;
+  }
   endStroke(event);
   if (pointers.size === 0) {
     ignoreAfterPinch = false;
+    ignoreAfterPanel = false;
   }
 }
 
@@ -1309,6 +1808,73 @@ function bindSlot(btn) {
     if (Math.hypot(event.clientX - startX, event.clientY - startY) > SLOT_PRESS_SLOP) {
       clearTimer();
     }
+  });
+  btn.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+  });
+}
+
+function bindUndoHold(btn) {
+  let pointerId = null;
+  let startedAt = 0;
+  let didLong = false;
+  let timer = 0;
+
+  const finish = (event) => {
+    if (pointerId == null) {
+      return;
+    }
+    if (event.pointerId != null && event.pointerId !== pointerId) {
+      return;
+    }
+    window.clearTimeout(timer);
+    timer = 0;
+    const held = performance.now() - startedAt;
+    const wasLong = didLong || held >= LONG_PRESS_MS;
+    pointerId = null;
+    undoHoldLock = wasLong;
+    if (!wasLong) {
+      undoInk();
+    }
+    window.setTimeout(() => {
+      undoHoldLock = false;
+    }, 200);
+  };
+
+  btn.addEventListener("pointerdown", (event) => {
+    if (event.button !== undefined && event.button !== 0) {
+      return;
+    }
+    if (pointerId != null) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    pointerId = event.pointerId;
+    startedAt = performance.now();
+    didLong = false;
+    undoHoldLock = false;
+    window.clearTimeout(timer);
+    try {
+      btn.setPointerCapture(event.pointerId);
+    } catch {
+      // optional
+    }
+    timer = window.setTimeout(() => {
+      if (pointerId == null) {
+        return;
+      }
+      didLong = true;
+      undoHoldLock = true;
+      redoInk();
+    }, LONG_PRESS_MS);
+  });
+  btn.addEventListener("pointerup", finish);
+  btn.addEventListener("pointercancel", finish);
+  btn.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
   });
   btn.addEventListener("contextmenu", (event) => {
     event.preventDefault();
@@ -1470,6 +2036,37 @@ els.penOnlyBtn.addEventListener("click", () => {
 els.zoomLockBtn.addEventListener("click", () => {
   setZoomLock(!state.zoomLock);
 });
+els.interactBtn.addEventListener("click", () => {
+  setInteractMode(state.interactMode === "view" ? "edit" : "view");
+});
+bindUndoHold(els.undoBtn);
+els.moreBtn.addEventListener("pointerdown", (event) => {
+  event.stopPropagation();
+  armStayOnWrite();
+});
+els.moreBtn.addEventListener("click", (event) => {
+  event.preventDefault();
+  event.stopPropagation();
+  armStayOnWrite();
+  toggleMorePanel();
+});
+document.querySelectorAll("#more-panel [data-more]").forEach((btn) => {
+  btn.addEventListener("pointerdown", (event) => {
+    event.stopPropagation();
+    armStayOnWrite();
+  });
+  btn.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    armStayOnWrite();
+    selectMoreAction(btn.dataset.more);
+  });
+});
+els.captureConfirm.addEventListener("click", (event) => {
+  event.preventDefault();
+  event.stopPropagation();
+  confirmCapture();
+});
 els.settingsBtn.addEventListener("click", () => {
   if (els.settingsSheet.hidden) {
     openSettings();
@@ -1487,6 +2084,18 @@ els.otherPdf.addEventListener("pointerdown", (event) => {
 els.otherPdf.addEventListener("click", (event) => {
   event.preventDefault();
   event.stopPropagation();
+  if (!event.isTrusted) {
+    return;
+  }
+  if (performance.now() < stayOnWriteUntil) {
+    return;
+  }
+  if (!els.morePanel.hidden) {
+    return;
+  }
+  if (event.target !== els.otherPdf) {
+    return;
+  }
   showUploadScreen();
 });
 els.dropzone.addEventListener("pointerdown", () => {
@@ -1539,7 +2148,7 @@ els.workspace.addEventListener("scroll", () => {
 els.writeScreen.addEventListener(
   "touchmove",
   (event) => {
-    if (event.target.closest(".sheet-card, .slot-panel, .toolbar, .write-top")) {
+    if (event.target.closest(".sheet-card, .slot-panel, .toolbar, .write-top, .m4-bar, .more-panel, .marquee")) {
       return;
     }
     event.preventDefault();
@@ -1548,10 +2157,39 @@ els.writeScreen.addEventListener(
 );
 
 document.addEventListener("pointerdown", (event) => {
-  if (event.target.closest(".slot-panel, [data-slot], #eraser-btn")) {
+  if (event.target.closest(".slot-panel, [data-slot], #eraser-btn, #more-btn, .m4-bar, .marquee")) {
     return;
   }
   closeAllPanels();
+});
+
+document.addEventListener("keydown", (event) => {
+  if (!(event.ctrlKey || event.metaKey)) {
+    return;
+  }
+  const key = event.key.toLowerCase();
+  if (key === "z") {
+    event.preventDefault();
+    if (event.shiftKey) {
+      redoInk();
+    } else {
+      undoInk();
+    }
+  }
+  if (key === "y") {
+    event.preventDefault();
+    redoInk();
+  }
+});
+
+document.addEventListener("fullscreenchange", () => {
+  if (!document.fullscreenElement) {
+    state.immersive = false;
+  }
+  applyChrome();
+  if (state.pdf && !state.drawing) {
+    rebuildPages();
+  }
 });
 
 let resizeTimer = 0;
@@ -1567,6 +2205,12 @@ window.addEventListener("resize", () => {
     if (!els.eraserPanel.hidden) {
       placePanel(els.eraserPanel, els.eraserBtn);
     }
+    if (!els.morePanel.hidden) {
+      placeOverflowPanel();
+    }
+    if (state.pendingCapture || state.currentRect) {
+      updateMarquee(Boolean(state.pendingCapture));
+    }
     if (state.pdf && !state.drawing) {
       rebuildPages();
     }
@@ -1575,6 +2219,8 @@ window.addEventListener("resize", () => {
 
 applyChrome();
 syncToolSelection();
+syncHistoryButtons();
+syncRectTool();
 
 migrateLastIntoFiles()
   .then(() => loadLastSession())

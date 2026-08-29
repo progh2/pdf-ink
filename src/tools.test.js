@@ -29,6 +29,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const html = readFileSync(join(root, "index.html"), "utf8");
 const main = readFileSync(join(root, "src/main.js"), "utf8");
 const toolbar = html.slice(html.indexOf('id="toolbar"'), html.indexOf('id="workspace"'));
+const more = html.slice(html.indexOf('id="more-panel"'), html.indexOf('id="marquee"'));
 
 describe("pen palette", () => {
   it("uses the locked hex values", () => {
@@ -93,8 +94,9 @@ describe("toolbar", () => {
     assert.doesNotMatch(toolbar, /#D64545|#2F6FED|#E6C200|#E03C31/i);
     assert.equal((toolbar.match(/data-slot="/g) || []).length, 3);
     assert.match(toolbar, /id="eraser-btn"/);
-    assert.match(toolbar, /id="prev-btn"/);
-    assert.match(toolbar, /id="next-btn"/);
+    assert.doesNotMatch(toolbar, /id="prev-btn"|id="next-btn"/);
+    assert.match(html, /id="prev-btn"/);
+    assert.match(html, /id="next-btn"/);
     assert.match(html, /id="slot-panel"/);
     assert.match(html, /id="slot-palette"/);
     assert.match(html, /data-kind="pen">펜/);
@@ -107,6 +109,17 @@ describe("toolbar", () => {
     assert.deepEqual(STAMP_LABELS, ["참 잘했어요", "반려", "승인", "진행해", "응아냐"]);
     assert.doesNotMatch(html, /스포이드|eyedropper/i);
     assert.deepEqual(SLOT_KINDS, ["pen", "highlighter", "pencil", "stamp"]);
+    assert.match(toolbar, /id="undo-btn"/);
+    assert.match(toolbar, /id="more-btn"/);
+    assert.doesNotMatch(toolbar, /id="redo-btn"/);
+    assert.doesNotMatch(html, /id="m4-bar"|id="m4-rail"/);
+    assert.doesNotMatch(toolbar, /선택|select-btn|data-tool="select"/);
+    assert.match(more, /마스킹\(모자이크\)/);
+    assert.match(more, /영역캡처/);
+    assert.match(more, /전체화면/);
+    assert.doesNotMatch(more, /선택|이미지|회전|미리보기|책갈피/);
+    assert.match(html, /id="interact-btn"/);
+    assert.doesNotMatch(html, />저장</);
   });
 });
 
