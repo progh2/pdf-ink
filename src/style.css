@@ -167,7 +167,7 @@ body {
 
 .interact-lock {
   height: 32px;
-  padding: 0 4px 0 0;
+  padding: 0;
   border: 0;
   border-radius: 10px;
   background: transparent;
@@ -175,7 +175,7 @@ body {
   display: inline-flex;
   align-items: center;
   flex-shrink: 0;
-  gap: 2px;
+  gap: 6px;
   cursor: pointer;
 }
 
@@ -193,16 +193,20 @@ body {
 }
 
 .interact-lock-label {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   letter-spacing: -0.03em;
   line-height: 1;
-  color: inherit;
+  color: #5c574e;
   white-space: nowrap;
 }
 
 .interact-lock.is-on {
   background: var(--selected);
+  color: #8a8478;
+}
+
+.interact-lock.is-on .interact-lock-label {
   color: #8a8478;
 }
 

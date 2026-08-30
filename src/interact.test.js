@@ -20,33 +20,35 @@ const main = readFileSync(join(root, "src/main.js"), "utf8");
 const html = readFileSync(join(root, "index.html"), "utf8");
 const toolbar = html.slice(html.indexOf('id="toolbar"'), html.indexOf('id="workspace"'));
 
-describe("#52 헤더 자물쇠에 보기/편집", () => {
+describe("#52 헤더 자물쇠에 읽기/편집", () => {
   const header = html.slice(html.indexOf('class="write-top"'), html.indexOf('class="write-body"'));
   const lock = header.slice(header.indexOf('id="interact-btn"'), header.indexOf('class="page-pager"'));
 
-  it("shows 보기 or 편집 next to the header lock, not lock-only", () => {
+  it("shows 읽기 or 편집 next to the header lock, not lock-only", () => {
     assert.match(lock, /class="interact-lock-label">편집/);
-    assert.match(lock, /보기|편집/);
+    assert.match(lock, /읽기|편집/);
     assert.match(lock, /aria-label="편집"/);
     assert.match(lock, /id="interact-btn"/);
-    assert.equal(interactModeLabel("view"), "보기");
+    assert.equal(interactModeLabel("view"), "읽기");
     assert.equal(interactModeLabel("edit"), "편집");
-    assert.equal(interactModeLabel("읽기"), "편집");
+    assert.equal(interactModeLabel("보기"), "편집");
     assert.match(main, /setAttribute\("aria-label", label\)/);
     assert.match(main, /interactModeLabel\(state\.interactMode\)/);
     assert.match(main, /\.interact-lock-label/);
-    assert.doesNotMatch(lock, /읽기/);
-    assert.doesNotMatch(main, /"읽기"/);
+    assert.doesNotMatch(lock, /보기/);
+    assert.doesNotMatch(main, /"보기"/);
   });
 
-  it("keeps one toolbar and does not add a bar cell", () => {
+  it("keeps 32 lock, 6px gap, 13 type, and one toolbar", () => {
     assert.equal((html.match(/class="toolbar"/g) || []).length, 1);
     assert.doesNotMatch(toolbar, /id="interact-btn"/);
-    assert.doesNotMatch(toolbar, /interact-lock-label|>보기<|>편집</);
+    assert.doesNotMatch(toolbar, /interact-lock-label|>읽기<|>편집</);
     assert.doesNotMatch(html, /class="m4-bar"|id="m4-bar"|class="touch-pill"/);
     assert.match(css, /\.interact-lock-icon \{[\s\S]*width: 32px;[\s\S]*height: 32px/);
     assert.match(css, /\.interact-lock \{[\s\S]*color: #8a8478/);
-    assert.match(css, /\.interact-lock-label \{[\s\S]*font-size: 12px/);
+    assert.match(css, /\.interact-lock \{[\s\S]*gap: 6px/);
+    assert.match(css, /\.interact-lock-label \{[\s\S]*font-size: 13px;[\s\S]*color: #5c574e/);
+    assert.match(css, /\.interact-lock\.is-on \.interact-lock-label \{[\s\S]*color: #8a8478/);
   });
 
   it("view still blocks ink; default stays edit unless stored as view", () => {
