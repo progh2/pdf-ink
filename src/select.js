@@ -150,3 +150,21 @@ export function offsetItems(items, dx = PASTE_NUDGE, dy = PASTE_NUDGE) {
 export function pasteItems(items, clipboard) {
   return (items || []).concat((clipboard || []).map((item) => JSON.parse(JSON.stringify(item))));
 }
+
+export function deleteSelectedItems(items, indices) {
+  const remove = new Set();
+  (indices || []).forEach((index) => {
+    const item = items?.[index];
+    if (!item) {
+      return;
+    }
+    if (item.type === "image" && item.locked) {
+      return;
+    }
+    remove.add(index);
+  });
+  if (!remove.size) {
+    return items || [];
+  }
+  return (items || []).filter((_, index) => !remove.has(index));
+}

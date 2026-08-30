@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import { resizeStamp, STAMP_ASPECT, STAMP_HEIGHT_CSS, STAMP_WIDTH_CSS } from "./tools.js";
 import {
   copyItems,
+  deleteSelectedItems,
   isSelectable,
   itemBounds,
   offsetItems,
@@ -13,6 +14,7 @@ import {
   translateItem,
   translateItems,
 } from "./select.js";
+import { cloneItems, createHistory, recordChange, undoChange } from "./history.js";
 
 const stroke = {
   type: "pen",
@@ -67,5 +69,39 @@ describe("선택", () => {
     assert.ok(Math.abs(box.w * 400 / (box.h * 600) - STAMP_ASPECT) < 1e-6);
     const grown = resizeStamp({ ...stamp, w: STAMP_WIDTH_CSS, h: STAMP_HEIGHT_CSS }, "se", { x: 0.9, y: 0.85 }, 400, 600);
     assert.ok(Math.abs(grown.w / grown.h - STAMP_ASPECT) < 1e-6);
+  });
+
+  it("deletes the selection and leaves locked images", () => {
+    const image = { type: "image", locked: false, x: 0.1, y: 0.1, w: 0.2, h: 0.2 };
+    const locked = { type: "image", locked: true, x: 0.5, y: 0.5, w: 0.2, h: 0.2 };
+    const items = [stroke, stamp, image, locked];
+    const gone = deleteSelectedItems(items, [0, 1]);
+    assert.deepEqual(
+      gone.map((item) => item.type),
+      ["image", "image"],
+    );
+    assert.equal(gone[0], image);
+    assert.equal(gone[1], locked);
+    const mixed = deleteSelectedItems(items, [2, 3]);
+    assert.deepEqual(
+      mixed.map((item) => item.type),
+      ["pen", "stamp", "image"],
+    );
+    assert.equal(mixed[2], locked);
+    const kept = deleteSelectedItems(items, [3]);
+    assert.equal(kept, items);
+    assert.equal(items.length, 4);
+  });
+
+  it("restores deleted items through undo", () => {
+    const items = [stroke, stamp];
+    const after = deleteSelectedItems(items, [0]);
+    const pages = { 1: cloneItems(after) };
+    const history = createHistory();
+    recordChange(history, { page: 1, before: items, after });
+    undoChange(history, pages);
+    assert.equal(pages[1].length, 2);
+    assert.equal(pages[1][0].type, "pen");
+    assert.equal(pages[1][1].type, "stamp");
   });
 });
