@@ -1,4 +1,4 @@
-import { stampPaintLayout } from "./tools.js";
+import { stampItemSize } from "./tools.js";
 
 export const PASTE_NUDGE = 0.04;
 
@@ -38,16 +38,14 @@ export function itemBounds(item, cssWidth = 400, cssHeight = 600) {
     return null;
   }
   if (item.type === "stamp") {
-    const layout = stampPaintLayout(item.stamp, 1);
-    const rx = layout.radius / Math.max(1, cssWidth);
-    const labelW =
-      (Math.max(...layout.lines.map((line) => line.length), 1) * layout.fontSize) / Math.max(1, cssWidth) / 2;
-    const half = Math.max(rx, labelW);
+    const size = stampItemSize(item);
+    const w = size.w / Math.max(1, cssWidth);
+    const h = size.h / Math.max(1, cssHeight);
     return {
-      x: item.x - half,
-      y: item.y - layout.radius / Math.max(1, cssHeight),
-      w: half * 2,
-      h: (layout.radius + layout.labelBottom) / Math.max(1, cssHeight),
+      x: item.x - w / 2,
+      y: item.y - h / 2,
+      w,
+      h,
     };
   }
   if (item.type === "image" || item.type === "mosaic") {

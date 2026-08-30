@@ -7,12 +7,12 @@ import {
   HIGHLIGHTER_OPACITY_DEFAULT,
   PENCIL_COLOR,
   STAMP_COLOR,
-  STAMP_DIAMETER_CSS,
-  STAMP_LABEL_COLOR,
-  STAMP_LABEL_GAP_CSS,
+  STAMP_HEIGHT_CSS,
   STAMP_LABELS,
+  STAMP_WIDTH_CSS,
   highlighterAlpha,
   highlighterStrokeStyle,
+  stampItemSize,
   stampPaintLayout,
 } from "./tools.js";
 import { applyEraserToInk, itemHitsEraser, removeHitItems, removeHitStamps, stampInkItem, stampTilt } from "./ink.js";
@@ -36,31 +36,34 @@ describe("pencil color in ink", () => {
 });
 
 describe("stamp geometry", () => {
-  it("uses a 72 CSS px circle and the five labels", () => {
-    assert.equal(STAMP_DIAMETER_CSS, 72);
+  it("uses a horizontal oval and the five labels", () => {
+    assert.equal(STAMP_WIDTH_CSS, 108);
+    assert.equal(STAMP_HEIGHT_CSS, 64);
+    assert.ok(STAMP_WIDTH_CSS > STAMP_HEIGHT_CSS);
     assert.equal(STAMP_LABELS.length, 5);
     assert.ok(Math.abs(stampTilt(0.2, 0.3)) < 0.3);
   });
 
-  it("places the canvas stamp label below the circle, not inside it", () => {
+  it("paints the phrase inside the oval, not below it", () => {
     const layout = stampPaintLayout("참 잘했어요", 1);
-    assert.equal(layout.radius * 2, 72);
-    assert.equal(layout.gap, STAMP_LABEL_GAP_CSS);
-    assert.equal(layout.gap, 8);
-    assert.equal(layout.circleColor, STAMP_COLOR);
-    assert.equal(layout.circleColor, "#C42B2B");
-    assert.equal(layout.labelColor, STAMP_LABEL_COLOR);
-    assert.equal(layout.labelColor, "#5C574E");
-    assert.ok(layout.labelTop >= layout.radius + layout.gap);
-    layout.lines.forEach((_, index) => {
-      const y = layout.labelTop + index * layout.lineHeight;
-      assert.ok(y >= layout.radius, `line ${index} y=${y} is inside the circle`);
+    assert.equal(layout.width, STAMP_WIDTH_CSS);
+    assert.equal(layout.height, STAMP_HEIGHT_CSS);
+    assert.equal(layout.inkColor, STAMP_COLOR);
+    assert.equal(layout.inkColor, "#C42B2B");
+    assert.equal("labelTop" in layout, false);
+    assert.equal("gap" in layout, false);
+    assert.equal("labelBottom" in layout, false);
+    const half = layout.lineHeight / 2;
+    layout.textYs.forEach((y, index) => {
+      assert.ok(Math.abs(y) + half <= layout.innerRy + 1e-6, `line ${index} y=${y} is outside the oval`);
     });
-    assert.ok(layout.labelBottom > layout.labelTop);
     assert.match(paintStampSrc, /stampPaintLayout/);
-    assert.match(paintStampSrc, /textBaseline = "top"/);
-    assert.match(paintStampSrc, /labelColor/);
-    assert.doesNotMatch(paintStampSrc, /textBaseline = "middle"/);
+    assert.match(paintStampSrc, /textBaseline = "middle"/);
+    assert.match(paintStampSrc, /ellipse\(/);
+    assert.ok((paintStampSrc.match(/ellipse\(/g) || []).length >= 2);
+    assert.doesNotMatch(paintStampSrc, /textBaseline = "top"/);
+    assert.doesNotMatch(paintStampSrc, /labelTop|labelColor|labelBottom/);
+    assert.doesNotMatch(paintStampSrc, /ctx\.arc\(/);
   });
 });
 
@@ -106,7 +109,7 @@ describe("획 지우개", () => {
     assert.equal(itemHitsEraser(stroke, eraser, 400, 600), false);
   });
 
-  it("can erase a stamp by touching its circle", () => {
+  it("can erase a stamp by touching its oval, not the old below-label band", () => {
     const stamp = { type: "stamp", stamp: "승인", x: 0.5, y: 0.5 };
     const hit = {
       width: 2,
@@ -116,8 +119,14 @@ describe("획 지우개", () => {
       width: 2,
       points: [{ x: 0.05, y: 0.05 }],
     };
+    const size = stampItemSize(stamp);
+    const below = {
+      width: 2,
+      points: [{ x: 0.5, y: 0.5 + (size.h / 2 + 12) / 600 }],
+    };
     assert.equal(itemHitsEraser(stamp, hit, 400, 600), true);
     assert.equal(itemHitsEraser(stamp, miss, 400, 600), false);
+    assert.equal(itemHitsEraser(stamp, below, 400, 600), false);
   });
 
   it("lets the pixel eraser remove a stamp from the ink list", () => {
@@ -140,6 +149,8 @@ describe("획 지우개", () => {
     assert.deepEqual(removeHitStamps([stamp, pen], eraser, 400, 600), [pen]);
     assert.equal(stamp.type, "stamp");
     assert.equal(stamp.stamp, "승인");
+    assert.equal(stamp.w, STAMP_WIDTH_CSS);
+    assert.equal(stamp.h, STAMP_HEIGHT_CSS);
   });
 
   it("pixel-erasing over a stamp removes it from the ink layer", () => {

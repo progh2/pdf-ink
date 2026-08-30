@@ -9,12 +9,14 @@ import {
   PEN_PALETTE,
   PENCIL_COLOR,
   SLOT_KINDS,
+  STAMP_ASPECT,
   STAMP_COLOR,
-  STAMP_LABEL_COLOR,
-  STAMP_LABEL_GAP_CSS,
+  STAMP_HANDLE_CSS,
+  STAMP_HEIGHT_CSS,
+  STAMP_WIDTH_CSS,
   TOOLBAR_STAMP_CIRCLE,
-  STAMP_DIAMETER_CSS,
   STAMP_LABELS,
+  resizeStamp,
   stampPaintLayout,
   TOOLBAR_COLOR_CHIPS,
   colorInPalette,
@@ -74,14 +76,35 @@ describe("색연필", () => {
 });
 
 describe("스탬프", () => {
-  it("has the five grading labels and a 72 CSS px circle", () => {
+  it("has the five grading labels and a horizontal oval with text inside", () => {
     assert.deepEqual(STAMP_LABELS, ["참 잘했어요", "반려", "승인", "진행해", "응아냐"]);
-    assert.equal(STAMP_DIAMETER_CSS, 72);
+    assert.equal(STAMP_WIDTH_CSS, 108);
+    assert.equal(STAMP_HEIGHT_CSS, 64);
+    assert.ok(STAMP_WIDTH_CSS > STAMP_HEIGHT_CSS);
     assert.equal(STAMP_COLOR, "#C42B2B");
-    assert.equal(STAMP_LABEL_COLOR, "#5C574E");
-    assert.equal(STAMP_LABEL_GAP_CSS, 8);
+    assert.equal(STAMP_HANDLE_CSS, 8);
     const layout = stampPaintLayout("참 잘했어요");
-    assert.ok(layout.labelTop >= layout.radius + layout.gap);
+    assert.equal("labelTop" in layout, false);
+    assert.equal("labelBottom" in layout, false);
+    assert.equal("gap" in layout, false);
+    assert.equal("labelColor" in layout, false);
+    assert.ok(layout.rx > layout.ry);
+    assert.equal(layout.inkColor, STAMP_COLOR);
+    const half = layout.lineHeight / 2;
+    layout.textYs.forEach((y, index) => {
+      assert.ok(Math.abs(y) + half <= layout.innerRy + 1e-6, `line ${index} y=${y} is outside the oval`);
+    });
+    assert.equal((html.match(/class="toolbar"/g) || []).length, 1);
+  });
+
+  it("keeps aspect when resized from a corner", () => {
+    const item = { type: "stamp", stamp: "승인", x: 0.5, y: 0.5, w: STAMP_WIDTH_CSS, h: STAMP_HEIGHT_CSS };
+    const grown = resizeStamp(item, "se", { x: 0.82, y: 0.72 }, 400, 600);
+    assert.ok(Math.abs(grown.w / grown.h - STAMP_ASPECT) < 1e-6);
+    assert.ok(grown.w > item.w);
+    const shrunk = resizeStamp(item, "nw", { x: 0.42, y: 0.46 }, 400, 600);
+    assert.ok(Math.abs(shrunk.w / shrunk.h - STAMP_ASPECT) < 1e-6);
+    assert.ok(shrunk.w < item.w);
   });
 });
 
@@ -115,6 +138,7 @@ describe("toolbar", () => {
     assert.deepEqual(SLOT_KINDS, ["pen", "highlighter", "pencil", "stamp"]);
     assert.match(toolbar, /id="undo-btn"/);
     assert.match(toolbar, /id="more-btn"/);
+    assert.equal((html.match(/class="toolbar"/g) || []).length, 1);
     assert.doesNotMatch(html, /id="m4-bar"|id="m4-rail"/);
     assert.match(more, /마스킹\(모자이크\)/);
     assert.match(more, /영역캡처/);

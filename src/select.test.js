@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { resizeStamp, STAMP_ASPECT, STAMP_HEIGHT_CSS, STAMP_WIDTH_CSS } from "./tools.js";
 import {
   copyItems,
   isSelectable,
@@ -62,5 +63,9 @@ describe("선택", () => {
     const bounds = selectedBounds([stroke, stamp], [0, 1], 400, 600);
     assert.ok(bounds.w > 0.2);
     assert.ok(itemBounds(stamp, 400, 600).w > 0);
+    const box = itemBounds({ ...stamp, w: STAMP_WIDTH_CSS, h: STAMP_HEIGHT_CSS }, 400, 600);
+    assert.ok(Math.abs(box.w * 400 / (box.h * 600) - STAMP_ASPECT) < 1e-6);
+    const grown = resizeStamp({ ...stamp, w: STAMP_WIDTH_CSS, h: STAMP_HEIGHT_CSS }, "se", { x: 0.9, y: 0.85 }, 400, 600);
+    assert.ok(Math.abs(grown.w / grown.h - STAMP_ASPECT) < 1e-6);
   });
 });
