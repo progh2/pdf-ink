@@ -48,16 +48,24 @@ export function inkCanvasScale(pixelWidth, cssWidth) {
   return pixel / css;
 }
 
-export function constrainPan(panX, panY, scale, pageW, pageH, viewW, viewH) {
-  if (scale <= 1.001) {
-    return { x: 0, y: 0 };
-  }
-  const extraX = Math.max(0, (pageW * scale - viewW) / 2);
-  const extraY = Math.max(0, (pageH * scale - viewH) / 2);
-  const slack = 32;
+/**
+ * Room to push the paper out from under the bar, on all four sides (#94).
+ * The bar's thin side (56) plus the 8 it sits off the edge.
+ */
+export const PAN_MARGIN_PX = 64;
+
+/**
+ * Pans within the zoomed overflow plus the margin. The margin applies at fit
+ * scale too, so a page that ends at the screen edge can still be nudged in.
+ * The paper itself is never resized (#30).
+ */
+export function constrainPan(panX, panY, scale, pageW, pageH, viewW, viewH, margin = PAN_MARGIN_PX) {
+  const room = Math.max(0, Number(margin) || 0);
+  const extraX = Math.max(0, (pageW * scale - viewW) / 2) + room;
+  const extraY = Math.max(0, (pageH * scale - viewH) / 2) + room;
   return {
-    x: clamp(panX, -extraX - slack, extraX + slack),
-    y: clamp(panY, -extraY - slack, extraY + slack),
+    x: clamp(panX, -extraX, extraX),
+    y: clamp(panY, -extraY, extraY),
   };
 }
 

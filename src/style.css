@@ -4,6 +4,8 @@
   --paper: #ffffff;
   --ink: #1a1a1a;
   --muted: #8a8478;
+  /* Bar thin side (56) + the 8 it sits off the edge (#94). */
+  --pan-margin: 64px;
   --title: #5c574e;
   --line: #e6e1d6;
   --drop-line: #d4cfc4;
@@ -645,12 +647,25 @@ body {
   overscroll-behavior: none;
 }
 
+/* #94: room to push the paper out from under the bar, on every side. */
 .write-screen[data-view="scroll"] .workspace {
   align-items: flex-start;
-  justify-content: center;
+  justify-content: flex-start;
+  padding: var(--pan-margin) 12px;
   overflow: auto;
   touch-action: none;
   overscroll-behavior: none;
+}
+
+.write-screen[data-view="scroll"][data-toolbar="left"] .workspace,
+.write-screen[data-view="scroll"][data-toolbar="right"] .workspace {
+  padding-left: var(--pan-margin);
+  padding-right: var(--pan-margin);
+}
+
+/* auto margins center without clipping the far side when it overflows. */
+.write-screen[data-view="scroll"] .viewport {
+  margin: 0 auto;
 }
 
 .viewport {
