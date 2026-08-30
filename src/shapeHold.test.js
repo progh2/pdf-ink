@@ -472,6 +472,52 @@ describe("#70 hold-end jitter must not turn ink into a triangle", () => {
     assert.notEqual(done.points.length, 3);
   });
 
+  it("long freehand plus hold does not grow a tail even on a large pointer jump", () => {
+    const clock = createClock();
+    const hold = createShapeHold({
+      holdMs: SHAPE_HOLD_MS,
+      now: clock.now,
+      setTimeoutFn: clock.setTimeoutFn,
+      clearTimeoutFn: clock.clearTimeoutFn,
+    });
+    const dragged = lineStroke(0.06, 0.28, 0.9, 0.3, 32, 0.003);
+    const startClient = { x: 24, y: 60 };
+    let live = [dragged[0]];
+    let offered = null;
+    const onOffer = (next) => {
+      offered = next;
+    };
+    hold.begin({
+      tool: "pen",
+      client: startClient,
+      getPoints: () => live,
+      onOffer,
+    });
+    for (let index = 1; index < dragged.length; index += 1) {
+      live = recordHoldMove(hold, live, { x: startClient.x + index * 22, y: 60 }, dragged[index], onOffer);
+    }
+    const endClient = { x: startClient.x + (dragged.length - 1) * 22, y: 60 };
+    const last = dragged[dragged.length - 1];
+    assert.deepEqual(live, dragged);
+    const heldCount = live.length;
+    clock.advance(80);
+    const tailClient = { x: endClient.x, y: endClient.y + 145 };
+    const tailNorm = { x: last.x, y: last.y + 0.22 };
+    live = recordHoldMove(hold, live, tailClient, tailNorm, onOffer);
+    assert.equal(live.length, heldCount);
+    assert.deepEqual(live, dragged);
+    assert.notEqual(live.at(-1)?.y, tailNorm.y);
+    clock.advance(400);
+    assert.equal(hold.isOffering(), true);
+    assert.ok(offered);
+    assert.ok(offered.chips.line);
+    assert.ok(offered.chips.rect);
+    assert.ok(offered.chips.circle);
+    const done = hold.finish([...live, tailNorm]);
+    assert.equal(done.snapped, false);
+    assert.deepEqual(done.points, dragged);
+  });
+
   it("a 145px downward client jump during an active hold/offer does not grow the stroke if chips remain", () => {
     const clock = createClock();
     const hold = createShapeHold({
@@ -534,6 +580,7 @@ describe("#70 hold-end jitter must not turn ink into a triangle", () => {
     assert.match(shapeHoldSrc, /isShapeHoldJitter/);
     assert.match(shapeHoldSrc, /frozen/);
     assert.match(shapeHoldSrc, /isHoldLocked/);
+    assert.match(shapeHoldSrc, /frozen \|\| offer \|\| still/);
     assert.doesNotMatch(shapeHoldSrc, /triangle|삼각/);
     assert.doesNotMatch(main, /triangle|삼각/);
     assert.deepEqual(SHAPE_HOLD_CHIPS, ["line", "rect", "circle"]);

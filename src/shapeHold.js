@@ -289,6 +289,7 @@ export function createShapeHold({
   let armed = false;
   let lastSignificantAt = 0;
   let frozen = null;
+  let drawn = false;
 
   const clearTimer = () => {
     if (timer) {
@@ -313,6 +314,9 @@ export function createShapeHold({
     if (!next) {
       return;
     }
+    if (!frozen) {
+      frozen = copyPoints(pointsForOffer(getPoints));
+    }
     offer = next;
     onOffer?.(next);
   };
@@ -326,6 +330,7 @@ export function createShapeHold({
       armed = false;
       lastSignificantAt = 0;
       frozen = null;
+      drawn = false;
     },
     begin({ tool: nextTool, client, getPoints, onOffer } = {}) {
       this.reset();
@@ -342,7 +347,8 @@ export function createShapeHold({
       if (!armed || !canShapeHold(tool) || !client) {
         return true;
       }
-      const locking = Boolean(frozen) || Boolean(offer) || now() - lastSignificantAt >= holdMs;
+      const still = drawn && now() - lastSignificantAt >= Math.min(50, holdMs);
+      const locking = Boolean(frozen || offer || still);
       if (isShapeHoldJitter(client, lastClient, moveSlopPx)) {
         frozen = copyPoints(typeof getPoints === "function" ? getPoints() : []);
         if (!offer && now() - lastSignificantAt >= holdMs) {
@@ -362,6 +368,7 @@ export function createShapeHold({
         timer = setTimeoutFn(() => fire(getPoints, onOffer), holdMs);
         return false;
       }
+      drawn = true;
       frozen = null;
       clearTimer();
       timer = setTimeoutFn(() => fire(getPoints, onOffer), holdMs);
@@ -377,6 +384,7 @@ export function createShapeHold({
       lastClient = null;
       armed = false;
       frozen = null;
+      drawn = false;
       return {
         points: keptPoints,
         offer: kept,
@@ -386,6 +394,6 @@ export function createShapeHold({
     isOffering: () => Boolean(offer),
     currentOffer: () => offer,
     isFrozen: () => Boolean(frozen),
-    isHoldLocked: () => Boolean(frozen) || Boolean(offer) || now() - lastSignificantAt >= holdMs,
+    isHoldLocked: () => Boolean(frozen || offer || (drawn && now() - lastSignificantAt >= Math.min(50, holdMs))),
   };
 }
