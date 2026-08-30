@@ -87,6 +87,7 @@ export function visibleScrollPages({
   metrics,
   overscan = SCROLL_OVERSCAN,
   currentPage = 1,
+  offset = 0,
 } = {}) {
   const n = Math.max(0, Number(metrics?.count) || 0);
   if (n <= 0) {
@@ -98,7 +99,8 @@ export function visibleScrollPages({
   if (!(stride > 0)) {
     return { from: fallback, to: fallback, count: 1 };
   }
-  const top = Math.max(0, Number(scrollTop) || 0);
+  // The stack starts below the scroll padding that clears the bar (#94).
+  const top = Math.max(0, (Number(scrollTop) || 0) - (Number(offset) || 0));
   const view = Math.max(0, Number(viewportHeight) || 0);
   const pad = Math.max(0, Math.round(Number(overscan) || 0));
   const from = Math.max(1, Math.floor(top / stride) + 1 - pad);
@@ -109,13 +111,15 @@ export function visibleScrollPages({
   return { from, to, count: to - from + 1 };
 }
 
-export function pageAtScrollMid({ scrollTop, viewportHeight, scale = 1, metrics } = {}) {
+export function pageAtScrollMid({ scrollTop, viewportHeight, scale = 1, metrics, offset = 0 } = {}) {
   const n = Math.max(0, Number(metrics?.count) || 0);
   if (n <= 0) {
     return 1;
   }
   const zoom = Number(scale) > 0 ? Number(scale) : 1;
-  const mid = Math.max(0, Number(scrollTop) || 0) + Math.max(0, Number(viewportHeight) || 0) / 2;
+  const mid =
+    Math.max(0, (Number(scrollTop) || 0) - (Number(offset) || 0)) +
+    Math.max(0, Number(viewportHeight) || 0) / 2;
   const pageH = (Number(metrics.pageHeight) || 0) * zoom;
   const stride = (Number(metrics.stride) || 0) * zoom;
   if (!(stride > 0)) {

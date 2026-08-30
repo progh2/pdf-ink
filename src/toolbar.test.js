@@ -261,3 +261,27 @@ describe("#49 레일에서 패널", () => {
     assert.match(place, /toolbarPos === "bottom" \|\| \(state\.toolbarPos === "float"/);
   });
 });
+
+describe("#94 종이 여백", () => {
+  it("adds push room without shrinking the paper", () => {
+    assert.match(css, /--pan-margin: 64px/);
+    assert.match(css, /\[data-view="scroll"\] \.workspace \{[\s\S]*padding: var\(--pan-margin\) 12px/);
+    assert.match(
+      css,
+      /\[data-view="scroll"\]\[data-toolbar="left"\] \.workspace,[\s\S]*padding-left: var\(--pan-margin\)/,
+    );
+    // Page view keeps its own small padding: the bar never carves the workspace.
+    const pageWorkspace = css.slice(css.indexOf(".workspace {"), css.indexOf('[data-view="scroll"] .workspace'));
+    assert.match(pageWorkspace, /padding: 8px 12px/);
+    // fitScale still measures the whole workspace, minus its 12+12 padding only.
+    const fit = main.slice(main.indexOf("function fitScale"), main.indexOf("async function basePageCss"));
+    assert.match(fit, /clientWidth - 24/);
+    assert.doesNotMatch(fit, /BAR_HEIGHT|PAN_MARGIN_PX|toolbarPos/);
+  });
+
+  it("shifts the scroll math by the padding, not the page geometry", () => {
+    assert.match(main, /function scrollPadPx\(\)[\s\S]*viewMode === "scroll" \? PAN_MARGIN_PX : 0/);
+    assert.match(main, /offset: scrollPadPx\(\)/);
+    assert.match(main, /pageStackOffset\(pageNum, metrics\) \* state\.userScale - 12 \+ scrollPadPx\(\)/);
+  });
+});

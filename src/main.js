@@ -41,6 +41,7 @@ import {
   useNarrowRail,
 } from "./toolbar.js";
 import {
+  PAN_MARGIN_PX,
   constrainPan,
   inkCanvasScale,
   pointerDistance,
@@ -925,6 +926,22 @@ function positionScrollStage(view) {
   }
 }
 
+/** Scroll padding that keeps the paper clear of the bar (#94). */
+function scrollPadPx() {
+  return state.viewMode === "scroll" ? PAN_MARGIN_PX : 0;
+}
+
+/** A rail leaves side room in scroll view: start centred, let the reader slide. */
+function centerScrollX() {
+  if (state.viewMode !== "scroll") {
+    return;
+  }
+  const room = els.workspace.scrollWidth - els.workspace.clientWidth;
+  if (room > 0) {
+    els.workspace.scrollLeft = Math.round(room / 2);
+  }
+}
+
 function visiblePageRange() {
   if (state.viewMode !== "scroll") {
     return { from: state.page, to: state.page };
@@ -936,6 +953,7 @@ function visiblePageRange() {
       scale: state.userScale,
       metrics: state.scrollLayout,
       currentPage: state.page,
+      offset: scrollPadPx(),
     });
   }
   return { from: state.page, to: state.page };
@@ -1007,6 +1025,7 @@ function updateCurrentPageFromScroll() {
     viewportHeight: els.workspace.clientHeight,
     scale: state.userScale,
     metrics: state.scrollLayout,
+    offset: scrollPadPx(),
   });
   if (best !== state.page) {
     state.page = best;
@@ -1125,7 +1144,7 @@ async function rebuildPages() {
 function scrollPageIntoView(pageNum, smooth) {
   const metrics = state.scrollLayout;
   if (metrics) {
-    const top = pageStackOffset(pageNum, metrics) * state.userScale - 12;
+    const top = pageStackOffset(pageNum, metrics) * state.userScale - 12 + scrollPadPx();
     els.workspace.scrollTo({ top: Math.max(0, top), behavior: smooth ? "smooth" : "auto" });
     return;
   }
@@ -1133,7 +1152,7 @@ function scrollPageIntoView(pageNum, smooth) {
   if (!view) {
     return;
   }
-  const top = view.stage.offsetTop * state.userScale - 12;
+  const top = view.stage.offsetTop * state.userScale - 12 + scrollPadPx();
   els.workspace.scrollTo({ top: Math.max(0, top), behavior: smooth ? "smooth" : "auto" });
 }
 
@@ -2283,6 +2302,7 @@ async function setToolbarPosition(position, floatPoint) {
   }
   saveToolbarPosition(state.toolbarPos);
   applyChrome();
+  centerScrollX();
   closeAllPanels();
 }
 
@@ -2302,6 +2322,7 @@ async function setViewMode(mode) {
   if (state.pdf) {
     await rebuildPages();
   }
+  centerScrollX();
 }
 
 function setZoomLock(on) {

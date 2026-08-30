@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { BAR_TOOLS } from "./toolbar.js";
 import {
   PAGE_BITMAP_LIMIT,
+  PAGE_STACK_GAP,
   PREVIEW_LIST_GAP,
   PREVIEW_THUMB_WIDTH,
   THUMB_BITMAP_LIMIT,
@@ -205,5 +206,28 @@ describe("#85 preview / page navigation speed", () => {
     assert.match(css, /\.select-handle\[data-handle="rotate"\] \{/);
     assert.match(main, /createShapeHold\(/);
     assert.doesNotMatch(main, /holdTriangle|#73|#71|#72/);
+  });
+});
+
+describe("#94 스크롤 여백 보정", () => {
+  const metrics = scrollStackMetrics(20, 360, 520, PAGE_STACK_GAP);
+
+  it("counts the scroll padding out before picking visible pages", () => {
+    const padded = visibleScrollPages({ scrollTop: 64, viewportHeight: 600, metrics, offset: 64, overscan: 0 });
+    const plain = visibleScrollPages({ scrollTop: 0, viewportHeight: 600, metrics, offset: 0, overscan: 0 });
+    assert.deepEqual(padded, plain);
+  });
+
+  it("keeps the current page honest at the top of the padded stack", () => {
+    assert.equal(pageAtScrollMid({ scrollTop: 64, viewportHeight: 520, metrics, offset: 64 }), 1);
+    assert.equal(
+      pageAtScrollMid({ scrollTop: 64 + metrics.stride, viewportHeight: 520, metrics, offset: 64 }),
+      2,
+    );
+  });
+
+  it("treats a scroll inside the padding as the first page", () => {
+    assert.equal(pageAtScrollMid({ scrollTop: 10, viewportHeight: 520, metrics, offset: 64 }), 1);
+    assert.equal(visibleScrollPages({ scrollTop: 10, viewportHeight: 600, metrics, offset: 64 }).from, 1);
   });
 });
