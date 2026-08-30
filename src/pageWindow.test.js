@@ -231,3 +231,24 @@ describe("#94 스크롤 여백 보정", () => {
     assert.equal(visibleScrollPages({ scrollTop: 10, viewportHeight: 600, metrics, offset: 64 }).from, 1);
   });
 });
+
+describe("#96 확대 렌더 캐시", () => {
+  const leaf = { id: "p3", kind: "pdf", pdfPage: 3, rotate: 0 };
+
+  it("keys the page bitmap by the zoom step, so a blurry one is not reused", () => {
+    const one = pageBitmapKey(leaf, { cssWidth: 360, cssHeight: 520, viewMode: "page", factor: 1 });
+    const two = pageBitmapKey(leaf, { cssWidth: 360, cssHeight: 520, viewMode: "page", factor: 2 });
+    assert.notEqual(one, two);
+    assert.equal(one, pageBitmapKey(leaf, { cssWidth: 360, cssHeight: 520, viewMode: "page", factor: 1 }));
+    // A missing factor still reads as the base step.
+    assert.equal(one, pageBitmapKey(leaf, { cssWidth: 360, cssHeight: 520, viewMode: "page" }));
+  });
+
+  it("renders the page at the step and drops stale bitmaps", () => {
+    assert.match(main, /scale: scale \* dpr \* state\.renderFactor/);
+    assert.match(main, /function scheduleZoomRender\(\)[\s\S]*pageCache\.clear\(\)/);
+    assert.match(main, /function scheduleZoomRender\(\)[\s\S]*view\.rendered = false/);
+    // Ink thickness stays css-based (#32), so a sharper render keeps the width.
+    assert.match(main, /inkCanvasScale\(canvas\.width, cssWidth\)/);
+  });
+});

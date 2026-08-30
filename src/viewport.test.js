@@ -1,6 +1,18 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { PAN_MARGIN_PX, constrainPan, defaultToolbarPosition, inkCanvasScale, slotLineWidth } from "./viewport.js";
+import {
+  MAX_PAGE_PIXELS,
+  MAX_SCALE,
+  MIN_SCALE,
+  PAN_MARGIN_PX,
+  clampScale,
+  constrainPan,
+  defaultToolbarPosition,
+  inkCanvasScale,
+  renderZoomFactor,
+  scaleFromPinch,
+  slotLineWidth,
+} from "./viewport.js";
 
 describe("inkCanvasScale", () => {
   it("uses layout CSS width, so zoomed visual width cannot change lineWidth", () => {
@@ -63,5 +75,38 @@ describe("#94 종이 여백만큼 밀기", () => {
 
   it("keeps a small pan inside the margin untouched", () => {
     assert.deepEqual(constrainPan(12, -8, 1, 360, 520, 400, 600), { x: 12, y: -8 });
+  });
+});
+
+describe("#96 확대 배율과 선명도", () => {
+  it("goes up to 8x now, still starting from fit", () => {
+    assert.equal(MAX_SCALE, 8);
+    assert.equal(MIN_SCALE, 1);
+    assert.equal(clampScale(8), 8);
+    assert.equal(clampScale(12), 8);
+    assert.equal(clampScale(0.2), 1);
+    assert.equal(scaleFromPinch(100, 900, 1), 8);
+  });
+
+  it("renders at the biggest step the zoom asks for", () => {
+    // 1080x1560 = 1.68M px, so up to 1.8x fits the 6M budget.
+    assert.equal(renderZoomFactor(1, 1080, 1560), 1);
+    assert.equal(renderZoomFactor(1.4, 1080, 1560), 1);
+    assert.equal(renderZoomFactor(1.5, 1080, 1560), 1.5);
+    assert.equal(renderZoomFactor(4, 1080, 1560), 1.5);
+  });
+
+  it("never renders past the pixel budget on a big page", () => {
+    const wide = renderZoomFactor(8, 2400, 3200);
+    assert.equal(wide, 1);
+    for (const scale of [1, 2, 4, 8]) {
+      const factor = renderZoomFactor(scale, 800, 1100);
+      assert.ok(800 * 1100 * factor * factor <= MAX_PAGE_PIXELS, `${scale} → ${factor}`);
+    }
+  });
+
+  it("comes back down when the reader zooms out", () => {
+    assert.equal(renderZoomFactor(3, 600, 800), 3);
+    assert.equal(renderZoomFactor(1, 600, 800), 1);
   });
 });

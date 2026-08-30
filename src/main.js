@@ -44,6 +44,7 @@ import {
   PAN_MARGIN_PX,
   constrainPan,
   inkCanvasScale,
+  renderZoomFactor,
   pointerDistance,
   pointerMidpoint,
   scaleFromPinch,
@@ -307,6 +308,7 @@ const state = {
   stampGhost: null,
   shapeOffer: null,
   userScale: 1,
+  renderFactor: 1,
   panX: 0,
   panY: 0,
   pageCssWidth: 0,
@@ -778,7 +780,14 @@ async function renderPageView(view) {
       return;
     }
     const css = outlineViewport(base.width, base.height, leaf?.rotate || 0);
-    applyPageSize(view, css.width, css.height, Math.round(css.width * dpr), Math.round(css.height * dpr));
+    const factor = state.renderFactor;
+    applyPageSize(
+      view,
+      css.width,
+      css.height,
+      Math.round(css.width * dpr * factor),
+      Math.round(css.height * dpr * factor),
+    );
     if (state.viewMode === "page" || view.pageNum === state.page) {
       state.pageCssWidth = css.width;
       state.pageCssHeight = css.height;
@@ -790,8 +799,9 @@ async function renderPageView(view) {
     ctx.fillStyle = "#5C574E";
     ctx.textAlign = "center";
     ctx.textBaseline = "top";
-    ctx.font = `700 ${18 * dpr}px "Apple SD Gothic Neo", "Noto Sans KR", sans-serif`;
-    ctx.fillText(leaf?.title || "개요", view.pdfCanvas.width / 2, 36 * dpr);
+    const outlineScale = dpr * state.renderFactor;
+    ctx.font = `700 ${18 * outlineScale}px "Apple SD Gothic Neo", "Noto Sans KR", sans-serif`;
+    ctx.fillText(leaf?.title || "개요", view.pdfCanvas.width / 2, 36 * outlineScale);
     view.rendered = true;
     drawStrokesOn(view, state.drawing && state.drawPage === view.pageNum ? state.currentStroke : null);
     return;
@@ -803,7 +813,8 @@ async function renderPageView(view) {
   const rotation = ((page.rotate || 0) + (leaf.rotate || 0)) % 360;
   const scale = fitScale(page, state.viewMode, rotation);
   const css = page.getViewport({ scale, rotation });
-  const pixel = page.getViewport({ scale: scale * dpr, rotation });
+  // Zoomed pages are rendered sharper, not stretched (#96).
+  const pixel = page.getViewport({ scale: scale * dpr * state.renderFactor, rotation });
   applyPageSize(view, css.width, css.height, pixel.width, pixel.height);
   if (!state.baseCss.width) {
     const unrotated = page.getViewport({ scale: fitScale(page) });
@@ -845,6 +856,7 @@ function pageViewCacheKey(view) {
     cssWidth: view?.cssWidth || state.scrollLayout?.pageWidth || state.pageCssWidth,
     cssHeight: view?.cssHeight || state.scrollLayout?.pageHeight || state.pageCssHeight,
     viewMode: state.viewMode,
+    factor: state.renderFactor,
   });
 }
 
@@ -1079,6 +1091,37 @@ function applyViewport() {
   state.panX = next.x;
   state.panY = next.y;
   els.viewport.style.transform = `translate(${state.panX}px, ${state.panY}px) scale(${scale})`;
+}
+
+/** The step the visible page should be rendered at for the current zoom (#96). */
+function wantedRenderFactor() {
+  const dpr = window.devicePixelRatio || 1;
+  const view = state.pageViews.find((item) => item.pageNum === state.page) || state.pageViews[0];
+  const cssW = view?.cssWidth || state.pageCssWidth || 360;
+  const cssH = view?.cssHeight || state.pageCssHeight || 520;
+  return renderZoomFactor(state.userScale, cssW * dpr, cssH * dpr);
+}
+
+let zoomRenderTimer = 0;
+
+/** Repaints after the pinch settles, so a live pinch stays cheap. */
+function scheduleZoomRender() {
+  window.clearTimeout(zoomRenderTimer);
+  zoomRenderTimer = window.setTimeout(() => {
+    zoomRenderTimer = 0;
+    const next = wantedRenderFactor();
+    if (next === state.renderFactor || !state.pdf) {
+      return;
+    }
+    state.renderFactor = next;
+    // Bitmaps rendered at the old step are dead weight, and the new ones are big.
+    pageCache.clear();
+    for (const view of state.pageViews) {
+      view.rendered = false;
+      view.token += 1;
+    }
+    renderVisiblePages();
+  }, 180);
 }
 
 async function rebuildPages() {
@@ -1351,6 +1394,7 @@ async function openPdfBuffer(buffer, { identity, name, page = 1 }) {
   state.outline = normalizeOutline(stored.outline);
   state.baseCss = { width: 0, height: 0 };
   resetEditorExtras();
+  state.renderFactor = 1;
   if (!state.zoomLock) {
     state.userScale = 1;
     state.panX = 0;
@@ -2318,6 +2362,7 @@ async function setViewMode(mode) {
   if (!state.zoomLock) {
     state.userScale = 1;
   }
+  state.renderFactor = 1;
   applyChrome();
   if (state.pdf) {
     await rebuildPages();
@@ -4384,6 +4429,7 @@ function onWorkspacePointerUp(event) {
       gesture = null;
       ignoreAfterPinch = pointers.size > 0;
       applyViewport();
+      scheduleZoomRender();
     }
     return;
   }
