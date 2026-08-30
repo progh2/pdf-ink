@@ -68,6 +68,19 @@ import { canRedo, canUndo, cloneItems, createHistory, recordChange, redoChange, 
 import { bindUndoHold } from "./undoHold.js";
 import { bindMarqueeHold, placeMarqueeMenu } from "./marqueeHold.js";
 import {
+  PAGE_DRAG_SLOP_PX,
+  PAGE_HOLD_MS,
+  canPastePage,
+  copyPageLeaf,
+  dropIndexAt,
+  dropLineTop,
+  duplicatePageLeaf,
+  movePageLeaf,
+  pastePageLeaf,
+  placePageMenu,
+  reorderPageLeaf,
+} from "./pageOps.js";
+import {
   acceptAreaUrl,
   areaItem,
   areaLinkOf,
@@ -225,6 +238,8 @@ const els = {
   morePanel: document.querySelector("#more-panel"),
   imageInput: document.querySelector("#image-input"),
   previewDrawer: document.querySelector("#preview-drawer"),
+  pageMenu: document.querySelector("#page-menu"),
+  previewDrop: document.querySelector("#preview-drop"),
   previewBackdrop: document.querySelector("#preview-backdrop"),
   previewClose: document.querySelector("#preview-close"),
   previewList: document.querySelector("#preview-list"),
@@ -296,6 +311,8 @@ const state = {
   outline: [],
   previewFilter: "all",
   previewTab: "pages",
+  pageClip: null,
+  pageMenuAt: 0,
   selectIndices: [],
   selectPage: 1,
   selectDrag: null,
@@ -337,7 +354,7 @@ const thumbCache = createPaintCache(THUMB_BITMAP_LIMIT);
 const stagePool = [];
 
 const WRITE_CHROME =
-  ".sheet-card, .slot-panel, .toolbar, .write-top, .m4-bar, .more-panel, .marquee, .preview-drawer, .select-hud, .float-bar, #float-bar, .select-layer, #select-layer, .shape-chips, #area-link-panel, #split-tabs, #split-pane, #area-layer";
+  ".sheet-card, .slot-panel, .toolbar, .write-top, .m4-bar, .more-panel, .marquee, .preview-drawer, .page-menu, .select-hud, .float-bar, #float-bar, .select-layer, #select-layer, .shape-chips, #area-link-panel, #split-tabs, #split-pane, #area-layer";
 
 function isWriteChrome(target) {
   return Boolean(target?.closest?.(WRITE_CHROME));
@@ -2088,6 +2105,7 @@ function closeMorePanel() {
 }
 
 function closePreview() {
+  hidePageMenu();
   if (!els.previewDrawer) {
     return;
   }
@@ -2113,6 +2131,7 @@ function closeAllPanels() {
   closeSlotPanel();
   closeEraserPanel();
   closeMorePanel();
+  hidePageMenu();
 }
 
 function placePanel(panel, anchorBtn) {
@@ -3458,7 +3477,10 @@ async function addImageFile(file) {
 }
 
 function rotateCurrentPage(delta) {
-  const pageNum = state.page;
+  rotatePageAt(state.page, delta);
+}
+
+function rotatePageAt(pageNum, delta) {
   const leaf = leafAt(state.leaves, pageNum);
   if (!leaf) {
     return;
@@ -3596,6 +3618,251 @@ function renderTocList() {
   }
 }
 
+/** Ink lives under a leaf key, so a page op records that key plus the leaves. */
+function commitLeafChange(key, apply) {
+  const before = cloneItems(state.pages[key] || []);
+  const leavesBefore = cloneItems(state.leaves);
+  apply();
+  const after = cloneItems(state.pages[key] || []);
+  recordChange(state.history, {
+    page: key,
+    before,
+    after,
+    extra: { leavesBefore, leavesAfter: cloneItems(state.leaves) },
+  });
+  persistStrokes();
+  syncHistoryButtons();
+}
+
+function afterPageOp(nextPage) {
+  state.pageCount = state.leaves.length;
+  state.page = Math.min(Math.max(1, nextPage), state.pageCount);
+  state.selectIndices = [];
+  rebuildPages();
+  if (!els.previewDrawer.hidden) {
+    renderPreview();
+  }
+}
+
+function hidePageMenu() {
+  if (els.pageMenu) {
+    els.pageMenu.hidden = true;
+  }
+}
+
+function openPageMenu(pageNum, rowTop) {
+  if (!els.pageMenu || state.previewTab === "toc") {
+    return;
+  }
+  state.pageMenuAt = pageNum;
+  const buttons = [...els.pageMenu.querySelectorAll("[data-page-menu]")];
+  const last = state.leaves.length;
+  for (const btn of buttons) {
+    const action = btn.dataset.pageMenu;
+    btn.disabled =
+      (action === "paste" && !canPastePage(state.pageClip)) ||
+      (action === "up" && pageNum <= 1) ||
+      (action === "down" && pageNum >= last);
+  }
+  els.pageMenu.hidden = false;
+  const drawer = els.previewDrawer.getBoundingClientRect();
+  const spot = placePageMenu(rowTop, drawer.right, window.innerHeight, buttons.length);
+  els.pageMenu.style.left = `${spot.left}px`;
+  els.pageMenu.style.top = `${spot.top}px`;
+}
+
+function runPageMenu(action) {
+  const pageNum = state.pageMenuAt;
+  const index = pageNum - 1;
+  const leaf = leafAt(state.leaves, pageNum);
+  hidePageMenu();
+  if (!leaf) {
+    return;
+  }
+  if (action === "copy") {
+    state.pageClip = copyPageLeaf(state.leaves, state.pages, index);
+    flashBanner(`${pageNum}쪽을 복사했습니다.`);
+    return;
+  }
+  if (action === "left" || action === "right") {
+    rotatePageAt(pageNum, action === "left" ? -90 : 90);
+    if (!els.previewDrawer.hidden) {
+      renderPreview();
+    }
+    return;
+  }
+  if (action === "up" || action === "down") {
+    const delta = action === "up" ? -1 : 1;
+    const moved = movePageLeaf(state.leaves, index, delta);
+    if (moved === state.leaves) {
+      return;
+    }
+    commitLeafChange(inkKey(leaf), () => {
+      state.leaves = moved;
+    });
+    afterPageOp(pageNum + delta);
+    return;
+  }
+  if (action === "duplicate" || action === "paste") {
+    const out =
+      action === "duplicate"
+        ? duplicatePageLeaf(state.leaves, state.pages, index)
+        : pastePageLeaf(state.leaves, state.pages, index, state.pageClip);
+    if (!out.key) {
+      return;
+    }
+    commitLeafChange(out.key, () => {
+      state.leaves = out.leaves;
+      state.pages = out.pages;
+    });
+    afterPageOp(out.at + 1);
+  }
+}
+
+function movePageByDrag(from, to) {
+  if (from === to) {
+    return;
+  }
+  const leaf = leafAt(state.leaves, from + 1);
+  const moved = reorderPageLeaf(state.leaves, from, to);
+  if (!leaf || moved === state.leaves) {
+    return;
+  }
+  commitLeafChange(inkKey(leaf), () => {
+    state.leaves = moved;
+  });
+  afterPageOp(to + 1);
+}
+
+function hideDropLine() {
+  if (els.previewDrop) {
+    els.previewDrop.hidden = true;
+  }
+}
+
+function showDropLine(index) {
+  if (!els.previewDrop) {
+    return;
+  }
+  els.previewDrop.hidden = false;
+  els.previewDrop.style.top = `${dropLineTop(index, previewRowStride())}px`;
+}
+
+/**
+ * Tap jumps. Hold 400ms (or right-click) grabs the page: the menu opens and the
+ * row takes the pointer, so dragging from there reorders instead of scrolling
+ * the drawer (#55).
+ */
+function bindPreviewRowGestures(row, fallbackPage) {
+  let timer = 0;
+  let startY = 0;
+  let pointerId = null;
+  let dragging = false;
+  let held = false;
+
+  const pageOf = () => pageOfLeaf(state.leaves, row.dataset.leaf) || fallbackPage;
+
+  const stop = () => {
+    window.clearTimeout(timer);
+    timer = 0;
+  };
+
+  const release = () => {
+    stop();
+    row.classList.remove("is-grabbed", "is-dragging");
+    hideDropLine();
+    pointerId = null;
+    dragging = false;
+  };
+
+  const grab = (event) => {
+    held = true;
+    row.classList.add("is-grabbed");
+    if (event?.pointerId != null) {
+      try {
+        row.setPointerCapture(event.pointerId);
+      } catch {
+        // optional
+      }
+    }
+    openPageMenu(pageOf(), row.getBoundingClientRect().top);
+  };
+
+  row.addEventListener("pointerdown", (event) => {
+    if (event.button !== undefined && event.button !== 0) {
+      return;
+    }
+    pointerId = event.pointerId;
+    startY = event.clientY;
+    held = false;
+    dragging = false;
+    timer = window.setTimeout(() => {
+      timer = 0;
+      grab(event);
+    }, PAGE_HOLD_MS);
+  });
+
+  row.addEventListener("pointermove", (event) => {
+    if (pointerId !== event.pointerId) {
+      return;
+    }
+    const moved = Math.abs(event.clientY - startY);
+    if (!held) {
+      // Still deciding: a scroll of the drawer cancels the hold.
+      if (moved > PAGE_DRAG_SLOP_PX) {
+        release();
+      }
+      return;
+    }
+    if (!dragging && moved > PAGE_DRAG_SLOP_PX && state.previewFilter === "all") {
+      dragging = true;
+      hidePageMenu();
+      row.classList.add("is-dragging");
+    }
+    if (dragging) {
+      event.preventDefault();
+      showDropLine(dropIndexForEvent(event));
+    }
+  });
+
+  const end = (event) => {
+    if (pointerId !== event.pointerId) {
+      return;
+    }
+    const wasDragging = dragging;
+    const wasHeld = held;
+    const from = pageOf() - 1;
+    const to = wasDragging ? dropIndexForEvent(event) : -1;
+    release();
+    if (wasDragging) {
+      movePageByDrag(from, to);
+      return;
+    }
+    if (!wasHeld) {
+      goToPage(pageOf());
+    }
+  };
+
+  row.addEventListener("pointerup", end);
+  row.addEventListener("pointercancel", release);
+  row.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+    stop();
+    grab(null);
+  });
+}
+
+function dropIndexForEvent(event) {
+  const list = els.previewList.getBoundingClientRect();
+  return dropIndexAt({
+    pointerY: event.clientY,
+    listTop: list.top,
+    scrollTop: els.previewList.scrollTop,
+    stride: previewRowStride(),
+    count: state.leaves.length,
+  });
+}
+
 function makePreviewRow(leaf) {
   const pageNum = pageOfLeaf(state.leaves, leaf.id);
   const row = document.createElement("div");
@@ -3631,9 +3898,7 @@ function makePreviewRow(leaf) {
   });
   meta.append(label, star);
   row.append(thumb, meta);
-  row.addEventListener("click", () => {
-    goToPage(pageNum);
-  });
+  bindPreviewRowGestures(row, pageNum);
   return row;
 }
 
@@ -4741,6 +5006,9 @@ for (const label of STAMP_LABELS) {
   els.stampPhrases.append(btn);
 }
 
+document.querySelectorAll("#page-menu [data-page-menu]").forEach((btn) => {
+  btn.addEventListener("click", () => runPageMenu(btn.dataset.pageMenu));
+});
 document.querySelectorAll("#toolbar-pos-choices [data-pos]").forEach((btn) => {
   btn.addEventListener("click", () => setToolbarPosition(btn.dataset.pos));
 });
@@ -4806,6 +5074,11 @@ els.imageInput.addEventListener("change", () => {
 });
 els.previewClose.addEventListener("click", closePreview);
 els.previewBackdrop.addEventListener("click", closePreview);
+els.previewDrawer?.addEventListener("pointerdown", (event) => {
+  if (!event.target.closest(".preview-row")) {
+    hidePageMenu();
+  }
+});
 document.querySelectorAll("#preview-tabs [data-preview-tab]").forEach((btn) => {
   btn.addEventListener("click", () => {
     setPreviewTab(btn.dataset.previewTab);
@@ -5054,6 +5327,11 @@ document.addEventListener("pointerdown", (event) => {
 
 document.addEventListener("keydown", (event) => {
   const typing = event.target.closest?.("input, textarea, [contenteditable='true']");
+  if (event.key === "Escape" && els.pageMenu && !els.pageMenu.hidden && !typing) {
+    event.preventDefault();
+    hidePageMenu();
+    return;
+  }
   if (event.key === "Escape" && state.pendingCapture && !typing) {
     event.preventDefault();
     hideMarquee();
