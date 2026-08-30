@@ -60,6 +60,23 @@ import { canRedo, canUndo, cloneItems, createHistory, recordChange, redoChange, 
 import { bindUndoHold } from "./undoHold.js";
 import { bindMarqueeHold, placeMarqueeMenu } from "./marqueeHold.js";
 import {
+  acceptAreaUrl,
+  areaItem,
+  areaLinkOf,
+  clampPageTarget,
+  hasAreaLink,
+  pickAreaAt,
+  recentDocsForLink,
+} from "./areaLink.js";
+import {
+  activateSplitTab,
+  closeSplitTab,
+  emptySplit,
+  openSplitTab,
+  splitAxis,
+  splitTabFromLink,
+} from "./split.js";
+import {
   SHAPE_HOLD_CHIP_HEIGHT,
   SHAPE_HOLD_DISMISS_MS,
   SHAPE_HOLD_GHOST_ALPHA,
@@ -166,6 +183,17 @@ const els = {
   penOnlyBtn: document.querySelector("#pen-only-btn"),
   docTitle: document.querySelector("#doc-title"),
   workspace: document.querySelector("#workspace"),
+  writeSplit: document.querySelector("#write-split"),
+  splitPane: document.querySelector("#split-pane"),
+  splitTabs: document.querySelector("#split-tabs"),
+  splitStage: document.querySelector("#split-stage"),
+  areaLayer: document.querySelector("#area-layer"),
+  areaLinkPanel: document.querySelector("#area-link-panel"),
+  areaLinkPage: document.querySelector("#area-link-page"),
+  areaLinkPageGo: document.querySelector("#area-link-page-go"),
+  areaLinkDocs: document.querySelector("#area-link-docs"),
+  areaLinkUrl: document.querySelector("#area-link-url"),
+  areaLinkUrlGo: document.querySelector("#area-link-url-go"),
   viewport: document.querySelector("#viewport"),
   pageStack: document.querySelector("#page-stack"),
   toolbar: document.querySelector("#toolbar"),
@@ -274,6 +302,7 @@ const state = {
   stackBase: { width: 0, height: 0 },
   pageViews: [],
   scrollLayout: null,
+  split: emptySplit(),
 };
 
 const pointers = new Map();
@@ -290,7 +319,7 @@ const thumbCache = createPaintCache(THUMB_BITMAP_LIMIT);
 const stagePool = [];
 
 const WRITE_CHROME =
-  ".sheet-card, .slot-panel, .toolbar, .write-top, .m4-bar, .more-panel, .marquee, .preview-drawer, .select-hud, .float-bar, #float-bar, .select-layer, #select-layer, .shape-chips";
+  ".sheet-card, .slot-panel, .toolbar, .write-top, .m4-bar, .more-panel, .marquee, .preview-drawer, .select-hud, .float-bar, #float-bar, .select-layer, #select-layer, .shape-chips, #area-link-panel, #split-tabs, #split-pane, #area-layer";
 
 function isWriteChrome(target) {
   return Boolean(target?.closest?.(WRITE_CHROME));
@@ -464,6 +493,8 @@ function resetEditorExtras() {
   hideMarquee();
   hideSelectUi();
   closePreview();
+  state.split = emptySplit();
+  syncSplitUi();
   syncHistoryButtons();
   syncRectTool();
 }
@@ -1047,6 +1078,11 @@ async function rebuildPages() {
   }
   applyViewport();
   updatePager();
+  updateMarquee();
+  updateAreaHits();
+  if (state.split?.tabs?.length) {
+    renderSplitStage();
+  }
 }
 
 function scrollPageIntoView(pageNum, smooth) {
@@ -1081,10 +1117,14 @@ async function showPageInPlace(pageNum) {
   const cached = pageCache.get(pageViewCacheKey(view));
   if (cached && restorePageBitmap(view, cached)) {
     drawStrokesOn(view, state.drawing && state.drawPage === view.pageNum ? state.currentStroke : null);
+    updateMarquee();
+    updateAreaHits();
     return;
   }
   await renderPageView(view);
   cachePageView(view);
+  updateMarquee();
+  updateAreaHits();
 }
 
 function applyPreviewAfterPageChange() {
@@ -2236,11 +2276,340 @@ function hideMarqueeMenu() {
   }
 }
 
+function hideAreaLinkPanel() {
+  if (els.areaLinkPanel) {
+    els.areaLinkPanel.hidden = true;
+  }
+}
+
 function hideMarquee() {
   state.currentRect = null;
   state.pendingCapture = null;
   els.marquee.hidden = true;
   hideMarqueeMenu();
+  hideAreaLinkPanel();
+  updateAreaHits();
+}
+
+function sameNormRect(a, b) {
+  return (
+    Math.abs(Number(a?.x) - Number(b?.x)) < 1e-6 &&
+    Math.abs(Number(a?.y) - Number(b?.y)) < 1e-6 &&
+    Math.abs(Number(a?.w) - Number(b?.w)) < 1e-6 &&
+    Math.abs(Number(a?.h) - Number(b?.h)) < 1e-6
+  );
+}
+
+function noteViewSize() {
+  const box = els.writeScreen?.getBoundingClientRect();
+  return { width: box?.width || window.innerWidth, height: box?.height || window.innerHeight };
+}
+
+function applySplitChange(next) {
+  const had = (state.split?.tabs?.length || 0) > 0;
+  state.split = next;
+  syncSplitUi();
+  const has = (state.split?.tabs?.length || 0) > 0;
+  if (state.pdf && had !== has && !state.drawing) {
+    rebuildPages().then(() => {
+      if (state.split?.tabs?.length) {
+        renderSplitStage();
+      }
+    });
+  }
+}
+
+function syncSplitUi() {
+  if (!els.writeSplit || !els.splitPane || !els.splitTabs) {
+    return;
+  }
+  const size = noteViewSize();
+  const axis = splitAxis(size.width, size.height);
+  const tabs = state.split?.tabs ?? [];
+  if (tabs.length) {
+    state.split = { ...state.split, axis };
+    els.writeSplit.classList.add("is-open");
+    els.writeSplit.classList.toggle("axis-tb", axis === "tb");
+    els.writeSplit.classList.toggle("axis-lr", axis === "lr");
+    els.splitPane.hidden = false;
+  } else {
+    state.split = emptySplit();
+    els.writeSplit.classList.remove("is-open", "axis-tb", "axis-lr");
+    els.splitPane.hidden = true;
+    els.splitTabs.replaceChildren();
+    els.splitStage?.replaceChildren();
+    return;
+  }
+  els.splitTabs.replaceChildren();
+  for (const tab of tabs) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "split-tab";
+    btn.classList.toggle("is-active", tab.id === state.split.active);
+    const title = document.createElement("span");
+    title.textContent = tab.title;
+    const close = document.createElement("button");
+    close.type = "button";
+    close.className = "split-tab-close";
+    close.textContent = "x";
+    close.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      applySplitChange(closeSplitTab(state.split, tab.id));
+    });
+    btn.append(title, close);
+    btn.addEventListener("click", () => {
+      applySplitChange(activateSplitTab(state.split, tab.id));
+      renderSplitStage();
+    });
+    els.splitTabs.append(btn);
+  }
+  renderSplitStage();
+}
+
+async function renderSplitPdfPage(pdf, pdfPageNum) {
+  if (!pdf || !els.splitStage) {
+    return;
+  }
+  const page = await pdf.getPage(pdfPageNum);
+  const canvas = document.createElement("canvas");
+  const box = els.splitStage.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  const unscaled = page.getViewport({ scale: 1 });
+  const fit = Math.min(
+    Math.max(48, box.width || 240) / unscaled.width,
+    Math.max(48, box.height || 240) / unscaled.height,
+  );
+  const css = page.getViewport({ scale: fit });
+  const pixel = page.getViewport({ scale: fit * dpr });
+  canvas.width = pixel.width;
+  canvas.height = pixel.height;
+  canvas.style.width = `${css.width}px`;
+  canvas.style.height = `${css.height}px`;
+  await page.render({ canvasContext: canvas.getContext("2d"), viewport: pixel }).promise;
+  els.splitStage.replaceChildren(canvas);
+}
+
+async function renderSplitStage() {
+  if (!els.splitStage) {
+    return;
+  }
+  const tab = (state.split?.tabs ?? []).find((item) => item.id === state.split.active);
+  els.splitStage.replaceChildren();
+  if (!tab) {
+    return;
+  }
+  if (tab.kind === "url") {
+    const frame = document.createElement("iframe");
+    frame.src = tab.href;
+    frame.title = tab.title;
+    frame.referrerPolicy = "no-referrer";
+    els.splitStage.append(frame);
+    return;
+  }
+  if (tab.kind === "page") {
+    const leaf = leafAt(state.leaves, tab.page);
+    if (!leaf || leaf.kind === "outline" || !state.pdf) {
+      const note = document.createElement("p");
+      note.textContent = leaf?.title || `${tab.page}쪽`;
+      els.splitStage.append(note);
+      return;
+    }
+    try {
+      await renderSplitPdfPage(state.pdf, leaf.pdfPage);
+    } catch {
+      const note = document.createElement("p");
+      note.textContent = `${tab.page}쪽을 열 수 없습니다.`;
+      els.splitStage.append(note);
+    }
+    return;
+  }
+  if (tab.kind === "doc") {
+    if (!tab.identity) {
+      const note = document.createElement("p");
+      note.textContent = `${tab.name}을(를) 다시 열어 주세요.`;
+      els.splitStage.append(note);
+      return;
+    }
+    try {
+      const row = await loadDocument(tab.identity);
+      if (!row?.buffer) {
+        throw new Error("missing");
+      }
+      const other = await pdfjsLib.getDocument({ data: row.buffer }).promise;
+      await renderSplitPdfPage(other, 1);
+      other.destroy();
+    } catch {
+      const note = document.createElement("p");
+      note.textContent = `${tab.name}을(를) 다시 열어 주세요.`;
+      els.splitStage.append(note);
+    }
+  }
+}
+
+function openAreaLink(link) {
+  const tab = splitTabFromLink(link);
+  if (!tab) {
+    return;
+  }
+  const size = noteViewSize();
+  applySplitChange(openSplitTab(state.split, tab, splitAxis(size.width, size.height)));
+}
+
+function pendingLink() {
+  return areaLinkOf(state.pendingCapture);
+}
+
+function openPendingOrHitLink() {
+  const fromPending = pendingLink();
+  if (fromPending) {
+    openAreaLink(fromPending);
+    return;
+  }
+  if (!state.pendingCapture) {
+    return;
+  }
+  const hit = pickAreaAt(pageStrokes(state.pendingCapture.page), state.pendingCapture.rect.x + state.pendingCapture.rect.w / 2, state.pendingCapture.rect.y + state.pendingCapture.rect.h / 2);
+  if (hit) {
+    openAreaLink(areaLinkOf(hit));
+  }
+}
+
+function saveAreaLink(link) {
+  const ctx = regionView();
+  const item = ctx ? areaItem(ctx.pending.rect, link) : null;
+  if (!ctx || !item || state.interactMode === "view") {
+    return;
+  }
+  commitPageChange(ctx.pending.page, () => {
+    const items = pageStrokes(ctx.pending.page);
+    const index = items.findIndex((row) => row?.type === "area" && sameNormRect(row, item));
+    if (index >= 0) {
+      items[index] = item;
+    } else {
+      items.push(item);
+    }
+  });
+  state.pendingCapture = { ...ctx.pending, link: item.link };
+  hideAreaLinkPanel();
+  hideMarqueeMenu();
+  updateAreaHits();
+}
+
+function placeAreaLinkPanel() {
+  if (!els.areaLinkPanel || els.areaLinkPanel.hidden || !state.pendingCapture) {
+    return;
+  }
+  const box = els.marqueeBox.getBoundingClientRect();
+  const size = noteViewSize();
+  const width = els.areaLinkPanel.offsetWidth || 280;
+  const height = els.areaLinkPanel.offsetHeight || 220;
+  let left = box.left;
+  let top = box.bottom + 8;
+  left = Math.min(Math.max(8, left), Math.max(8, size.width - width - 8));
+  if (top + height > size.height - 8) {
+    top = Math.max(8, box.top - 8 - height);
+  }
+  els.areaLinkPanel.style.left = `${left}px`;
+  els.areaLinkPanel.style.top = `${top}px`;
+}
+
+async function showAreaLinkPanel() {
+  if (!state.pendingCapture || !els.areaLinkPanel) {
+    return;
+  }
+  hideMarqueeMenu();
+  els.areaLinkPanel.hidden = false;
+  if (els.areaLinkPage) {
+    els.areaLinkPage.max = String(Math.max(1, state.pageCount));
+    els.areaLinkPage.value = String(clampPageTarget(state.page, state.pageCount));
+  }
+  if (els.areaLinkUrl) {
+    els.areaLinkUrl.value = "";
+  }
+  await renderAreaLinkDocs();
+  placeAreaLinkPanel();
+}
+
+async function renderAreaLinkDocs() {
+  if (!els.areaLinkDocs) {
+    return;
+  }
+  let rows = [];
+  try {
+    rows = await listDocuments();
+  } catch {
+    rows = [];
+  }
+  const list = recentDocsForLink(
+    rows.map((row) => ({ name: row.name, at: row.openedAt || 0, identity: row.identity })),
+    state.fileName,
+  );
+  els.areaLinkDocs.replaceChildren();
+  if (!list.length) {
+    const empty = document.createElement("p");
+    empty.className = "area-link-empty";
+    empty.textContent = "최근 다른 PDF가 없습니다";
+    els.areaLinkDocs.append(empty);
+    return;
+  }
+  for (const row of list) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.textContent = displayName(row.name);
+    btn.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      saveAreaLink({ kind: "doc", name: row.name, identity: row.identity });
+    });
+    els.areaLinkDocs.append(btn);
+  }
+}
+
+function updateAreaHits() {
+  if (!els.areaLayer) {
+    return;
+  }
+  els.areaLayer.replaceChildren();
+  let any = false;
+  for (const view of state.pageViews || []) {
+    const stage = view.stage?.getBoundingClientRect();
+    if (!stage) {
+      continue;
+    }
+    for (const item of pageStrokes(view.pageNum)) {
+      if (item?.type !== "area" || !hasAreaLink(item)) {
+        continue;
+      }
+      if (
+        state.pendingCapture &&
+        state.pendingCapture.page === view.pageNum &&
+        sameNormRect(state.pendingCapture.rect, item)
+      ) {
+        continue;
+      }
+      const hit = document.createElement("div");
+      hit.className = "area-hit";
+      hit.style.left = `${stage.left + item.x * stage.width}px`;
+      hit.style.top = `${stage.top + item.y * stage.height}px`;
+      hit.style.width = `${Math.max(1, item.w * stage.width)}px`;
+      hit.style.height = `${Math.max(1, item.h * stage.height)}px`;
+      bindMarqueeHold(hit, {
+        onHold: () => {
+          state.pendingCapture = { page: view.pageNum, rect: { x: item.x, y: item.y, w: item.w, h: item.h }, link: item.link };
+          hideAreaLinkPanel();
+          updateMarquee();
+          showMarqueeMenu();
+        },
+        onTap: () => {
+          openAreaLink(areaLinkOf(item));
+        },
+      });
+      els.areaLayer.append(hit);
+      any = true;
+    }
+  }
+  els.areaLayer.hidden = !any;
 }
 
 function placeMarqueeMenuUi() {
@@ -2255,7 +2624,7 @@ function placeMarqueeMenuUi() {
     width: window.innerWidth,
     height: window.innerHeight,
   };
-  const pos = placeMarqueeMenu(box, paper, els.marqueeMenu.offsetWidth || 280);
+  const pos = placeMarqueeMenu(box, paper, els.marqueeMenu.offsetWidth || 360);
   els.marqueeMenu.style.left = `${pos.left}px`;
   els.marqueeMenu.style.top = `${pos.top}px`;
 }
@@ -4113,7 +4482,12 @@ els.cropConfirm.addEventListener("click", (event) => {
   confirmCrop();
 });
 if (els.marqueeBox) {
-  bindMarqueeHold(els.marqueeBox, { onHold: showMarqueeMenu });
+  bindMarqueeHold(els.marqueeBox, {
+    onHold: showMarqueeMenu,
+    onTap: () => {
+      openPendingOrHitLink();
+    },
+  });
 }
 if (els.marqueeMenu) {
   els.marqueeMenu.addEventListener("pointerdown", (event) => {
@@ -4145,7 +4519,35 @@ if (els.marqueeMenu) {
     }
     if (action === "mosaic") {
       mosaicRegion();
+      return;
     }
+    if (action === "link") {
+      showAreaLinkPanel();
+    }
+  });
+}
+if (els.areaLinkPanel) {
+  els.areaLinkPanel.addEventListener("pointerdown", (event) => {
+    event.stopPropagation();
+  });
+}
+if (els.areaLinkPageGo) {
+  els.areaLinkPageGo.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    saveAreaLink({ kind: "page", page: clampPageTarget(els.areaLinkPage?.value, state.pageCount) });
+  });
+}
+if (els.areaLinkUrlGo) {
+  els.areaLinkUrlGo.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const href = acceptAreaUrl(els.areaLinkUrl?.value);
+    if (!href) {
+      showBanner("http 또는 https 주소만 연결할 수 있습니다.");
+      return;
+    }
+    saveAreaLink({ kind: "url", href });
   });
 }
 els.settingsBackdrop.addEventListener("click", closeSettings);
@@ -4215,6 +4617,10 @@ els.workspace.addEventListener("scroll", () => {
   if (restoreHeldPaperScroll()) {
     return;
   }
+  updateAreaHits();
+  if (state.pendingCapture || state.currentRect) {
+    updateMarquee();
+  }
   if (state.viewMode !== "scroll") {
     return;
   }
@@ -4233,10 +4639,10 @@ els.writeScreen.addEventListener("touchstart", preventWriteSurfaceTouch, { passi
 els.writeScreen.addEventListener("touchmove", preventWriteSurfaceTouch, { passive: false });
 
 document.addEventListener("pointerdown", (event) => {
-  if (state.pendingCapture && !event.target.closest("#marquee-box, #marquee-menu")) {
+  if (state.pendingCapture && !event.target.closest("#marquee-box, #marquee-menu, #area-link-panel, .area-hit, #area-layer")) {
     hideMarquee();
   }
-  if (event.target.closest(".slot-panel, .toolbar, [data-tool], #eraser-btn, #more-btn, .m4-bar, .marquee, .select-hud, .float-bar, #float-bar, .select-layer, #select-layer, .preview-drawer, .shape-chips")) {
+  if (event.target.closest(".slot-panel, .toolbar, [data-tool], #eraser-btn, #more-btn, .m4-bar, .marquee, .select-hud, .float-bar, #float-bar, .select-layer, #select-layer, .preview-drawer, .shape-chips, #area-link-panel, #split-tabs, #split-pane, #area-layer")) {
     return;
   }
   closeAllPanels();
@@ -4247,6 +4653,11 @@ document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && state.pendingCapture && !typing) {
     event.preventDefault();
     hideMarquee();
+    return;
+  }
+  if (event.key === "Escape" && els.areaLinkPanel && !els.areaLinkPanel.hidden && !typing) {
+    event.preventDefault();
+    hideAreaLinkPanel();
     return;
   }
   if ((event.key === "Delete" || event.key === "Backspace") && !typing) {
@@ -4311,6 +4722,10 @@ window.addEventListener("resize", () => {
     if (state.pendingCapture || state.currentRect) {
       updateMarquee();
     }
+    if (state.split?.tabs?.length) {
+      syncSplitUi();
+    }
+    updateAreaHits();
     if (state.tool === "select") {
       syncSelectHud();
     }

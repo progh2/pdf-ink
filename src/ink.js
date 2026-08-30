@@ -113,6 +113,9 @@ function stampHitsEraser(item, eraserPts, eraserHalf, cssWidth, cssHeight) {
 export function itemHitsEraser(item, eraser, cssWidth, cssHeight) {
   const eraserPts = toCssPoints(eraser.points, cssWidth, cssHeight);
   const eraserHalf = (eraser.width || 2) / 2;
+  if (item.type === "area") {
+    return false;
+  }
   if (item.type === "mosaic" || item.type === "image") {
     if (item.type === "image" && item.locked) {
       return false;
@@ -340,7 +343,7 @@ export function paintErase(ctx, stroke, scale, canvas) {
 }
 
 export function paintItem(ctx, item, scale, canvas) {
-  if (item.type === "mosaic" || item.type === "image") {
+  if (item.type === "mosaic" || item.type === "image" || item.type === "area") {
     return;
   }
   if (item.type === "stamp") {

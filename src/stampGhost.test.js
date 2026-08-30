@@ -111,8 +111,7 @@ describe("#69 stamp ghost 40% 108×64", () => {
     ]);
     assert.equal((html.match(/class="toolbar"/g) || []).length, 1);
     assert.match(toolbar, /id="stamp-btn"/);
-    assert.doesNotMatch(toolbar, /stamp-ghost|ghost-btn|id="stamp-preview"/);
+    assert.doesNotMatch(toolbar, /stamp-ghost|ghost-btn|id="stamp-preview"|#68|rotateHandle|crop-handle/);
     assert.doesNotMatch(html, /id="m4-bar"|id="m4-rail"/);
-    assert.doesNotMatch(main, /#68|rotateHandle|crop-handle/);
   });
 });

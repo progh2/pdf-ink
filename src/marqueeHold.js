@@ -36,6 +36,7 @@ export function placeMarqueeMenu(box, paper, menuWidth, gap = 8) {
 
 export function bindMarqueeHold(el, {
   onHold,
+  onTap,
   holdMs = MARQUEE_HOLD_MS,
   slopPx = MARQUEE_HOLD_SLOP_PX,
   setTimeoutFn = (fn, ms) => window.setTimeout(fn, ms),
@@ -45,6 +46,7 @@ export function bindMarqueeHold(el, {
   let start = null;
   let pointerId = null;
   let fired = false;
+  let moved = false;
 
   const clearTimer = () => {
     clearTimeoutFn(timer);
@@ -69,6 +71,7 @@ export function bindMarqueeHold(el, {
     pointerId = event.pointerId ?? 1;
     start = { x: event.clientX, y: event.clientY };
     fired = false;
+    moved = false;
     clearTimer();
     timer = setTimeoutFn(() => {
       fire();
@@ -88,6 +91,7 @@ export function bindMarqueeHold(el, {
       return;
     }
     if (Math.hypot(event.clientX - start.x, event.clientY - start.y) > slopPx) {
+      moved = true;
       clearTimer();
     }
   });
@@ -99,11 +103,15 @@ export function bindMarqueeHold(el, {
     if (event.pointerId != null && event.pointerId !== pointerId) {
       return;
     }
+    const wasTap = !fired && !moved;
     if (!fired) {
       clearTimer();
     }
     pointerId = null;
     start = null;
+    if (wasTap && event.type === "pointerup") {
+      onTap?.(event);
+    }
   };
 
   el.addEventListener("pointerup", onLift);

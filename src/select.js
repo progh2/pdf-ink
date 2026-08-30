@@ -17,6 +17,9 @@ export function isSelectable(item) {
   if (item.type === "image" && item.locked) {
     return false;
   }
+  if (item.type === "area") {
+    return false;
+  }
   return true;
 }
 
