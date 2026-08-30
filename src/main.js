@@ -34,8 +34,11 @@ import {
   COLOR_DOT_TOOLS,
   barNaturalWidth,
   constrainFloat,
+  isRail,
+  normalizeDock,
   snapDockFromPoint,
   useNarrowCells,
+  useNarrowRail,
 } from "./toolbar.js";
 import {
   constrainPan,
@@ -1952,6 +1955,11 @@ function isFullscreen() {
 }
 
 function syncToolbarNarrow() {
+  if (isRail(state.toolbarPos)) {
+    const room = Math.min(window.innerHeight - 16, els.toolbarRail?.clientHeight || window.innerHeight);
+    els.toolbar.classList.toggle("is-narrow", useNarrowRail(room));
+    return;
+  }
   const available = Math.min(window.innerWidth - 16, els.toolbarRail?.clientWidth || window.innerWidth);
   els.toolbar.classList.toggle("is-narrow", useNarrowCells(available));
 }
@@ -2053,8 +2061,11 @@ function placePanel(panel, anchorBtn) {
   const gap = 8;
   let left = anchor.left + anchor.width / 2 - width / 2;
   let top = bar.bottom + gap;
-  const preferAbove = state.toolbarPos === "bottom" || (state.toolbarPos === "float" && bar.top > window.innerHeight / 2);
-  if (preferAbove) {
+  if (isRail(state.toolbarPos)) {
+    // A rail opens the palette beside itself, level with the cell (#49).
+    left = state.toolbarPos === "left" ? bar.right + gap : bar.left - gap - width;
+    top = anchor.top + anchor.height / 2 - height / 2;
+  } else if (state.toolbarPos === "bottom" || (state.toolbarPos === "float" && bar.top > window.innerHeight / 2)) {
     top = bar.top - gap - height;
   }
 
@@ -2258,7 +2269,7 @@ function syncEraserEditor() {
 }
 
 async function setToolbarPosition(position, floatPoint) {
-  state.toolbarPos = position === "bottom" || position === "float" ? position : "top";
+  state.toolbarPos = normalizeDock(position, "top");
   if (floatPoint) {
     state.toolbarFloat = constrainFloat(
       floatPoint.x,
@@ -3844,6 +3855,12 @@ function redoInk() {
 function overflowSide() {
   if (state.toolbarPos === "bottom") {
     return "above";
+  }
+  if (state.toolbarPos === "left") {
+    return "right";
+  }
+  if (state.toolbarPos === "right") {
+    return "left";
   }
   if (state.toolbarPos === "float") {
     const bar = els.toolbar.getBoundingClientRect();

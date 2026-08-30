@@ -46,7 +46,12 @@ export const BAR_OVERFLOW_ITEMS = [
   "export",
 ];
 
-export const DOCK_POSITIONS = ["top", "bottom", "float"];
+export const DOCK_POSITIONS = ["top", "bottom", "left", "right", "float"];
+
+/** Left/right are vertical rails over the paper, never a column that squashes it (#30 #49). */
+export function isRail(position) {
+  return position === "left" || position === "right";
+}
 
 export function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
@@ -57,9 +62,6 @@ export function normalizeDock(value, fallback = "top") {
 }
 
 export function migrateDock(value, fallback = "top") {
-  if (value === "left" || value === "right") {
-    return "float";
-  }
   return normalizeDock(value, fallback);
 }
 
@@ -69,8 +71,22 @@ export function barNaturalWidth(narrow = false) {
   return BAR_PAD * 2 + GRIP_WIDTH + BAR_TOOLS.length * cell + (BAR_TOOLS.length - 1) * gap;
 }
 
+/** A rail stacks the same cells, so its length is the bar width formula. */
+export function barNaturalHeight(narrow = false) {
+  return barNaturalWidth(narrow);
+}
+
 export function useNarrowCells(availableWidth) {
   return Number(availableWidth) < NARROW_BAR_WIDTH;
+}
+
+/** A rail goes narrow when the full-size stack would not fit the screen height. */
+export function useNarrowRail(availableHeight) {
+  return Number(availableHeight) < barNaturalHeight(false) + 16;
+}
+
+export function barLength(position, narrow = false) {
+  return isRail(position) ? barNaturalHeight(narrow) : barNaturalWidth(narrow);
 }
 
 export function constrainFloat(x, y, viewW, viewH, barW = barNaturalWidth(false), barH = BAR_HEIGHT) {
@@ -85,18 +101,25 @@ export function constrainFloat(x, y, viewW, viewH, barW = barNaturalWidth(false)
 }
 
 /**
- * Long-press-drag release: top/bottom dock bands, otherwise float.
- * Does not return left/right rails — those squash or need a second layout.
+ * Long-press-drag release: top/bottom bands first, then the left/right rails
+ * (#49), otherwise the bar floats where it was dropped.
  */
 export function snapDockFromPoint(clientX, clientY, viewW, viewH, barW, barH, grabOffsetX = 20, grabOffsetY = 28) {
   const width = Math.max(1, Number(viewW) || 1);
   const height = Math.max(1, Number(viewH) || 1);
+  const x = Number(clientX) || 0;
   const y = Number(clientY) || 0;
   if (y < DOCK_BAND_PX) {
     return { pos: "top" };
   }
   if (y > height - DOCK_BAND_PX) {
     return { pos: "bottom" };
+  }
+  if (x < DOCK_BAND_PX) {
+    return { pos: "left" };
+  }
+  if (x > width - DOCK_BAND_PX) {
+    return { pos: "right" };
   }
   return {
     pos: "float",

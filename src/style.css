@@ -457,6 +457,19 @@ body {
   align-items: flex-end;
 }
 
+.write-screen[data-toolbar="left"] .toolbar-rail,
+.write-screen[data-toolbar="right"] .toolbar-rail {
+  align-items: center;
+}
+
+.write-screen[data-toolbar="left"] .toolbar-rail {
+  justify-content: flex-start;
+}
+
+.write-screen[data-toolbar="right"] .toolbar-rail {
+  justify-content: flex-end;
+}
+
 .write-screen[data-toolbar="float"] .toolbar-rail {
   padding: 0;
   justify-content: flex-start;
@@ -493,6 +506,28 @@ body {
   --cell: 36px;
   --cell-gap: 2px;
   --icon: 20px;
+}
+
+/* #49 rail: same one capsule, stacked. Overlays the paper like #30. */
+.write-screen[data-toolbar="left"] .toolbar,
+.write-screen[data-toolbar="right"] .toolbar {
+  flex-direction: column;
+  width: max-content;
+  height: max-content;
+  max-width: none;
+  max-height: calc(100% - 16px);
+}
+
+.write-screen[data-toolbar="left"] .toolbar-cells,
+.write-screen[data-toolbar="right"] .toolbar-cells {
+  flex-direction: column;
+}
+
+.write-screen[data-toolbar="left"] .toolbar-grip,
+.write-screen[data-toolbar="right"] .toolbar-grip {
+  width: var(--cell);
+  height: var(--grip);
+  flex-direction: row;
 }
 
 .write-screen[data-toolbar="float"] .toolbar {
@@ -1367,6 +1402,10 @@ body {
 }
 
 .choice-3 {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.choice-5 {
   grid-template-columns: repeat(3, 1fr);
 }
 

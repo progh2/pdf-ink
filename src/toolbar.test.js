@@ -27,10 +27,14 @@ import {
   ICON_COLOR,
   ICON_NARROW,
   NARROW_BAR_WIDTH,
+  barLength,
+  barNaturalHeight,
   barNaturalWidth,
+  isRail,
   migrateDock,
   snapDockFromPoint,
   useNarrowCells,
+  useNarrowRail,
 } from "./toolbar.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -109,7 +113,8 @@ describe("#56 GoodNotes 4 utility bar", () => {
     assert.match(css, /\.tool-dot \{[\s\S]*width: 8px;[\s\S]*height: 8px/);
     assert.match(css, /\.toolbar-grip \{[\s\S]*width: var\(--grip\)/);
     assert.match(css, /\.toolbar-grip span \{[\s\S]*background: #d4cfc4/);
-    assert.doesNotMatch(css, /\[data-toolbar="left"\] \.toolbar/);
+    // #49: rails are back, but as the same one capsule turned on its side.
+    assert.match(css, /\[data-toolbar="left"\] \.toolbar,[\s\S]*flex-direction: column/);
   });
 
   it("keeps view/edit on the header lock and palette off the bar", () => {
@@ -172,14 +177,19 @@ describe("#56 GoodNotes 4 utility bar", () => {
     assert.match(main, /lastInkUpClient/);
   });
 
-  it("long-press-drag docks top/bottom or floats without left/right rails", () => {
-    assert.deepEqual(DOCK_POSITIONS, ["top", "bottom", "float"]);
-    assert.equal(migrateDock("left"), "float");
-    assert.equal(migrateDock("right"), "float");
+  it("long-press-drag docks top/bottom, the left/right rails, or floats (#49)", () => {
+    assert.deepEqual(DOCK_POSITIONS, ["top", "bottom", "left", "right", "float"]);
+    assert.equal(migrateDock("left"), "left");
+    assert.equal(migrateDock("right"), "right");
     assert.equal(migrateDock("top"), "top");
+    assert.equal(migrateDock("nonsense"), "top");
     assert.equal(snapDockFromPoint(200, 20, 400, 800, 360, 56).pos, "top");
     assert.equal(snapDockFromPoint(200, 790, 400, 800, 360, 56).pos, "bottom");
-    assert.equal(snapDockFromPoint(120, 400, 400, 800, 360, 56).pos, "float");
+    assert.equal(snapDockFromPoint(20, 400, 400, 800, 360, 56).pos, "left");
+    assert.equal(snapDockFromPoint(390, 400, 400, 800, 360, 56).pos, "right");
+    assert.equal(snapDockFromPoint(200, 400, 400, 800, 360, 56).pos, "float");
+    // A corner still docks to the band it was dropped in, top/bottom first.
+    assert.equal(snapDockFromPoint(10, 10, 400, 800, 360, 56).pos, "top");
     assert.ok(DOCK_BAND_PX > 0);
     assert.match(main, /bindToolbarGrip/);
     assert.match(main, /snapDockFromPoint/);
@@ -189,7 +199,8 @@ describe("#56 GoodNotes 4 utility bar", () => {
     assert.doesNotMatch(railCss, /flex: 0 0 auto/);
     assert.match(css, /\[data-toolbar="bottom"\] \.toolbar-rail \{[\s\S]*align-items: flex-end/);
     assert.match(css, /\[data-toolbar="float"\] \.toolbar \{[\s\S]*position: fixed/);
-    assert.doesNotMatch(html, /data-pos="left"|data-pos="right"/);
+    assert.match(html, /data-pos="left">왼쪽/);
+    assert.match(html, /data-pos="right">오른쪽/);
     assert.match(html, /data-pos="float">떠 있게/);
     const dockFn = main.slice(main.indexOf("async function setToolbarPosition"), main.indexOf("async function setViewMode"));
     assert.doesNotMatch(dockFn, /rebuildPages/);
@@ -200,5 +211,53 @@ describe("#56 GoodNotes 4 utility bar", () => {
     assert.match(css, /\.toolbar-cells \{[\s\S]*flex-wrap: nowrap/);
     assert.equal((html.match(/class="toolbar"/g) || []).length, 1);
     assert.doesNotMatch(html, /class="m4-bar"|id="m4-bar"|class="touch-pill"/);
+  });
+});
+
+describe("#49 메뉴 위치 왼·오 이동", () => {
+  it("keeps one capsule and never squashes the paper", () => {
+    // The rail overlays the workspace (#30): no column that shrinks the page.
+    const railCss = css.slice(css.indexOf(".toolbar-rail {"), css.indexOf(".toolbar {"));
+    assert.match(railCss, /position: absolute/);
+    assert.doesNotMatch(railCss, /flex: 0 0 auto|width: 56px/);
+    assert.match(css, /\[data-toolbar="left"\] \.toolbar-rail \{[\s\S]*justify-content: flex-start/);
+    assert.match(css, /\[data-toolbar="right"\] \.toolbar-rail \{[\s\S]*justify-content: flex-end/);
+    assert.match(css, /\[data-toolbar="left"\] \.toolbar-cells,[\s\S]*flex-direction: column/);
+    assert.equal((html.match(/class="toolbar"/g) || []).length, 1);
+    assert.equal((html.match(/data-tool=|id="undo-btn"|id="redo-btn"|id="more-btn"/g) || []).length, BAR_TOOLS.length);
+    const dockFn = main.slice(main.indexOf("async function setToolbarPosition"), main.indexOf("async function setViewMode"));
+    assert.doesNotMatch(dockFn, /rebuildPages|applyPageSize/);
+  });
+
+  it("stacks the same cells, going narrow only when the screen is short", () => {
+    assert.equal(isRail("left"), true);
+    assert.equal(isRail("right"), true);
+    assert.equal(isRail("top"), false);
+    assert.equal(barNaturalHeight(false), barNaturalWidth(false));
+    assert.equal(barLength("left", false), barNaturalHeight(false));
+    assert.equal(barLength("top", false), barNaturalWidth(false));
+    assert.equal(useNarrowRail(900), false);
+    assert.equal(useNarrowRail(380), true);
+    assert.ok(barNaturalHeight(true) < barNaturalHeight(false));
+  });
+
+  it("opens the ⋯ panel away from the rail, and pages still turn in the header", () => {
+    const overflow = main.slice(main.indexOf("function overflowSide"), main.indexOf("function placeOverflowPanel"));
+    assert.match(overflow, /toolbarPos === "left"[\s\S]*return "right"/);
+    assert.match(overflow, /toolbarPos === "right"[\s\S]*return "left"/);
+    assert.match(header, /id="prev-btn"/);
+    assert.match(header, /id="next-btn"/);
+    assert.doesNotMatch(header, /toolbar-grip/);
+  });
+});
+
+describe("#49 레일에서 패널", () => {
+  it("opens the slot palette beside the rail, not under the whole bar", () => {
+    const place = main.slice(main.indexOf("function placePanel"), main.indexOf("function paletteFor"));
+    assert.match(place, /isRail\(state\.toolbarPos\)/);
+    assert.match(place, /toolbarPos === "left" \? bar\.right \+ gap : bar\.left - gap - width/);
+    assert.match(place, /top = anchor\.top \+ anchor\.height \/ 2 - height \/ 2/);
+    // Top/bottom/float keep the old placement.
+    assert.match(place, /toolbarPos === "bottom" \|\| \(state\.toolbarPos === "float"/);
   });
 });
