@@ -56,7 +56,14 @@ import {
 } from "./interact.js";
 import { canRedo, canUndo, cloneItems, createHistory, recordChange, redoChange, undoChange } from "./history.js";
 import { bindUndoHold } from "./undoHold.js";
-import { SHAPE_HOLD_CHIP_HEIGHT, SHAPE_HOLD_GHOST_ALPHA, SHAPE_HOLD_MS, canShapeHold, createShapeHold } from "./shapeHold.js";
+import {
+  SHAPE_HOLD_CHIP_HEIGHT,
+  SHAPE_HOLD_DISMISS_MS,
+  SHAPE_HOLD_GHOST_ALPHA,
+  SHAPE_HOLD_MS,
+  canShapeHold,
+  createShapeHold,
+} from "./shapeHold.js";
 import { MOSAIC_CELL_CSS, mosaicBoxesPx, mosaicItem } from "./mosaic.js";
 import { captureRegionPng, composePageRgba, cropRgba, writePngClipboard } from "./capture.js";
 import {
@@ -232,6 +239,7 @@ let ignoreAfterPinch = false;
 let ignoreAfterPanel = false;
 let lastInkUpClient = null;
 const shapeHold = createShapeHold({ holdMs: SHAPE_HOLD_MS });
+let shapeOfferDismissTimer = 0;
 let captureConfirmArmedAt = 0;
 let renderGen = 0;
 let paperScrollHold = null;
@@ -1020,6 +1028,22 @@ function hideShapeChips() {
   }
 }
 
+function clearShapeOfferDismiss() {
+  if (shapeOfferDismissTimer) {
+    window.clearTimeout(shapeOfferDismissTimer);
+    shapeOfferDismissTimer = 0;
+  }
+}
+
+function armShapeOfferDismiss() {
+  clearShapeOfferDismiss();
+  shapeOfferDismissTimer = window.setTimeout(() => {
+    shapeOfferDismissTimer = 0;
+    dismissShapeChips();
+    drawLive();
+  }, SHAPE_HOLD_DISMISS_MS);
+}
+
 function showShapeChips(offer, view) {
   if (!els.shapeChips || !offer) {
     hideShapeChips();
@@ -1044,16 +1068,30 @@ function showShapeChips(offer, view) {
   const height = SHAPE_HOLD_CHIP_HEIGHT + 8;
   els.shapeChips.style.left = `${Math.min(window.innerWidth - width - 8, Math.max(8, left))}px`;
   els.shapeChips.style.top = `${Math.min(window.innerHeight - height - 8, Math.max(8, top))}px`;
+  if (state.shapeOffer && Number.isInteger(state.shapeOffer.index)) {
+    armShapeOfferDismiss();
+  }
 }
 
 function dismissShapeChips() {
+  clearShapeOfferDismiss();
   state.shapeOffer = null;
   hideShapeChips();
 }
 
 function applyPickedShapeChip(chip) {
   const offer = state.shapeOffer;
-  if (!offer || !offer.chips?.[chip] || !Number.isInteger(offer.index)) {
+  if (!offer || !offer.chips?.[chip]) {
+    return;
+  }
+  if (state.drawing && state.currentStroke && !Number.isInteger(offer.index)) {
+    state.currentStroke.points = offer.chips[chip];
+    shapeHold.reset();
+    dismissShapeChips();
+    drawLive();
+    return;
+  }
+  if (!Number.isInteger(offer.index)) {
     return;
   }
   const items = pageStrokes(offer.page);
@@ -2765,6 +2803,17 @@ function onWorkspacePointerDown(event) {
   if (skipClickThrough) {
     return;
   }
+  if (
+    state.shapeOffer &&
+    Number.isInteger(state.shapeOffer.index) &&
+    event.target.closest(".page-stage") &&
+    !event.target.closest(".shape-chips")
+  ) {
+    event.preventDefault();
+    dismissShapeChips();
+    drawLive();
+    return;
+  }
   if (allowsInkPointer(event)) {
     event.preventDefault();
     startStroke(event, stage);
@@ -2800,6 +2849,9 @@ function onWorkspacePointerMove(event) {
 }
 
 function onWorkspacePointerUp(event) {
+  if (event.type === "pointercancel" && state.drawing && event.buttons > 0) {
+    return;
+  }
   pointers.delete(event.pointerId);
   if (gesture?.type === "pinch") {
     if (pointers.size < 2) {

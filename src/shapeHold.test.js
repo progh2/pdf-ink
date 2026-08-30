@@ -8,7 +8,9 @@ import { UNDO_HOLD_MS } from "./undoHold.js";
 import {
   SHAPE_HOLD_CHIPS,
   SHAPE_HOLD_CHIP_HEIGHT,
+  SHAPE_HOLD_DISMISS_MS,
   SHAPE_HOLD_GHOST_ALPHA,
+  SHAPE_HOLD_MOVE_SLOP_PX,
   SHAPE_HOLD_MS,
   SHAPE_HOLD_TOOLS,
   applyShapeChip,
@@ -142,6 +144,8 @@ describe("#51 400ms hold offers chips, does not auto-convert", () => {
     assert.equal(UNDO_HOLD_MS, 400);
     assert.equal(SHAPE_HOLD_GHOST_ALPHA, 0.4);
     assert.equal(SHAPE_HOLD_CHIP_HEIGHT, 36);
+    assert.equal(SHAPE_HOLD_MOVE_SLOP_PX, 16);
+    assert.equal(SHAPE_HOLD_DISMISS_MS, 8000);
     assert.deepEqual(SHAPE_HOLD_TOOLS, ["pen", "highlighter", "pencil"]);
     assert.equal(canShapeHold("pen"), true);
     assert.equal(canShapeHold("highlighter"), true);
@@ -225,6 +229,107 @@ describe("#51 400ms hold offers chips, does not auto-convert", () => {
     assert.equal(done.snapped, false);
   });
 
+  it("small jitter does not reset the 400ms end hold", () => {
+    const clock = createClock();
+    const hold = createShapeHold({
+      holdMs: SHAPE_HOLD_MS,
+      now: clock.now,
+      setTimeoutFn: clock.setTimeoutFn,
+      clearTimeoutFn: clock.clearTimeoutFn,
+    });
+    const dragged = lineStroke(0.1, 0.4, 0.85, 0.42, 20, 0.004);
+    let offered = null;
+    hold.begin({
+      tool: "pen",
+      client: { x: 10, y: 40 },
+      getPoints: () => dragged,
+      onOffer: (next) => {
+        offered = next;
+      },
+    });
+    hold.noteMove({
+      client: { x: 200, y: 40 },
+      getPoints: () => dragged,
+      onOffer: (next) => {
+        offered = next;
+      },
+    });
+    for (let index = 0; index < 8; index += 1) {
+      clock.advance(50);
+      hold.noteMove({
+        client: {
+          x: 200 + (index % 2 ? 8 : -8),
+          y: 40 + (index % 2 ? 5 : -5),
+        },
+        getPoints: () => dragged,
+        onOffer: (next) => {
+          offered = next;
+        },
+      });
+    }
+    assert.equal(hold.isOffering(), true);
+    assert.ok(offered);
+    assert.ok(offered.chips.line);
+    const done = hold.finish(dragged);
+    assert.equal(done.snapped, false);
+    assert.deepEqual(done.points, dragged);
+    assert.ok(done.offer);
+    assert.ok(done.offer.ghostPoints.length);
+  });
+
+  it("lift after 400ms stillness still offers even if the timer never ran", () => {
+    const clock = createClock();
+    const hold = createShapeHold({
+      holdMs: SHAPE_HOLD_MS,
+      now: clock.now,
+      setTimeoutFn: () => 0,
+      clearTimeoutFn: () => {},
+    });
+    const dragged = lineStroke(0.12, 0.3, 0.82, 0.32, 16, 0);
+    hold.begin({
+      tool: "pen",
+      client: { x: 0, y: 0 },
+      getPoints: () => dragged,
+    });
+    hold.noteMove({
+      client: { x: 180, y: 0 },
+      getPoints: () => dragged,
+    });
+    clock.advance(400);
+    const done = hold.finish(dragged);
+    assert.ok(done.offer);
+    assert.equal(done.snapped, false);
+    assert.deepEqual(done.points, dragged);
+    assert.notEqual(done.points.length, 2);
+    assert.ok(done.offer.chips.line);
+    assert.ok(done.offer.chips.rect);
+    assert.ok(done.offer.chips.circle);
+  });
+
+  it("offer survives finish so a chip can be tapped after lift", () => {
+    const clock = createClock();
+    const hold = createShapeHold({
+      holdMs: SHAPE_HOLD_MS,
+      now: clock.now,
+      setTimeoutFn: clock.setTimeoutFn,
+      clearTimeoutFn: clock.clearTimeoutFn,
+    });
+    const dragged = lineStroke(0.1, 0.4, 0.85, 0.4, 12, 0);
+    hold.begin({
+      tool: "pen",
+      client: { x: 0, y: 0 },
+      getPoints: () => dragged,
+    });
+    hold.noteMove({ client: { x: 160, y: 0 }, getPoints: () => dragged });
+    clock.advance(400);
+    const done = hold.finish(dragged);
+    assert.ok(done.offer);
+    assert.equal(hold.isOffering(), true);
+    assert.equal(done.snapped, false);
+    assert.deepEqual(done.points, dragged);
+    assert.deepEqual(applyShapeChip("line", dragged), done.offer.chips.line);
+  });
+
   it("auto convert without a chip pick is not allowed", () => {
     const clock = createClock();
     const hold = createShapeHold({
@@ -299,6 +404,10 @@ describe("#51 chrome lock", () => {
     assert.match(main, /beginInkPoints\(/);
     assert.match(main, /lastInkUpClient/);
     assert.match(main, /SHAPE_HOLD_GHOST_ALPHA/);
+    assert.match(main, /SHAPE_HOLD_DISMISS_MS/);
+    assert.match(main, /armShapeOfferDismiss/);
+    assert.match(main, /event\.type === "pointercancel" && state\.drawing && event\.buttons > 0/);
+    assert.match(main, /Number\.isInteger\(state\.shapeOffer\.index\)/);
     assert.doesNotMatch(main, /currentStroke\.points = (?:next|result|snapped)/);
   });
 });

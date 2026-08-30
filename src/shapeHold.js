@@ -1,7 +1,8 @@
 export const SHAPE_HOLD_MS = 400;
 export const SHAPE_HOLD_GHOST_ALPHA = 0.4;
 export const SHAPE_HOLD_CHIP_HEIGHT = 36;
-export const SHAPE_HOLD_MOVE_SLOP_PX = 6;
+export const SHAPE_HOLD_MOVE_SLOP_PX = 16;
+export const SHAPE_HOLD_DISMISS_MS = 8000;
 export const SHAPE_HOLD_MIN_SPAN = 0.045;
 export const SHAPE_HOLD_CIRCLE_ASPECT = 1.14;
 export const SHAPE_HOLD_ELLIPSE_POINTS = 48;
@@ -256,6 +257,7 @@ export function applyShapeChip(chip, points) {
 export function createShapeHold({
   holdMs = SHAPE_HOLD_MS,
   moveSlopPx = SHAPE_HOLD_MOVE_SLOP_PX,
+  now = () => Date.now(),
   setTimeoutFn = (fn, ms) => setTimeout(fn, ms),
   clearTimeoutFn = (id) => clearTimeout(id),
 } = {}) {
@@ -263,6 +265,8 @@ export function createShapeHold({
   let lastClient = null;
   let tool = "pen";
   let offer = null;
+  let armed = false;
+  let lastSignificantAt = 0;
 
   const clearTimer = () => {
     if (timer) {
@@ -273,7 +277,7 @@ export function createShapeHold({
 
   const fire = (getPoints, onOffer) => {
     timer = 0;
-    if (offer || !canShapeHold(tool)) {
+    if (offer || !armed || !canShapeHold(tool)) {
       return;
     }
     const next = shapeOfferFromStroke(typeof getPoints === "function" ? getPoints() : []);
@@ -290,6 +294,8 @@ export function createShapeHold({
       lastClient = null;
       tool = "pen";
       offer = null;
+      armed = false;
+      lastSignificantAt = 0;
     },
     begin({ tool: nextTool, client, getPoints, onOffer } = {}) {
       this.reset();
@@ -298,18 +304,24 @@ export function createShapeHold({
       if (!canShapeHold(tool)) {
         return;
       }
+      armed = true;
+      lastSignificantAt = now();
       timer = setTimeoutFn(() => fire(getPoints, onOffer), holdMs);
     },
     noteMove({ client, getPoints, onOffer } = {}) {
-      if (!canShapeHold(tool) || !client) {
+      if (!armed || !canShapeHold(tool) || !client) {
         return false;
       }
       const dx = client.x - (lastClient?.x ?? client.x);
       const dy = client.y - (lastClient?.y ?? client.y);
       if (Math.hypot(dx, dy) <= moveSlopPx) {
+        if (!offer && now() - lastSignificantAt >= holdMs) {
+          fire(getPoints, onOffer);
+        }
         return false;
       }
       lastClient = client;
+      lastSignificantAt = now();
       if (offer) {
         offer = null;
         onOffer?.(null);
@@ -320,8 +332,12 @@ export function createShapeHold({
     },
     finish(freehandPoints) {
       clearTimer();
+      if (armed && !offer && now() - lastSignificantAt >= holdMs) {
+        offer = shapeOfferFromStroke(freehandPoints);
+      }
       const kept = offer;
       lastClient = null;
+      armed = false;
       return {
         points: freehandPoints,
         offer: kept,
