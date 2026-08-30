@@ -10,6 +10,10 @@ import {
   pasteItems,
   pickItemsAt,
   pickItemsInRect,
+  ROTATE_HANDLE_CSS,
+  ROTATE_HANDLE_OFFSET_CSS,
+  rotateHandleAt,
+  rotateHandleCenter,
   selectedBounds,
   translateItem,
   translateItems,
@@ -69,6 +73,17 @@ describe("선택", () => {
     assert.ok(Math.abs(box.w * 400 / (box.h * 600) - STAMP_ASPECT) < 1e-6);
     const grown = resizeStamp({ ...stamp, w: STAMP_WIDTH_CSS, h: STAMP_HEIGHT_CSS }, "se", { x: 0.9, y: 0.85 }, 400, 600);
     assert.ok(Math.abs(grown.w / grown.h - STAMP_ASPECT) < 1e-6);
+  });
+
+  it("places the rotate handle 20px above the selection box center", () => {
+    const bounds = { x: 0.2, y: 0.3, w: 0.4, h: 0.2 };
+    const handle = rotateHandleCenter(bounds, 400, 600);
+    assert.equal(ROTATE_HANDLE_CSS, 16);
+    assert.equal(ROTATE_HANDLE_OFFSET_CSS, 20);
+    assert.ok(Math.abs(handle.x - 0.4 * 400) < 1e-10);
+    assert.ok(Math.abs(handle.y - (0.3 * 600 - 20)) < 1e-10);
+    assert.equal(rotateHandleAt(bounds, { x: 0.4, y: (0.3 * 600 - 20) / 600 }, 400, 600), true);
+    assert.equal(rotateHandleAt(bounds, { x: 0.4, y: 0.4 }, 400, 600), false);
   });
 
   it("deletes the selection and leaves locked images", () => {

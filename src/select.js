@@ -151,6 +151,34 @@ export function pasteItems(items, clipboard) {
   return (items || []).concat((clipboard || []).map((item) => JSON.parse(JSON.stringify(item))));
 }
 
+export const ROTATE_HANDLE_CSS = 16;
+export const ROTATE_HANDLE_OFFSET_CSS = 20;
+export const ROTATE_HANDLE_STROKE = 1.6;
+
+export function rotateHandleCenter(bounds, cssWidth, cssHeight) {
+  if (!bounds) {
+    return null;
+  }
+  const pageW = Math.max(1e-9, Number(cssWidth) || 1);
+  const pageH = Math.max(1e-9, Number(cssHeight) || 1);
+  return {
+    x: (Number(bounds.x) + Number(bounds.w) / 2) * pageW,
+    y: Number(bounds.y) * pageH - ROTATE_HANDLE_OFFSET_CSS,
+  };
+}
+
+export function rotateHandleAt(bounds, point, cssWidth, cssHeight, hit = ROTATE_HANDLE_CSS) {
+  const handle = rotateHandleCenter(bounds, cssWidth, cssHeight);
+  if (!handle || !point) {
+    return false;
+  }
+  const pageW = Math.max(1e-9, Number(cssWidth) || 1);
+  const pageH = Math.max(1e-9, Number(cssHeight) || 1);
+  const px = (Number(point.x) || 0) * pageW;
+  const py = (Number(point.y) || 0) * pageH;
+  return Math.hypot(px - handle.x, py - handle.y) <= hit;
+}
+
 export function deleteSelectedItems(items, indices) {
   const remove = new Set();
   (indices || []).forEach((index) => {

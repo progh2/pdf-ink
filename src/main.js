@@ -74,6 +74,7 @@ import {
   offsetItems,
   pickItemsAt,
   pickItemsInRect,
+  rotateHandleAt,
   selectedBounds,
   translateItems,
 } from "./select.js";
@@ -89,7 +90,7 @@ import {
   lockImage,
   resizeImage,
 } from "./image.js";
-import { addRotation, imagePaintDest, rotateItems, rotateSelectedItems } from "./rotate.js";
+import { addRotation, imagePaintDest, isLockedImage, pointerAngleDeg, rotateItems, rotateSelectedItems } from "./rotate.js";
 import {
   filterLeaves,
   inkKey,
@@ -176,12 +177,11 @@ const els = {
   captureConfirm: document.querySelector("#capture-confirm"),
   selectLayer: document.querySelector("#select-layer"),
   selectBox: document.querySelector("#select-box"),
+  selectRotate: document.querySelector("#select-rotate"),
   floatBar: document.querySelector("#float-bar"),
   selectHud: document.querySelector("#float-bar"),
   copyBtn: document.querySelector("#copy-btn"),
   pasteBtn: document.querySelector("#paste-btn"),
-  selLeftBtn: document.querySelector("#sel-left-btn"),
-  selRightBtn: document.querySelector("#sel-right-btn"),
   deleteBtn: document.querySelector("#delete-btn"),
   cropBtn: document.querySelector("#crop-btn"),
   lockBtn: document.querySelector("#lock-btn"),
@@ -266,7 +266,7 @@ let renderGen = 0;
 let paperScrollHold = null;
 
 const WRITE_CHROME =
-  ".sheet-card, .slot-panel, .toolbar, .write-top, .m4-bar, .more-panel, .marquee, .preview-drawer, .select-hud, .float-bar, #float-bar, .shape-chips";
+  ".sheet-card, .slot-panel, .toolbar, .write-top, .m4-bar, .more-panel, .marquee, .preview-drawer, .select-hud, .float-bar, #float-bar, .select-layer, .select-rotate-handle, .shape-chips";
 
 function isWriteChrome(target) {
   return Boolean(target?.closest?.(WRITE_CHROME));
@@ -1828,10 +1828,17 @@ function placeSelectBox(view, rect) {
   }
   const box = view.stage.getBoundingClientRect();
   els.selectLayer.hidden = false;
-  els.selectBox.style.left = `${box.left + rect.x * box.width}px`;
-  els.selectBox.style.top = `${box.top + rect.y * box.height}px`;
-  els.selectBox.style.width = `${Math.max(1, rect.w * box.width)}px`;
-  els.selectBox.style.height = `${Math.max(1, rect.h * box.height)}px`;
+  const place = state.selectDrag?.mode === "rotate" && state.selectDrag.bounds ? state.selectDrag.bounds : rect;
+  els.selectBox.style.left = `${box.left + place.x * box.width}px`;
+  els.selectBox.style.top = `${box.top + place.y * box.height}px`;
+  els.selectBox.style.width = `${Math.max(1, place.w * box.width)}px`;
+  els.selectBox.style.height = `${Math.max(1, place.h * box.height)}px`;
+  if (state.selectDrag?.mode === "rotate") {
+    els.selectBox.style.transformOrigin = "center center";
+    els.selectBox.style.transform = `rotate(${state.selectDrag.hudDelta || 0}deg)`;
+  } else {
+    els.selectBox.style.transform = "";
+  }
 }
 
 function placeSelectHud(view, rect) {
@@ -1878,14 +1885,11 @@ function syncSelectHud() {
   els.cropConfirm.hidden = !cropping;
   els.copyBtn.hidden = cropping;
   els.pasteBtn.hidden = cropping;
-  if (els.selLeftBtn) {
-    els.selLeftBtn.hidden = cropping;
-  }
-  if (els.selRightBtn) {
-    els.selRightBtn.hidden = cropping;
-  }
   if (els.deleteBtn) {
     els.deleteBtn.hidden = cropping;
+  }
+  if (els.selectRotate) {
+    els.selectRotate.hidden = cropping || !selectionHasRotatable(items, state.selectIndices);
   }
   const stamp = selectedStampItem();
   els.selectLayer.classList.toggle("is-image", Boolean(image) && !cropping);
@@ -2044,6 +2048,15 @@ function startSelect(event, stage) {
     return;
   }
 
+  if (state.selectIndices.length && state.selectPage === state.drawPage) {
+    const bounds = selectedBounds(items, state.selectIndices, cssW, cssH);
+    if (bounds && rotateHandleAt(bounds, point, cssW, cssH) && selectionHasRotatable(items, state.selectIndices)) {
+      beginRotateDrag({ page: state.drawPage, point, items, bounds, cssW, cssH });
+      syncSelectHud();
+      return;
+    }
+  }
+
   const image = selectedImageItem();
   const stamp = selectedStampItem();
   const resizable = image || stamp;
@@ -2116,6 +2129,13 @@ function moveSelect(event) {
         ? resizeStamp(origin, drag.handle, point, cssW, cssH)
         : resizeImage(origin, drag.handle, point);
     state.pages[key] = next;
+  } else if (drag.mode === "rotate") {
+    const viewNow = state.pageViews.find((item) => item.pageNum === drag.page);
+    const cssW = viewNow?.cssWidth || 400;
+    const cssH = viewNow?.cssHeight || 600;
+    const delta = pointerAngleDeg(point, drag.center, cssW, cssH) - drag.startAngle;
+    drag.hudDelta = delta;
+    state.pages[key] = rotateSelectedItems(drag.origin, drag.indices, delta, drag.center, cssW, cssH);
   }
   const view = state.pageViews.find((item) => item.pageNum === drag.page);
   if (view) {
@@ -2171,6 +2191,25 @@ function endSelect(event) {
   }
   state.selectDrag = null;
   syncSelectHud();
+}
+
+function selectionHasRotatable(items, indices) {
+  return (indices || []).some((index) => items?.[index] && !isLockedImage(items[index]));
+}
+
+function beginRotateDrag({ page, point, items, bounds, cssW, cssH }) {
+  const center = { x: bounds.x + bounds.w / 2, y: bounds.y + bounds.h / 2 };
+  state.selectDrag = {
+    mode: "rotate",
+    page,
+    start: point,
+    startAngle: pointerAngleDeg(point, center, cssW, cssH),
+    center,
+    bounds,
+    hudDelta: 0,
+    origin: cloneItems(items),
+    indices: [...state.selectIndices],
+  };
 }
 
 function copySelection() {
@@ -2957,13 +2996,13 @@ function onWorkspacePointerDown(event) {
     return;
   }
   if (overlayOpen()) {
-    if (!event.target.closest(".slot-panel, .sheet-card, .toolbar, .write-top, .m4-bar, .more-panel, .preview-drawer, .select-hud, .float-bar, #float-bar, .shape-chips")) {
+    if (!event.target.closest(".slot-panel, .sheet-card, .toolbar, .write-top, .m4-bar, .more-panel, .preview-drawer, .select-hud, .float-bar, #float-bar, .select-layer, .select-rotate-handle, .shape-chips")) {
       closeAllPanels();
       ignoreAfterPanel = true;
     }
     return;
   }
-  if (event.target.closest(".toolbar, .write-top, .sheet, .slot-panel, .m4-bar, .more-panel, .marquee, .preview-drawer, .select-hud, .float-bar, #float-bar, .shape-chips")) {
+  if (event.target.closest(".toolbar, .write-top, .sheet, .slot-panel, .m4-bar, .more-panel, .marquee, .preview-drawer, .select-hud, .float-bar, #float-bar, .select-layer, .select-rotate-handle, .shape-chips")) {
     return;
   }
 
@@ -3472,16 +3511,55 @@ els.pasteBtn.addEventListener("click", (event) => {
   event.stopPropagation();
   pasteClipboard();
 });
-els.selLeftBtn.addEventListener("click", (event) => {
-  event.preventDefault();
-  event.stopPropagation();
-  rotateSelection(-90);
-});
-els.selRightBtn.addEventListener("click", (event) => {
-  event.preventDefault();
-  event.stopPropagation();
-  rotateSelection(90);
-});
+if (els.selectRotate) {
+  els.selectRotate.addEventListener("pointerdown", (event) => {
+    if (state.interactMode === "view" || state.cropping || !state.selectIndices.length) {
+      return;
+    }
+    if (!allowsSelectPointer(event)) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    const pageNum = state.selectPage || state.page;
+    const view = state.pageViews.find((item) => item.pageNum === pageNum);
+    const ink = view?.inkCanvas || view?.stage?.querySelector(".ink-canvas");
+    if (!ink) {
+      return;
+    }
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    } catch {
+      // optional
+    }
+    state.drawPage = pageNum;
+    state.drawCanvas = ink;
+    const items = pageStrokes(pageNum);
+    const cssW = view?.cssWidth || 400;
+    const cssH = view?.cssHeight || 600;
+    const bounds = selectedBounds(items, state.selectIndices, cssW, cssH);
+    if (!bounds || !selectionHasRotatable(items, state.selectIndices)) {
+      return;
+    }
+    beginRotateDrag({ page: pageNum, point: eventToNorm(event, ink), items, bounds, cssW, cssH });
+    syncSelectHud();
+  });
+  els.selectRotate.addEventListener("pointermove", (event) => {
+    if (state.selectDrag?.mode === "rotate") {
+      moveSelect(event);
+    }
+  });
+  els.selectRotate.addEventListener("pointerup", (event) => {
+    if (state.selectDrag?.mode === "rotate") {
+      endSelect(event);
+    }
+  });
+  els.selectRotate.addEventListener("pointercancel", (event) => {
+    if (state.selectDrag?.mode === "rotate") {
+      endSelect(event);
+    }
+  });
+}
 els.deleteBtn.addEventListener("click", (event) => {
   event.preventDefault();
   event.stopPropagation();
@@ -3592,7 +3670,7 @@ els.writeScreen.addEventListener("touchstart", preventWriteSurfaceTouch, { passi
 els.writeScreen.addEventListener("touchmove", preventWriteSurfaceTouch, { passive: false });
 
 document.addEventListener("pointerdown", (event) => {
-  if (event.target.closest(".slot-panel, .toolbar, [data-tool], #eraser-btn, #more-btn, .m4-bar, .marquee, .select-hud, .float-bar, #float-bar, .preview-drawer, .shape-chips")) {
+  if (event.target.closest(".slot-panel, .toolbar, [data-tool], #eraser-btn, #more-btn, .m4-bar, .marquee, .select-hud, .float-bar, #float-bar, .select-layer, .select-rotate-handle, .preview-drawer, .shape-chips")) {
     return;
   }
   closeAllPanels();

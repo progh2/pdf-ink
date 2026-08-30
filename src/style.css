@@ -723,6 +723,27 @@ body {
   display: none;
 }
 
+.select-rotate-handle {
+  position: absolute;
+  left: 50%;
+  top: -20px;
+  width: 16px;
+  height: 16px;
+  margin-left: -8px;
+  margin-top: -8px;
+  box-sizing: border-box;
+  border: 1.6px solid #2c2a26;
+  border-radius: 50%;
+  background: #fff;
+  pointer-events: auto;
+  cursor: grab;
+  touch-action: none;
+}
+
+.select-rotate-handle:active {
+  cursor: grabbing;
+}
+
 .select-hud,
 .float-bar {
   position: fixed;
