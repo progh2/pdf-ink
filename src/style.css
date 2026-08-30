@@ -449,6 +449,15 @@ body {
   transform-origin: top left;
 }
 
+.page-stack.is-windowed {
+  display: block;
+  gap: 0;
+}
+
+.page-stack.is-windowed .page-stage {
+  position: absolute;
+}
+
 .write-screen[data-view="page"] .page-stack {
   gap: 0;
 }
@@ -1011,6 +1020,21 @@ body {
   flex: 1;
   min-height: 0;
   overflow: auto;
+  display: block;
+  position: relative;
+  gap: 8px;
+}
+
+.preview-list-spacer {
+  width: 1px;
+  pointer-events: none;
+}
+
+.preview-list-window {
+  position: absolute;
+  left: 0;
+  top: 0;
+  right: 0;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -1020,16 +1044,18 @@ body {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  min-height: 167px;
   padding: 0;
   border: 0;
   background: transparent;
   text-align: left;
   cursor: pointer;
+  flex-shrink: 0;
 }
 
 .preview-thumb {
   width: 88px;
-  height: auto;
+  height: 117px;
   aspect-ratio: 3 / 4;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -1046,7 +1072,7 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  min-height: 32px;
+  min-height: 44px;
   color: var(--title);
   font-size: 13px;
 }

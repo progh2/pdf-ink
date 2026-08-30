@@ -105,6 +105,23 @@ import {
   toggleBookmark,
 } from "./preview.js";
 import {
+  PAGE_BITMAP_LIMIT,
+  PAGE_STACK_GAP,
+  THUMB_BITMAP_LIMIT,
+  createPaintCache,
+  pageAtScrollMid,
+  pageBitmapKey,
+  pageStackOffset,
+  previewListHeight,
+  previewRowBody,
+  previewRowStride,
+  previewUpdateOnPageChange,
+  scrollStackMetrics,
+  thumbCacheKey,
+  visiblePreviewRows,
+  visibleScrollPages,
+} from "./pageWindow.js";
+import {
   addOutlineEntry,
   deleteOutlineEntry,
   normalizeOutline,
@@ -252,6 +269,7 @@ const state = {
   pageCssHeight: 0,
   stackBase: { width: 0, height: 0 },
   pageViews: [],
+  scrollLayout: null,
 };
 
 const pointers = new Map();
@@ -264,6 +282,9 @@ let shapeOfferDismissTimer = 0;
 let captureConfirmArmedAt = 0;
 let renderGen = 0;
 let paperScrollHold = null;
+const pageCache = createPaintCache(PAGE_BITMAP_LIMIT);
+const thumbCache = createPaintCache(THUMB_BITMAP_LIMIT);
+const stagePool = [];
 
 const WRITE_CHROME =
   ".sheet-card, .slot-panel, .toolbar, .write-top, .m4-bar, .more-panel, .marquee, .preview-drawer, .select-hud, .float-bar, #float-bar, .select-layer, #select-layer, .shape-chips";
@@ -433,6 +454,10 @@ function resetEditorExtras() {
   state.selectDrag = null;
   state.cropping = null;
   state.inkClipboard = [];
+  state.scrollLayout = null;
+  pageCache.clear();
+  thumbCache.clear();
+  stagePool.length = 0;
   hideMarquee();
   hideSelectUi();
   closePreview();
@@ -727,65 +752,204 @@ async function renderPageView(view) {
   drawStrokesOn(view, state.drawing && state.drawPage === view.pageNum ? state.currentStroke : null);
 }
 
+function snapshotCanvas(source) {
+  if (!source?.width || !source.height) {
+    return null;
+  }
+  const copy = document.createElement("canvas");
+  copy.width = source.width;
+  copy.height = source.height;
+  const ctx = copy.getContext("2d");
+  if (!ctx) {
+    return null;
+  }
+  ctx.drawImage(source, 0, 0);
+  return copy;
+}
+
+function pageViewCacheKey(view) {
+  const leaf = leafAt(state.leaves, view?.pageNum);
+  return pageBitmapKey(leaf, {
+    cssWidth: view?.cssWidth || state.scrollLayout?.pageWidth || state.pageCssWidth,
+    cssHeight: view?.cssHeight || state.scrollLayout?.pageHeight || state.pageCssHeight,
+    viewMode: state.viewMode,
+  });
+}
+
+function cachePageView(view) {
+  if (!view?.rendered || !view.pdfCanvas?.width) {
+    return;
+  }
+  const bitmap = snapshotCanvas(view.pdfCanvas);
+  if (!bitmap) {
+    return;
+  }
+  pageCache.set(pageViewCacheKey(view), {
+    cssWidth: view.cssWidth,
+    cssHeight: view.cssHeight,
+    pixelWidth: view.pdfCanvas.width,
+    pixelHeight: view.pdfCanvas.height,
+    bitmap,
+  });
+}
+
+function restorePageBitmap(view, entry) {
+  if (!view || !entry?.bitmap) {
+    return false;
+  }
+  applyPageSize(view, entry.cssWidth, entry.cssHeight, entry.pixelWidth, entry.pixelHeight);
+  const ctx = canvas2d(view.pdfCanvas);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, view.pdfCanvas.width, view.pdfCanvas.height);
+  ctx.drawImage(entry.bitmap, 0, 0);
+  if (state.viewMode === "page" || view.pageNum === state.page) {
+    state.pageCssWidth = entry.cssWidth;
+    state.pageCssHeight = entry.cssHeight;
+  }
+  view.rendered = true;
+  return true;
+}
+
+function acquireStage(pageNum) {
+  const pooled = stagePool.pop();
+  if (!pooled) {
+    return makeStage(pageNum);
+  }
+  pooled.pageNum = pageNum;
+  pooled.stage.dataset.page = String(pageNum);
+  pooled.rendered = false;
+  pooled.token += 1;
+  return pooled;
+}
+
+function releaseStage(view) {
+  if (!view) {
+    return;
+  }
+  cachePageView(view);
+  view.stage.remove();
+  if (stagePool.length < 8) {
+    stagePool.push(view);
+  }
+}
+
+function resetPageStackChrome() {
+  els.pageStack.classList.remove("is-windowed");
+  els.pageStack.style.width = "";
+  els.pageStack.style.height = "";
+}
+
+function positionScrollStage(view) {
+  const metrics = state.scrollLayout;
+  if (!metrics || !view) {
+    return;
+  }
+  view.stage.style.position = "absolute";
+  view.stage.style.top = `${pageStackOffset(view.pageNum, metrics)}px`;
+  view.stage.style.left = "50%";
+  view.stage.style.marginLeft = `${-metrics.pageWidth / 2}px`;
+  if (!view.cssWidth) {
+    view.stage.style.width = `${metrics.pageWidth}px`;
+    view.stage.style.height = `${metrics.pageHeight}px`;
+  }
+}
+
 function visiblePageRange() {
-  if (state.viewMode !== "scroll" || !state.pageViews.length) {
+  if (state.viewMode !== "scroll") {
     return { from: state.page, to: state.page };
   }
-  const scale = state.userScale;
-  const viewTop = els.workspace.scrollTop;
-  const viewBottom = viewTop + els.workspace.clientHeight;
-  let from = state.pageCount;
-  let to = 1;
-  for (const view of state.pageViews) {
-    const top = view.stage.offsetTop * scale;
-    const bottom = top + view.stage.offsetHeight * scale;
-    if (bottom > viewTop - 240 && top < viewBottom + 240) {
-      from = Math.min(from, view.pageNum);
-      to = Math.max(to, view.pageNum);
-    }
+  if (state.scrollLayout?.count) {
+    return visibleScrollPages({
+      scrollTop: els.workspace.scrollTop,
+      viewportHeight: els.workspace.clientHeight,
+      scale: state.userScale,
+      metrics: state.scrollLayout,
+      currentPage: state.page,
+    });
   }
-  if (from > to) {
-    return { from: state.page, to: state.page };
-  }
-  return { from, to };
+  return { from: state.page, to: state.page };
 }
 
 async function renderVisiblePages() {
-  const { from, to } = visiblePageRange();
+  await syncScrollWindow();
   const jobs = [];
   for (const view of state.pageViews) {
-    const nearby = view.pageNum >= from && view.pageNum <= to;
-    if (nearby && !view.rendered) {
-      jobs.push(renderPageView(view));
+    if (view.rendered) {
+      continue;
     }
+    const cached = pageCache.get(pageViewCacheKey(view));
+    if (cached && restorePageBitmap(view, cached)) {
+      drawStrokesOn(view, state.drawing && state.drawPage === view.pageNum ? state.currentStroke : null);
+      continue;
+    }
+    jobs.push(renderPageView(view).then(() => cachePageView(view)));
   }
   await Promise.all(jobs);
 }
 
-function updateCurrentPageFromScroll() {
-  if (state.viewMode !== "scroll" || !state.pageViews.length) {
+async function syncScrollWindow() {
+  if (state.viewMode !== "scroll" || !state.scrollLayout?.count) {
     return;
   }
-  const scale = state.userScale;
-  const mid = els.workspace.scrollTop + els.workspace.clientHeight / 2;
-  let best = state.page;
-  let bestDist = Infinity;
+  const range = visiblePageRange();
+  const keep = new Set();
+  for (let page = range.from; page <= range.to; page += 1) {
+    keep.add(page);
+  }
+  keep.add(state.page);
+  if (state.drawPage) {
+    keep.add(state.drawPage);
+  }
+  const next = [];
   for (const view of state.pageViews) {
-    const center = (view.stage.offsetTop + view.stage.offsetHeight / 2) * scale;
-    const dist = Math.abs(center - mid);
-    if (dist < bestDist) {
-      bestDist = dist;
-      best = view.pageNum;
+    if (keep.has(view.pageNum)) {
+      positionScrollStage(view);
+      next.push(view);
+      keep.delete(view.pageNum);
+    } else {
+      releaseStage(view);
     }
   }
+  for (const pageNum of [...keep].sort((a, b) => a - b)) {
+    if (pageNum < 1 || pageNum > state.scrollLayout.count) {
+      continue;
+    }
+    const view = acquireStage(pageNum);
+    positionScrollStage(view);
+    els.pageStack.append(view.stage);
+    const cached = pageCache.get(pageViewCacheKey(view));
+    if (cached) {
+      restorePageBitmap(view, cached);
+      drawStrokesOn(view);
+    }
+    next.push(view);
+  }
+  state.pageViews = next;
+}
+
+function updateCurrentPageFromScroll() {
+  if (state.viewMode !== "scroll" || !state.scrollLayout?.count) {
+    return;
+  }
+  const best = pageAtScrollMid({
+    scrollTop: els.workspace.scrollTop,
+    viewportHeight: els.workspace.clientHeight,
+    scale: state.userScale,
+    metrics: state.scrollLayout,
+  });
   if (best !== state.page) {
     state.page = best;
     updatePager();
     persistSession();
+    applyPreviewAfterPageChange();
   }
 }
 
 function measureStackBase() {
+  if (state.scrollLayout) {
+    state.stackBase = { width: state.scrollLayout.width, height: state.scrollLayout.height };
+    return;
+  }
   const stages = state.pageViews;
   if (!stages.length) {
     state.stackBase = { width: 0, height: 0 };
@@ -829,8 +993,11 @@ function applyViewport() {
 
 async function rebuildPages() {
   const gen = ++renderGen;
-  els.pageStack.replaceChildren();
+  stagePool.length = 0;
   state.pageViews = [];
+  els.pageStack.replaceChildren();
+  resetPageStackChrome();
+  state.scrollLayout = null;
   if (!state.pdf && !state.leaves.length) {
     return;
   }
@@ -840,13 +1007,14 @@ async function rebuildPages() {
     const view = makeStage(state.page);
     state.pageViews = [view];
     els.pageStack.append(view.stage);
-    await renderPageView(view);
-  } else {
-    for (let index = 1; index <= state.leaves.length; index += 1) {
-      const view = makeStage(index);
-      state.pageViews.push(view);
-      els.pageStack.append(view.stage);
+    const cached = pageCache.get(pageViewCacheKey(view));
+    if (cached && restorePageBitmap(view, cached)) {
+      drawStrokesOn(view);
+    } else {
+      await renderPageView(view);
+      cachePageView(view);
     }
+  } else {
     const firstLeaf = state.leaves[0];
     let css;
     if (firstLeaf?.kind === "pdf" && state.pdf) {
@@ -863,10 +1031,11 @@ async function rebuildPages() {
     if (gen !== renderGen) {
       return;
     }
-    for (const view of state.pageViews) {
-      view.stage.style.width = `${css.width}px`;
-      view.stage.style.height = `${css.height}px`;
-    }
+    state.scrollLayout = scrollStackMetrics(state.leaves.length, css.width, css.height, PAGE_STACK_GAP);
+    els.pageStack.classList.add("is-windowed");
+    els.pageStack.style.width = `${state.scrollLayout.width}px`;
+    els.pageStack.style.height = `${state.scrollLayout.height}px`;
+    await syncScrollWindow();
     await renderVisiblePages();
     scrollPageIntoView(state.page, false);
   }
@@ -878,12 +1047,56 @@ async function rebuildPages() {
 }
 
 function scrollPageIntoView(pageNum, smooth) {
+  const metrics = state.scrollLayout;
+  if (metrics) {
+    const top = pageStackOffset(pageNum, metrics) * state.userScale - 12;
+    els.workspace.scrollTo({ top: Math.max(0, top), behavior: smooth ? "smooth" : "auto" });
+    return;
+  }
   const view = state.pageViews.find((item) => item.pageNum === pageNum);
   if (!view) {
     return;
   }
   const top = view.stage.offsetTop * state.userScale - 12;
   els.workspace.scrollTo({ top: Math.max(0, top), behavior: smooth ? "smooth" : "auto" });
+}
+
+async function showPageInPlace(pageNum) {
+  let view = state.pageViews.find((item) => item.pageNum === pageNum) || state.pageViews[0];
+  if (!view) {
+    view = makeStage(pageNum);
+    state.pageViews = [view];
+    els.pageStack.replaceChildren(view.stage);
+  }
+  if (view.pageNum !== pageNum) {
+    cachePageView(view);
+    view.token += 1;
+    view.pageNum = pageNum;
+    view.stage.dataset.page = String(pageNum);
+    view.rendered = false;
+  }
+  const cached = pageCache.get(pageViewCacheKey(view));
+  if (cached && restorePageBitmap(view, cached)) {
+    drawStrokesOn(view, state.drawing && state.drawPage === view.pageNum ? state.currentStroke : null);
+    return;
+  }
+  await renderPageView(view);
+  cachePageView(view);
+}
+
+function applyPreviewAfterPageChange() {
+  const plan = previewUpdateOnPageChange({
+    drawerOpen: Boolean(els.previewDrawer && !els.previewDrawer.hidden),
+    tab: state.previewTab,
+    listBuilt: Boolean(els.previewList?.querySelector(".preview-list-window")),
+  });
+  if (plan.rebuildList) {
+    renderPreview();
+    return;
+  }
+  if (plan.moveCurrent) {
+    syncPreviewCurrent({ paintVisible: plan.paintVisible });
+  }
 }
 
 function updatePager() {
@@ -1076,16 +1289,17 @@ async function goToPage(nextPage) {
   state.page = nextPage;
   abortStroke();
   if (state.viewMode === "page") {
-    await rebuildPages();
+    await showPageInPlace(nextPage);
+    applyViewport();
+    updatePager();
   } else {
+    await syncScrollWindow();
     scrollPageIntoView(nextPage, true);
     updatePager();
     await renderVisiblePages();
   }
   await persistSession();
-  if (!els.previewDrawer.hidden) {
-    renderPreview();
-  }
+  applyPreviewAfterPageChange();
 }
 
 function allowsInkPointer(event) {
@@ -2661,6 +2875,7 @@ function renderTocList() {
         removeTocEntry(entry.id);
       }
     });
+    row.dataset.dest = String(dest);
     row.append(title, jump, del);
     row.addEventListener("click", (event) => {
       if (tocRowAction(event.target?.className) === "jump") {
@@ -2671,6 +2886,123 @@ function renderTocList() {
   }
 }
 
+function makePreviewRow(leaf) {
+  const pageNum = pageOfLeaf(state.leaves, leaf.id);
+  const row = document.createElement("div");
+  row.className = "preview-row";
+  row.dataset.page = String(pageNum);
+  row.dataset.leaf = leaf.id;
+  if (pageNum === state.page) {
+    row.classList.add("is-current");
+  }
+  const thumb = document.createElement("canvas");
+  thumb.className = "preview-thumb";
+  const meta = document.createElement("div");
+  meta.className = "preview-meta";
+  const label = document.createElement("span");
+  label.textContent = leaf.kind === "outline" ? leaf.title : `${pageNum}`;
+  const star = document.createElement("button");
+  star.type = "button";
+  star.className = "preview-bookmark";
+  star.classList.toggle("is-on", leaf.bookmark);
+  star.textContent = leaf.bookmark ? "★" : "☆";
+  star.setAttribute("aria-label", "책갈피");
+  star.addEventListener("click", (event) => {
+    event.stopPropagation();
+    state.leaves = toggleBookmark(state.leaves, pageNum - 1);
+    persistStrokes();
+    if (state.previewFilter !== "all") {
+      renderPreviewList();
+      return;
+    }
+    const now = leafAt(state.leaves, pageNum);
+    star.classList.toggle("is-on", Boolean(now?.bookmark));
+    star.textContent = now?.bookmark ? "★" : "☆";
+  });
+  meta.append(label, star);
+  row.append(thumb, meta);
+  row.addEventListener("click", () => {
+    goToPage(pageNum);
+  });
+  return row;
+}
+
+function syncPreviewCurrent({ paintVisible = false } = {}) {
+  if (els.previewDrawer?.hidden) {
+    return;
+  }
+  if (state.previewTab === "toc") {
+    els.tocList?.querySelectorAll(".preview-toc-row").forEach((row) => {
+      row.classList.toggle("is-current", Number(row.dataset.dest) === state.page);
+    });
+    return;
+  }
+  if (!els.previewList) {
+    return;
+  }
+  const shown = filterLeaves(state.leaves, state.previewFilter);
+  const index = shown.findIndex((leaf) => pageOfLeaf(state.leaves, leaf.id) === state.page);
+  if (index >= 0) {
+    const top = index * previewRowStride();
+    const viewH = els.previewList.clientHeight;
+    const body = previewRowBody();
+    if (top < els.previewList.scrollTop || top + body > els.previewList.scrollTop + viewH) {
+      els.previewList.scrollTop = Math.max(0, top - 8);
+    }
+  }
+  els.previewList.querySelectorAll(".preview-row").forEach((row) => {
+    row.classList.toggle("is-current", Number(row.dataset.page) === state.page);
+  });
+  if (paintVisible) {
+    paintVisiblePreviewRows();
+  }
+}
+
+async function paintVisiblePreviewRows() {
+  if (!els.previewList || els.previewDrawer?.hidden || state.previewTab === "toc") {
+    return;
+  }
+  const windowEl = els.previewList.querySelector(".preview-list-window");
+  if (!windowEl) {
+    return;
+  }
+  const shown = filterLeaves(state.leaves, state.previewFilter);
+  const range = visiblePreviewRows({
+    scrollTop: els.previewList.scrollTop,
+    viewportHeight: els.previewList.clientHeight || 640,
+    count: shown.length,
+  });
+  const stride = previewRowStride();
+  windowEl.style.transform = `translateY(${Math.max(0, range.from) * stride}px)`;
+  const needed = shown.slice(Math.max(0, range.from), range.to + 1);
+  const have = new Map([...windowEl.children].map((row) => [row.dataset.leaf, row]));
+  const next = [];
+  for (const leaf of needed) {
+    let row = have.get(leaf.id);
+    if (row) {
+      have.delete(leaf.id);
+    } else {
+      row = makePreviewRow(leaf);
+    }
+    row.classList.toggle("is-current", pageOfLeaf(state.leaves, leaf.id) === state.page);
+    next.push(row);
+  }
+  for (const stale of have.values()) {
+    stale.remove();
+  }
+  windowEl.replaceChildren(...next);
+  await Promise.all(
+    next.map((row) => {
+      const leaf = shown.find((item) => item.id === row.dataset.leaf);
+      const canvas = row.querySelector(".preview-thumb");
+      if (!leaf || !canvas) {
+        return null;
+      }
+      return paintPreviewThumb(canvas, leaf);
+    }),
+  );
+}
+
 async function renderPreviewList() {
   if (!els.previewList) {
     return;
@@ -2679,43 +3011,29 @@ async function renderPreviewList() {
     btn.classList.toggle("is-selected", btn.dataset.previewFilter === state.previewFilter);
   });
   const shown = filterLeaves(state.leaves, state.previewFilter);
-  els.previewList.replaceChildren();
-  for (const leaf of shown) {
-    const pageNum = pageOfLeaf(state.leaves, leaf.id);
-    const row = document.createElement("div");
-    row.className = "preview-row";
-    if (pageNum === state.page) {
-      row.classList.add("is-current");
-    }
-    const thumb = document.createElement("canvas");
-    thumb.className = "preview-thumb";
-    const meta = document.createElement("div");
-    meta.className = "preview-meta";
-    const label = document.createElement("span");
-    label.textContent = leaf.kind === "outline" ? leaf.title : `${pageNum}`;
-    const star = document.createElement("button");
-    star.type = "button";
-    star.className = "preview-bookmark";
-    star.classList.toggle("is-on", leaf.bookmark);
-    star.textContent = leaf.bookmark ? "★" : "☆";
-    star.setAttribute("aria-label", "책갈피");
-    star.addEventListener("click", (event) => {
-      event.stopPropagation();
-      state.leaves = toggleBookmark(state.leaves, pageNum - 1);
-      persistStrokes();
-      renderPreviewList();
-    });
-    meta.append(label, star);
-    row.append(thumb, meta);
-    row.addEventListener("click", () => {
-      goToPage(pageNum);
-    });
-    els.previewList.append(row);
-    paintPreviewThumb(thumb, leaf);
-  }
+  const spacer = document.createElement("div");
+  spacer.className = "preview-list-spacer";
+  spacer.style.height = `${previewListHeight(shown.length)}px`;
+  const windowEl = document.createElement("div");
+  windowEl.className = "preview-list-window";
+  els.previewList.replaceChildren(spacer, windowEl);
+  await paintVisiblePreviewRows();
 }
 
 async function paintPreviewThumb(canvas, leaf) {
+  const key = thumbCacheKey(leaf);
+  if (canvas.dataset.painted === key) {
+    return;
+  }
+  const hit = thumbCache.get(key);
+  if (hit?.bitmap) {
+    canvas.width = hit.width;
+    canvas.height = hit.height;
+    const blit = canvas.getContext("2d");
+    blit.drawImage(hit.bitmap, 0, 0);
+    canvas.dataset.painted = key;
+    return;
+  }
   const ctx = canvas.getContext("2d");
   canvas.width = 180;
   canvas.height = 240;
@@ -2726,6 +3044,11 @@ async function paintPreviewThumb(canvas, leaf) {
     ctx.textAlign = "center";
     ctx.font = "600 16px sans-serif";
     ctx.fillText(leaf.title || "개요", 90, 40);
+    const bitmap = snapshotCanvas(canvas);
+    if (bitmap) {
+      thumbCache.set(key, { width: canvas.width, height: canvas.height, bitmap });
+    }
+    canvas.dataset.painted = key;
     return;
   }
   try {
@@ -2737,6 +3060,11 @@ async function paintPreviewThumb(canvas, leaf) {
     canvas.width = viewport.width;
     canvas.height = viewport.height;
     await page.render({ canvasContext: ctx, viewport }).promise;
+    const bitmap = snapshotCanvas(canvas);
+    if (bitmap) {
+      thumbCache.set(key, { width: canvas.width, height: canvas.height, bitmap });
+    }
+    canvas.dataset.painted = key;
   } catch {
     // cream placeholder
   }
@@ -3613,6 +3941,15 @@ document.querySelectorAll("#preview-filters [data-preview-filter]").forEach((btn
     renderPreviewList();
   });
 });
+if (els.previewList) {
+  els.previewList.addEventListener(
+    "scroll",
+    () => {
+      paintVisiblePreviewRows();
+    },
+    { passive: true },
+  );
+}
 els.tocAdd.addEventListener("click", addTocEntry);
 els.outlineInsert.addEventListener("click", insertOutlinePage);
 els.copyBtn.addEventListener("click", (event) => {
