@@ -2385,8 +2385,14 @@ function renderOutlineItems() {
     title.textContent = item.title;
     title.addEventListener("click", (event) => {
       event.stopPropagation();
-      beginOutlineRename(item, title);
+      if (item.page === state.page) {
+        beginOutlineRename(item, title);
+        return;
+      }
+      goToPage(item.page);
     });
+    const jump = document.createElement("span");
+    jump.className = "preview-outline-jump";
     const del = document.createElement("button");
     del.type = "button";
     del.className = "preview-outline-delete";
@@ -2398,7 +2404,7 @@ function renderOutlineItems() {
       persistStrokes();
       renderPreviewList();
     });
-    row.append(title, del);
+    row.append(title, jump, del);
     row.addEventListener("click", () => {
       goToPage(item.page);
     });

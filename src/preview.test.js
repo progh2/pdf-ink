@@ -115,6 +115,7 @@ describe("#53 개요 서랍 크롬", () => {
     assert.match(main, /beginOutlineRename/);
     assert.match(main, /deleteOutlineItem/);
     assert.match(main, /saveStrokes\(state\.identity, state\.pages, state\.leaves, state\.outline\)/);
+    assert.match(main, /if \(item\.page === state\.page\)/);
     assert.match(main, /goToPage\(item\.page\)/);
     assert.doesNotMatch(main, /confirm\(/);
     assert.doesNotMatch(main, /outlineToPdf|writeOutline|setOutline/);

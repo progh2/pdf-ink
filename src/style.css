@@ -949,7 +949,8 @@ body {
 }
 
 .preview-outline-title {
-  flex: 1;
+  flex: 0 1 auto;
+  max-width: calc(100% - 36px);
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -964,6 +965,12 @@ body {
   font-size: 13px;
   text-align: left;
   cursor: text;
+}
+
+.preview-outline-jump {
+  flex: 1;
+  min-width: 12px;
+  align-self: stretch;
 }
 
 .preview-outline-input {
