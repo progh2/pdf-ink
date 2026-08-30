@@ -140,7 +140,7 @@ describe("toolbar", () => {
     assert.match(toolbar, /id="more-btn"/);
     assert.equal((html.match(/class="toolbar"/g) || []).length, 1);
     assert.doesNotMatch(html, /id="m4-bar"|id="m4-rail"/);
-    assert.match(more, /마스킹\(모자이크\)/);
+    assert.doesNotMatch(more, /마스킹|data-more="mosaic"/);
     assert.match(more, /영역캡처/);
     assert.match(more, /전체화면/);
     assert.doesNotMatch(more, /data-more="select"/);

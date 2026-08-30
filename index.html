@@ -167,7 +167,6 @@
       </div>
 
       <div class="slot-panel more-panel" id="more-panel" hidden>
-        <button type="button" data-more="mosaic">마스킹(모자이크)</button>
         <button type="button" data-more="capture">영역캡처</button>
         <button type="button" data-more="fullscreen" id="fullscreen-item">전체화면</button>
         <button type="button" data-more="image">이미지</button>
@@ -210,7 +209,13 @@
 
       <div class="marquee" id="marquee" hidden>
         <div class="marquee-box" id="marquee-box"></div>
-        <button type="button" class="marquee-confirm" id="capture-confirm" hidden>복사</button>
+      </div>
+      <div class="region-menu" id="region-menu" hidden>
+        <button type="button" data-region="copy">복사</button>
+        <button type="button" data-region="duplicate">복제</button>
+        <button type="button" data-region="delete">삭제</button>
+        <button type="button" data-region="capture">캡처</button>
+        <button type="button" data-region="mosaic">마스킹</button>
       </div>
 
       <div class="select-layer" id="select-layer" hidden>

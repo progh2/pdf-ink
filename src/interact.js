@@ -113,7 +113,6 @@ export function rectBigEnough(rect, minNorm = 0.012) {
 }
 
 export const M4_OVERFLOW_ITEMS = [
-  "mosaic",
   "capture",
   "fullscreen",
   "image",
@@ -123,7 +122,6 @@ export const M4_OVERFLOW_ITEMS = [
   "export",
 ];
 export const M4_OVERFLOW_LABELS = {
-  mosaic: "마스킹(모자이크)",
   capture: "영역캡처",
   fullscreen: "전체화면",
   image: "이미지",

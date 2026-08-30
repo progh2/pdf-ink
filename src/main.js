@@ -78,6 +78,16 @@ import {
   translateItems,
 } from "./select.js";
 import {
+  REGION_HOLD_MS,
+  applyRegionMosaic,
+  copyRegionItems,
+  createRegionHold,
+  deleteRegionItems,
+  duplicateRegionItems,
+  persistCaptureAfterUp,
+  placeRegionMenuBox,
+} from "./regionMenu.js";
+import {
   IMAGE_MAX_EDGE,
   acceptImageFile,
   acceptImageSrc,
@@ -173,7 +183,7 @@ const els = {
   fullscreenItem: document.querySelector("#fullscreen-item"),
   marquee: document.querySelector("#marquee"),
   marqueeBox: document.querySelector("#marquee-box"),
-  captureConfirm: document.querySelector("#capture-confirm"),
+  regionMenu: document.querySelector("#region-menu"),
   selectLayer: document.querySelector("#select-layer"),
   selectBox: document.querySelector("#select-box"),
   floatBar: document.querySelector("#float-bar"),
@@ -261,12 +271,12 @@ let ignoreAfterPanel = false;
 let lastInkUpClient = null;
 const shapeHold = createShapeHold({ holdMs: SHAPE_HOLD_MS });
 let shapeOfferDismissTimer = 0;
-let captureConfirmArmedAt = 0;
 let renderGen = 0;
 let paperScrollHold = null;
+const regionHold = createRegionHold({ holdMs: REGION_HOLD_MS });
 
 const WRITE_CHROME =
-  ".sheet-card, .slot-panel, .toolbar, .write-top, .m4-bar, .more-panel, .marquee, .preview-drawer, .select-hud, .float-bar, #float-bar, .shape-chips";
+  ".sheet-card, .slot-panel, .toolbar, .write-top, .m4-bar, .more-panel, .marquee, .region-menu, .preview-drawer, .select-hud, .float-bar, #float-bar, .shape-chips";
 
 function isWriteChrome(target) {
   return Boolean(target?.closest?.(WRITE_CHROME));
@@ -1909,14 +1919,22 @@ function syncSelectHud() {
   placeSelectHud(view, bounds);
 }
 
+function hideRegionMenu() {
+  if (els.regionMenu) {
+    els.regionMenu.hidden = true;
+  }
+}
+
 function hideMarquee() {
   state.currentRect = null;
   state.pendingCapture = null;
+  regionHold.cancel();
   els.marquee.hidden = true;
-  els.captureConfirm.hidden = true;
+  els.marquee.classList.remove("is-pending");
+  hideRegionMenu();
 }
 
-function updateMarquee(showConfirm) {
+function updateMarquee() {
   const source = state.currentRect || state.pendingCapture;
   if (!source) {
     return;
@@ -1932,17 +1950,129 @@ function updateMarquee(showConfirm) {
   const width = Math.max(1, rect.w * box.width);
   const height = Math.max(1, rect.h * box.height);
   els.marquee.hidden = false;
+  els.marquee.classList.toggle("is-pending", Boolean(state.pendingCapture) && !state.currentRect);
   els.marqueeBox.style.left = `${left}px`;
   els.marqueeBox.style.top = `${top}px`;
   els.marqueeBox.style.width = `${width}px`;
   els.marqueeBox.style.height = `${height}px`;
-  if (showConfirm) {
-    els.captureConfirm.hidden = false;
-    const confirmW = els.captureConfirm.offsetWidth || 64;
-    els.captureConfirm.style.left = `${Math.min(window.innerWidth - confirmW - 8, Math.max(8, left))}px`;
-    els.captureConfirm.style.top = `${Math.min(window.innerHeight - 44, top + height + 8)}px`;
-  } else {
-    els.captureConfirm.hidden = true;
+}
+
+function showRegionMenu(client) {
+  if (!state.pendingCapture || !els.regionMenu) {
+    return;
+  }
+  els.regionMenu.hidden = false;
+  const pos = placeRegionMenuBox({
+    clientX: client?.x || 0,
+    clientY: client?.y || 0,
+    menuWidth: els.regionMenu.offsetWidth || 260,
+    menuHeight: 44,
+    viewportW: window.innerWidth,
+    viewportH: window.innerHeight,
+  });
+  els.regionMenu.style.left = `${pos.left}px`;
+  els.regionMenu.style.top = `${pos.top}px`;
+}
+
+function regionPageContext() {
+  const pending = state.pendingCapture;
+  if (!pending) {
+    return null;
+  }
+  const view = state.pageViews.find((item) => item.pageNum === pending.page);
+  return {
+    pending,
+    view,
+    pageNum: pending.page,
+    cssW: view?.cssWidth || 400,
+    cssH: view?.cssHeight || 600,
+  };
+}
+
+function copyRegion() {
+  const ctx = regionPageContext();
+  if (!ctx) {
+    return;
+  }
+  state.inkClipboard = copyRegionItems(pageStrokes(ctx.pageNum), ctx.pending.rect, ctx.cssW, ctx.cssH);
+  hideRegionMenu();
+}
+
+function duplicateRegion() {
+  const ctx = regionPageContext();
+  if (!ctx || state.interactMode === "view") {
+    return;
+  }
+  const items = pageStrokes(ctx.pageNum);
+  const next = duplicateRegionItems(items, ctx.pending.rect, ctx.cssW, ctx.cssH);
+  if (next.length === items.length) {
+    hideRegionMenu();
+    return;
+  }
+  commitPageChange(ctx.pageNum, () => {
+    state.pages[inkKey(leafAt(state.leaves, ctx.pageNum))] = next;
+  });
+  if (ctx.view) {
+    drawStrokesOn(ctx.view);
+  }
+  hideRegionMenu();
+}
+
+function deleteRegion() {
+  const ctx = regionPageContext();
+  if (!ctx || state.interactMode === "view") {
+    return;
+  }
+  const items = pageStrokes(ctx.pageNum);
+  const next = deleteRegionItems(items, ctx.pending.rect, ctx.cssW, ctx.cssH);
+  if (JSON.stringify(next) === JSON.stringify(items)) {
+    hideRegionMenu();
+    return;
+  }
+  commitPageChange(ctx.pageNum, () => {
+    state.pages[inkKey(leafAt(state.leaves, ctx.pageNum))] = next;
+  });
+  if (ctx.view) {
+    drawStrokesOn(ctx.view);
+  }
+  hideRegionMenu();
+}
+
+function mosaicRegion() {
+  const ctx = regionPageContext();
+  if (!ctx || state.interactMode === "view") {
+    return;
+  }
+  const items = pageStrokes(ctx.pageNum);
+  const next = applyRegionMosaic(items, ctx.pending.rect);
+  commitPageChange(ctx.pageNum, () => {
+    state.pages[inkKey(leafAt(state.leaves, ctx.pageNum))] = next;
+  });
+  if (ctx.view) {
+    drawStrokesOn(ctx.view);
+  }
+  hideRegionMenu();
+}
+
+function onRegionMenuAction(action) {
+  if (action === "copy") {
+    copyRegion();
+    return;
+  }
+  if (action === "duplicate") {
+    duplicateRegion();
+    return;
+  }
+  if (action === "delete") {
+    deleteRegion();
+    return;
+  }
+  if (action === "capture") {
+    confirmCapture();
+    return;
+  }
+  if (action === "mosaic") {
+    mosaicRegion();
   }
 }
 
@@ -1966,9 +2096,10 @@ function startRect(event, stage) {
   const point = eventToNorm(event, ink);
   state.drawPage = Number(stage.dataset.page) || state.page;
   state.drawCanvas = ink;
+  hideRegionMenu();
   state.pendingCapture = null;
   state.currentRect = { page: state.drawPage, a: point, b: point };
-  updateMarquee(false);
+  updateMarquee();
 }
 
 function moveRect(event) {
@@ -1977,7 +2108,7 @@ function moveRect(event) {
   }
   event.preventDefault();
   state.currentRect.b = eventToNorm(event, state.drawCanvas);
-  updateMarquee(false);
+  updateMarquee();
 }
 
 function endRect(event) {
@@ -2008,9 +2139,9 @@ function endRect(event) {
     return;
   }
   if (state.rectTool === "capture") {
-    state.pendingCapture = { page, rect };
-    captureConfirmArmedAt = performance.now() + 400;
-    updateMarquee(true);
+    const kept = persistCaptureAfterUp("capture", page, rect);
+    state.pendingCapture = kept.pending;
+    updateMarquee();
   }
 }
 
@@ -2099,7 +2230,7 @@ function moveSelect(event) {
       return;
     }
     state.currentRect = { page: drag.page, a: drag.a, b: drag.b };
-    updateMarquee(false);
+    updateMarquee();
     return;
   }
   const key = inkKey(leafAt(state.leaves, drag.page));
@@ -2599,7 +2730,7 @@ let captureWriting = false;
 
 async function confirmCapture() {
   const pending = state.pendingCapture;
-  if (!pending || captureWriting || performance.now() < captureConfirmArmedAt) {
+  if (!pending || captureWriting) {
     return;
   }
   captureWriting = true;
@@ -2632,12 +2763,10 @@ async function confirmCapture() {
     };
     const result = captureRegionPng(pdf.data, ink.data, view.pdfCanvas.width, view.pdfCanvas.height, boxes, crop);
     await writePngClipboard(result.png, navigator.clipboard, window.ClipboardItem);
-    hideMarquee();
-    state.rectTool = null;
-    syncRectTool();
-    showBanner("영역을 복사했습니다.");
+    hideRegionMenu();
+    showBanner("영역을 캡처했습니다.");
     window.setTimeout(() => {
-      if (els.banner.textContent === "영역을 복사했습니다.") {
+      if (els.banner.textContent === "영역을 캡처했습니다.") {
         showBanner("");
       }
     }, 1800);
@@ -2833,7 +2962,7 @@ function selectMoreAction(action) {
     openSettings();
     return;
   }
-  if (action !== "mosaic" && action !== "capture") {
+  if (action !== "capture") {
     return;
   }
   abortStroke();
@@ -2957,13 +3086,18 @@ function onWorkspacePointerDown(event) {
     return;
   }
   if (overlayOpen()) {
-    if (!event.target.closest(".slot-panel, .sheet-card, .toolbar, .write-top, .m4-bar, .more-panel, .preview-drawer, .select-hud, .float-bar, #float-bar, .shape-chips")) {
+    if (!event.target.closest(".slot-panel, .sheet-card, .toolbar, .write-top, .m4-bar, .more-panel, .region-menu, .preview-drawer, .select-hud, .float-bar, #float-bar, .shape-chips")) {
       closeAllPanels();
       ignoreAfterPanel = true;
     }
     return;
   }
-  if (event.target.closest(".toolbar, .write-top, .sheet, .slot-panel, .m4-bar, .more-panel, .marquee, .preview-drawer, .select-hud, .float-bar, #float-bar, .shape-chips")) {
+  if (event.target.closest(".toolbar, .write-top, .sheet, .slot-panel, .m4-bar, .more-panel, .marquee, .region-menu, .preview-drawer, .select-hud, .float-bar, #float-bar, .shape-chips")) {
+    return;
+  }
+
+  if (state.pendingCapture && !state.currentRect) {
+    hideMarquee();
     return;
   }
 
@@ -3502,11 +3636,48 @@ els.cropConfirm.addEventListener("click", (event) => {
   event.stopPropagation();
   confirmCrop();
 });
-els.captureConfirm.addEventListener("click", (event) => {
-  event.preventDefault();
-  event.stopPropagation();
-  confirmCapture();
-});
+if (els.marqueeBox) {
+  els.marqueeBox.addEventListener("pointerdown", (event) => {
+    if (!state.pendingCapture) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    regionHold.begin(event, (point) => showRegionMenu(point));
+  });
+  els.marqueeBox.addEventListener("pointermove", (event) => {
+    regionHold.move(event);
+  });
+  els.marqueeBox.addEventListener("pointerup", () => {
+    regionHold.end();
+  });
+  els.marqueeBox.addEventListener("pointercancel", () => {
+    regionHold.cancel();
+  });
+  els.marqueeBox.addEventListener("contextmenu", (event) => {
+    if (!state.pendingCapture) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    regionHold.cancel();
+    showRegionMenu({ x: event.clientX, y: event.clientY });
+  });
+}
+if (els.regionMenu) {
+  els.regionMenu.addEventListener("pointerdown", (event) => {
+    event.stopPropagation();
+  });
+  els.regionMenu.addEventListener("click", (event) => {
+    const btn = event.target.closest("[data-region]");
+    if (!btn) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    onRegionMenuAction(btn.dataset.region);
+  });
+}
 els.settingsBackdrop.addEventListener("click", closeSettings);
 els.settingsDone.addEventListener("click", closeSettings);
 
@@ -3592,7 +3763,7 @@ els.writeScreen.addEventListener("touchstart", preventWriteSurfaceTouch, { passi
 els.writeScreen.addEventListener("touchmove", preventWriteSurfaceTouch, { passive: false });
 
 document.addEventListener("pointerdown", (event) => {
-  if (event.target.closest(".slot-panel, .toolbar, [data-tool], #eraser-btn, #more-btn, .m4-bar, .marquee, .select-hud, .float-bar, #float-bar, .preview-drawer, .shape-chips")) {
+  if (event.target.closest(".slot-panel, .toolbar, [data-tool], #eraser-btn, #more-btn, .m4-bar, .marquee, .region-menu, .select-hud, .float-bar, #float-bar, .preview-drawer, .shape-chips")) {
     return;
   }
   closeAllPanels();
@@ -3600,6 +3771,13 @@ document.addEventListener("pointerdown", (event) => {
 
 document.addEventListener("keydown", (event) => {
   const typing = event.target.closest?.("input, textarea, [contenteditable='true']");
+  if (event.key === "Escape" && !typing) {
+    if (state.pendingCapture || state.currentRect || (els.regionMenu && !els.regionMenu.hidden)) {
+      event.preventDefault();
+      hideMarquee();
+    }
+    return;
+  }
   if ((event.key === "Delete" || event.key === "Backspace") && !typing) {
     if (!els.writeScreen.hidden && state.interactMode !== "view") {
       event.preventDefault();
@@ -3660,7 +3838,7 @@ window.addEventListener("resize", () => {
       placeOverflowPanel();
     }
     if (state.pendingCapture || state.currentRect) {
-      updateMarquee(Boolean(state.pendingCapture));
+      updateMarquee();
     }
     if (state.tool === "select") {
       syncSelectHud();

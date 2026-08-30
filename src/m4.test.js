@@ -41,7 +41,6 @@ describe("M4 #31 chrome", () => {
     assert.doesNotMatch(header, /undo-btn|more-btn/);
     assert.match(header, /id="interact-btn"/);
     assert.deepEqual(M4_OVERFLOW_ITEMS, [
-      "mosaic",
       "capture",
       "fullscreen",
       "image",
@@ -74,7 +73,7 @@ describe("M4 #31 chrome", () => {
     assert.match(css, /\.more-panel \{[\s\S]*left: -9999px/);
   });
 
-  it("does not start ink while mosaic/capture is armed, and keeps capture until confirm", () => {
+  it("does not start ink while capture is armed, and keeps the region after pointerup", () => {
     const startStroke = main.slice(main.indexOf("function startStroke"), main.indexOf("function moveStroke"));
     const endRect = main.slice(main.indexOf("function endRect"), main.indexOf("function startSelect"));
     assert.match(startStroke, /if \(state\.rectTool\)/);
@@ -88,7 +87,8 @@ describe("M4 #31 chrome", () => {
     assert.doesNotMatch(main, /pdf-ink:undo|pdf-ink:history|pdf-ink:capture/);
     assert.doesNotMatch(main, /clipboard\.read|clipboard-read/);
     assert.doesNotMatch(capture, /clipboard\.read|clipboard-read/);
-    assert.match(main, /els\.captureConfirm\.addEventListener\("click"/);
+    assert.match(html, /data-region="capture">캡처/);
+    assert.doesNotMatch(html, /id="capture-confirm"/);
     assert.match(main, /writePngClipboard/);
     assert.equal((main.match(/writePngClipboard/g) || []).length, 2);
     assert.match(html, /data-more="save">저장/);
