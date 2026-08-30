@@ -92,7 +92,7 @@ import {
 } from "./shapeHold.js";
 import { MOSAIC_CELL_CSS, mosaicBoxesPx, mosaicItem } from "./mosaic.js";
 import { recentCardEntries } from "./recent.js";
-import { captureRegionPng, composePageRgba, cropRgba, writePngClipboard } from "./capture.js";
+import { captureRegionPng, composePageRgba, cropRgba, encodePngRgba, writePngClipboard } from "./capture.js";
 import {
   copyItems,
   copyItemsInRect,
