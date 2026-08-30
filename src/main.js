@@ -88,7 +88,7 @@ import {
   placeShapeChipMenu,
 } from "./shapeHold.js";
 import { MOSAIC_CELL_CSS, mosaicBoxesPx, mosaicItem } from "./mosaic.js";
-import { captureRegionPng, composePageRgba, cropRgba, writePngClipboard } from "./capture.js";
+import { captureRegionPng, composePageRgba, cropRgba, encodePngRgba, writePngClipboard } from "./capture.js";
 import {
   copyItems,
   copyItemsInRect,
@@ -115,7 +115,7 @@ import {
   lockImage,
   resizeImage,
 } from "./image.js";
-import { addRotation, angleDegFromCenter, imagePaintDest, rotateItems, rotateSelectedItems } from "./rotate.js";
+import { addRotation, angleDegFromCenter, imagePaintDest, normalizeRotation, rotateItems, rotateSelectedItems } from "./rotate.js";
 import {
   filterLeaves,
   inkKey,
@@ -3847,24 +3847,183 @@ function toggleMorePanel() {
   }
 }
 
-function saveDocumentNow() {
-  persistStrokes();
-  persistSession();
-  showBanner("저장했습니다.");
-  window.setTimeout(() => {
-    if (els.banner.textContent === "저장했습니다.") {
-      showBanner("");
-    }
-  }, 1600);
+function offscreenCanvas(width, height) {
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(width));
+  canvas.height = Math.max(1, Math.round(height));
+  return canvas;
 }
 
-function exportDocumentStub() {
-  showBanner("내보내기는 다음입니다.");
+function waitForImage(src) {
+  return new Promise((resolve) => {
+    const entry = cachedImage(src, () => resolve());
+    if (!entry || entry.ready) {
+      resolve();
+      return;
+    }
+    entry.img.addEventListener("load", () => resolve(), { once: true });
+    entry.img.addEventListener("error", () => resolve(), { once: true });
+  });
+}
+
+async function preloadItemImages(items) {
+  const sources = (items || []).filter((item) => item.type === "image" && item.src).map((item) => item.src);
+  await Promise.all([...new Set(sources)].map((src) => waitForImage(src)));
+}
+
+/** Ink layers in screen order (locked image, ink, free image) on one canvas. */
+async function exportInkCanvas(items, pixels, cssWidth) {
+  await preloadItemImages(items);
+  const canvas = offscreenCanvas(pixels.width, pixels.height);
+  const ctx = canvas2d(canvas);
+  // Ink keeps its own canvas: a pixel eraser must not eat the image layers.
+  const inkOnly = offscreenCanvas(pixels.width, pixels.height);
+  const inkCtx = canvas2d(inkOnly);
+  const scale = inkCanvasScale(inkOnly.width, cssWidth);
+  for (const item of items) {
+    paintItem(inkCtx, item, scale, inkOnly);
+  }
+  const under = offscreenCanvas(pixels.width, pixels.height);
+  paintImageLayer(under, items, true, null);
+  const over = offscreenCanvas(pixels.width, pixels.height);
+  paintImageLayer(over, items, false, null);
+  ctx.drawImage(under, 0, 0);
+  ctx.drawImage(inkOnly, 0, 0);
+  ctx.drawImage(over, 0, 0);
+  return canvas;
+}
+
+async function exportOverlayPng(items, pixels, cssWidth) {
+  const canvas = await exportInkCanvas(items, pixels, cssWidth);
+  const data = canvas2d(canvas).getImageData(0, 0, canvas.width, canvas.height);
+  return encodePngRgba(canvas.width, canvas.height, data.data);
+}
+
+/** A masked page is flattened so the covered text is really gone (#31 #54). */
+async function exportFlatPagePng(leaf, items, pixels, cssWidth) {
+  const ink = await exportInkCanvas(items, pixels, cssWidth);
+  const paper = offscreenCanvas(pixels.width, pixels.height);
+  const paperCtx = canvas2d(paper);
+  paperCtx.fillStyle = "#FFFFFF";
+  paperCtx.fillRect(0, 0, paper.width, paper.height);
+  if (leaf.kind !== "outline" && state.pdf) {
+    const page = await state.pdf.getPage(leaf.pdfPage);
+    const rotation = normalizeRotation((page.rotate || 0) + (leaf.rotate || 0));
+    const base = page.getViewport({ scale: 1, rotation });
+    const viewport = page.getViewport({ scale: paper.width / base.width, rotation });
+    await page.render({ canvasContext: paperCtx, viewport }).promise;
+  }
+  const pdfData = paperCtx.getImageData(0, 0, paper.width, paper.height);
+  const inkData = canvas2d(ink).getImageData(0, 0, ink.width, ink.height);
+  const boxes = mosaicBoxesPx(items, paper.width, paper.height, cssWidth);
+  const composed = composePageRgba(pdfData.data, inkData.data, paper.width, paper.height, boxes);
+  return encodePngRgba(paper.width, paper.height, composed);
+}
+
+let buildingPdf = false;
+
+/** pdf-lib only loads when the reader actually saves or exports (#54). */
+function loadExportPdf() {
+  return import("./exportPdf.js");
+}
+
+/** Ink thickness is css px, so the writer keeps the width the reader sees. */
+function exportCssWidth(leaf, base) {
+  const view = state.pageViews.find((item) => item.pageNum === pageOfLeaf(state.leaves, leaf.id));
+  if (view?.cssWidth) {
+    return view.cssWidth;
+  }
+  const turned = normalizeRotation(leaf.rotate || 0) % 180 !== 0;
+  return turned ? base.height : base.width;
+}
+
+async function annotatedPdfBlob() {
+  const { buildAnnotatedPdf } = await loadExportPdf();
+  const base = await basePageCss();
+  const bytes = await buildAnnotatedPdf({
+    buffer: state.buffer,
+    leaves: state.leaves,
+    outline: state.outline,
+    blankSize: { width: 595, height: 842 },
+    strokesOf: (leaf) => state.pages[inkKey(leaf)] || [],
+    renderOverlay: (leaf, pixels) =>
+      exportOverlayPng(state.pages[inkKey(leaf)] || [], pixels, exportCssWidth(leaf, base)),
+    renderRaster: (leaf, pixels) =>
+      exportFlatPagePng(leaf, state.pages[inkKey(leaf)] || [], pixels, exportCssWidth(leaf, base)),
+  });
+  return new Blob([bytes], { type: "application/pdf" });
+}
+
+function downloadBlob(blob, fileName) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+
+function flashBanner(message, ms = 1800) {
+  showBanner(message);
   window.setTimeout(() => {
-    if (els.banner.textContent === "내보내기는 다음입니다.") {
+    if (els.banner.textContent === message) {
       showBanner("");
     }
-  }, 1800);
+  }, ms);
+}
+
+async function withAnnotatedPdf(run, failMessage) {
+  if (buildingPdf) {
+    return;
+  }
+  if (!state.pdf || !state.buffer) {
+    flashBanner("먼저 PDF를 여세요.");
+    return;
+  }
+  buildingPdf = true;
+  showBanner("PDF를 만드는 중…");
+  try {
+    const { exportFileName } = await loadExportPdf();
+    const blob = await annotatedPdfBlob();
+    const fileName = exportFileName(state.fileName);
+    showBanner("");
+    await run(blob, fileName);
+  } catch {
+    flashBanner(failMessage);
+  } finally {
+    buildingPdf = false;
+  }
+}
+
+async function saveDocumentNow() {
+  persistStrokes();
+  persistSession();
+  await withAnnotatedPdf((blob, fileName) => {
+    downloadBlob(blob, fileName);
+    flashBanner(`저장했습니다. ${fileName}`, 2200);
+  }, "PDF를 저장하지 못했습니다.");
+}
+
+async function exportDocument() {
+  await withAnnotatedPdf(async (blob, fileName) => {
+    const { canShareFile } = await loadExportPdf();
+    const file = new File([blob], fileName, { type: "application/pdf" });
+    if (canShareFile(navigator, file)) {
+      try {
+        await navigator.share({ files: [file], title: fileName });
+        flashBanner("내보냈습니다.");
+        return;
+      } catch (error) {
+        if (error?.name === "AbortError") {
+          return;
+        }
+      }
+    }
+    downloadBlob(blob, fileName);
+    flashBanner(`내보냈습니다. ${fileName}`, 2200);
+  }, "내보내지 못했습니다.");
 }
 
 function selectMoreAction(action) {
@@ -3901,7 +4060,7 @@ function selectMoreAction(action) {
   if (action === "export") {
     closeMorePanel();
     ignoreAfterPanel = true;
-    exportDocumentStub();
+    exportDocument();
     return;
   }
   if (action === "settings") {

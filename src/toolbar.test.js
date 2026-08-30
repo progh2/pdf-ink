@@ -153,14 +153,17 @@ describe("#56 GoodNotes 4 utility bar", () => {
     assert.match(more, /data-more="save">저장/);
     assert.match(more, /data-more="export">내보내기/);
     assert.doesNotMatch(more, /data-more="select"/);
-    const saveFn = main.slice(main.indexOf("function saveDocumentNow"), main.indexOf("function exportDocumentStub"));
-    const exportFn = main.slice(main.indexOf("function exportDocumentStub"), main.indexOf("function selectMoreAction"));
+    const saveFn = main.slice(main.indexOf("async function saveDocumentNow"), main.indexOf("async function exportDocument("));
+    const exportFn = main.slice(main.indexOf("async function exportDocument("), main.indexOf("function selectMoreAction"));
+    // #54: 저장은 필기 persist + 주석 박힌 PDF 다운로드, 내보내기는 공유 시트.
     assert.match(saveFn, /persistStrokes/);
     assert.match(saveFn, /저장했습니다/);
-    assert.doesNotMatch(saveFn, /navigator\.share|createObjectURL|download|pdf-lib|jsPDF/);
-    assert.match(exportFn, /내보내기는 다음입니다/);
-    assert.doesNotMatch(exportFn, /navigator\.share|createObjectURL|download|pdf-lib|jsPDF/);
-    assert.doesNotMatch(main, /navigator\.share/);
+    assert.match(saveFn, /downloadBlob/);
+    assert.doesNotMatch(saveFn, /navigator\.share/);
+    assert.match(exportFn, /navigator\.share/);
+    assert.match(exportFn, /downloadBlob/);
+    assert.doesNotMatch(main, /내보내기는 다음입니다/);
+    assert.match(main, /import\("\.\/exportPdf\.js"\)/);
     assert.equal(UNDO_HOLD_MS, 400);
     assert.match(main, /bindUndoHold\(els\.undoBtn,\s*\{\s*onUndo:\s*undoInk,\s*onRedo:\s*redoInk/);
     assert.match(main, /els\.redoBtn\.disabled = !canRedo/);
