@@ -979,6 +979,7 @@ body {
   border-radius: 12px;
   background: #fff;
   box-shadow: 0 8px 18px rgba(40, 32, 22, 0.1);
+  touch-action: none;
 }
 
 .shape-chips button {

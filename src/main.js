@@ -77,12 +77,15 @@ import {
   splitTabFromLink,
 } from "./split.js";
 import {
+  SHAPE_HOLD_CHIP_GAP_PX,
   SHAPE_HOLD_CHIP_HEIGHT,
   SHAPE_HOLD_DISMISS_MS,
   SHAPE_HOLD_GHOST_ALPHA,
   SHAPE_HOLD_MS,
   canShapeHold,
+  clientHitsShapeChipMenu,
   createShapeHold,
+  placeShapeChipMenu,
 } from "./shapeHold.js";
 import { MOSAIC_CELL_CSS, mosaicBoxesPx, mosaicItem } from "./mosaic.js";
 import { captureRegionPng, composePageRgba, cropRgba, writePngClipboard } from "./capture.js";
@@ -312,6 +315,10 @@ let ignoreAfterPanel = false;
 let lastInkUpClient = null;
 const shapeHold = createShapeHold({ holdMs: SHAPE_HOLD_MS });
 let shapeOfferDismissTimer = 0;
+let ignoreChipMountMoves = 0;
+let lockedStrokePoints = null;
+let chipMenuBox = null;
+let frozenEndClient = null;
 let renderGen = 0;
 let paperScrollHold = null;
 const pageCache = createPaintCache(PAGE_BITMAP_LIMIT);
@@ -1389,9 +1396,61 @@ function overlayOpen() {
 }
 
 function hideShapeChips() {
+  ignoreChipMountMoves = 0;
+  chipMenuBox = null;
   if (els.shapeChips) {
     els.shapeChips.hidden = true;
+    els.shapeChips.style.visibility = "";
   }
+}
+
+function copyStrokePoints(points) {
+  if (!Array.isArray(points)) {
+    return [];
+  }
+  return points
+    .filter((point) => point && Number.isFinite(point.x) && Number.isFinite(point.y))
+    .map((point) => ({ x: point.x, y: point.y }));
+}
+
+function lockStrokeBeforeChips() {
+  const pts = shapeHold.frozenPoints?.() || state.currentStroke?.points;
+  if (!pts?.length) {
+    return;
+  }
+  lockedStrokePoints = copyStrokePoints(pts);
+  if (state.currentStroke) {
+    state.currentStroke.points = copyStrokePoints(lockedStrokePoints);
+  }
+}
+
+function eventHitsShapeChips(event) {
+  if (event?.target?.closest?.(".shape-chips")) {
+    return true;
+  }
+  const client = { x: event?.clientX, y: event?.clientY };
+  if (clientHitsShapeChipMenu(client, chipMenuBox)) {
+    return true;
+  }
+  const bar = els.shapeChips;
+  if (!bar || bar.hidden) {
+    return false;
+  }
+  const box = bar.getBoundingClientRect();
+  return clientHitsShapeChipMenu(client, {
+    left: box.left,
+    top: box.top,
+    width: box.width,
+    height: box.height,
+  });
+}
+
+function restoreFrozenStroke() {
+  const frozen = lockedStrokePoints || shapeHold.frozenPoints?.();
+  if (!frozen?.length || !state.currentStroke) {
+    return;
+  }
+  state.currentStroke.points = copyStrokePoints(frozen);
 }
 
 function clearShapeOfferDismiss() {
@@ -1415,25 +1474,41 @@ function showShapeChips(offer, view) {
     hideShapeChips();
     return;
   }
+  lockStrokeBeforeChips();
+  ignoreChipMountMoves += 1;
+  const lockedEnd = lockedStrokePoints?.at(-1);
+  const box = view?.stage?.getBoundingClientRect();
+  const tip = box && lockedEnd
+    ? { x: box.left + lockedEnd.x * box.width, y: box.top + lockedEnd.y * box.height }
+    : frozenEndClient;
+  els.shapeChips.style.visibility = "hidden";
   els.shapeChips.hidden = false;
+  const placed = placeShapeChipMenu({
+    tip: tip || { x: 12, y: 80 },
+    menuWidth: els.shapeChips.offsetWidth || 200,
+    menuHeight: els.shapeChips.offsetHeight || SHAPE_HOLD_CHIP_HEIGHT + 8,
+    viewport: { width: window.innerWidth, height: window.innerHeight },
+    gap: SHAPE_HOLD_CHIP_GAP_PX,
+  });
+  chipMenuBox = placed;
+  els.shapeChips.style.left = `${placed.left}px`;
+  els.shapeChips.style.top = `${placed.top}px`;
   for (const btn of els.shapeChips.querySelectorAll("[data-shape]")) {
     btn.classList.toggle("is-candidate", btn.dataset.shape === offer.kind);
   }
-  const box = view?.stage?.getBoundingClientRect();
-  const anchor = offer.ghostPoints?.at(-1) || offer.ghostPoints?.[0];
-  let left = 12;
-  let top = 80;
-  if (box && anchor) {
-    left = box.left + anchor.x * box.width - 12;
-    top = box.top + anchor.y * box.height + 16;
-  } else if (box && offer.box) {
-    left = box.left + offer.box.minX * box.width;
-    top = box.top + offer.box.maxY * box.height + 8;
-  }
-  const width = els.shapeChips.offsetWidth || 200;
-  const height = SHAPE_HOLD_CHIP_HEIGHT + 8;
-  els.shapeChips.style.left = `${Math.min(window.innerWidth - width - 8, Math.max(8, left))}px`;
-  els.shapeChips.style.top = `${Math.min(window.innerHeight - height - 8, Math.max(8, top))}px`;
+  els.shapeChips.style.visibility = "";
+  restoreFrozenStroke();
+  const releaseMount = () => {
+    ignoreChipMountMoves = Math.max(0, ignoreChipMountMoves - 1);
+    restoreFrozenStroke();
+    if (state.drawing) {
+      drawLive();
+    }
+  };
+  const raf = typeof window.requestAnimationFrame === "function"
+    ? window.requestAnimationFrame.bind(window)
+    : (fn) => window.setTimeout(fn, 16);
+  raf(() => raf(releaseMount));
   if (state.shapeOffer && Number.isInteger(state.shapeOffer.index)) {
     armShapeOfferDismiss();
   }
@@ -1442,6 +1517,9 @@ function showShapeChips(offer, view) {
 function dismissShapeChips() {
   clearShapeOfferDismiss();
   state.shapeOffer = null;
+  if (!state.drawing) {
+    lockedStrokePoints = null;
+  }
   hideShapeChips();
 }
 
@@ -1490,6 +1568,7 @@ function shapeHoldCallbacks() {
         }
         return;
       }
+      lockStrokeBeforeChips();
       state.shapeOffer = {
         page: state.drawPage,
         index: null,
@@ -1502,6 +1581,7 @@ function shapeHoldCallbacks() {
       };
       const view = state.pageViews.find((item) => item.pageNum === state.drawPage);
       showShapeChips(offer, view);
+      restoreFrozenStroke();
       drawLive();
     },
   };
@@ -1513,6 +1593,8 @@ function abortStroke() {
   releasePaperScroll();
   shapeHold.reset();
   dismissShapeChips();
+  lockedStrokePoints = null;
+  frozenEndClient = null;
   if (state.currentRect) {
     hideMarquee();
   }
@@ -1573,6 +1655,8 @@ function startStroke(event, stage) {
   state.pendingStamp = null;
   shapeHold.reset();
   dismissShapeChips();
+  lockedStrokePoints = null;
+  frozenEndClient = null;
   state.drawing = true;
   state.currentStroke = newStroke(point);
   state.currentStroke.points = beginInkPoints(point, client, lastInkUpClient);
@@ -1582,6 +1666,8 @@ function startStroke(event, stage) {
       client,
       ...shapeHoldCallbacks(),
     });
+    shapeHold.rememberPoints(state.currentStroke.points);
+    frozenEndClient = client;
   } else {
     shapeHold.reset();
   }
@@ -1597,17 +1683,39 @@ function moveStroke(event) {
   }
   event.preventDefault();
   const client = { x: event.clientX, y: event.clientY };
-  state.currentStroke.points = appendInkPoint(
-    state.currentStroke.points,
-    eventToNorm(event, state.drawCanvas),
-    client,
-    lastInkUpClient,
-  );
+  const chipsUp = Boolean(els.shapeChips && !els.shapeChips.hidden);
+  const chipHit = Boolean(ignoreChipMountMoves) || eventHitsShapeChips(event);
+  let append = true;
   if (canShapeHold(state.currentStroke.type)) {
-    shapeHold.noteMove({
+    const holdLocked = chipHit || chipsUp || shapeHold.isOffering() || shapeHold.isHoldLocked();
+    append = shapeHold.noteMove({
       client,
+      fromChips: chipHit,
       ...shapeHoldCallbacks(),
     });
+    if (holdLocked || !append) {
+      append = false;
+    }
+  } else if (chipHit) {
+    append = false;
+  }
+  if (append) {
+    state.currentStroke.points = appendInkPoint(
+      state.currentStroke.points,
+      eventToNorm(event, state.drawCanvas),
+      client,
+      lastInkUpClient,
+    );
+    if (canShapeHold(state.currentStroke.type)) {
+      shapeHold.rememberPoints(state.currentStroke.points);
+      frozenEndClient = client;
+    }
+  } else if (canShapeHold(state.currentStroke.type)) {
+    restoreFrozenStroke();
+    if (!chipHit && (chipsUp || state.shapeOffer) && !shapeHold.isOffering()) {
+      dismissShapeChips();
+      lockedStrokePoints = null;
+    }
   }
   drawLive();
 }
@@ -1651,7 +1759,11 @@ function endStroke(event) {
     }
   }
   const client = { x: event.clientX, y: event.clientY };
-  const upNorm = state.drawCanvas ? eventToNorm(event, state.drawCanvas) : null;
+  if (canShapeHold(state.currentStroke.type)) {
+    restoreFrozenStroke();
+  }
+  const chipUp = Boolean(ignoreChipMountMoves) || eventHitsShapeChips(event);
+  const upNorm = !chipUp && state.drawCanvas ? eventToNorm(event, state.drawCanvas) : null;
   const freehand = finishInkPoints(state.currentStroke.points, upNorm, client, lastInkUpClient);
   const held = shapeHold.finish(freehand);
   lastInkUpClient = client;
@@ -4434,10 +4546,14 @@ els.copyBtn.addEventListener("click", (event) => {
   copySelection();
 });
 if (els.shapeChips) {
-  els.shapeChips.addEventListener("pointerdown", (event) => {
+  const stopChipPointer = (event) => {
     event.preventDefault();
     event.stopPropagation();
-  });
+  };
+  els.shapeChips.addEventListener("pointerdown", stopChipPointer, true);
+  els.shapeChips.addEventListener("pointermove", stopChipPointer, true);
+  els.shapeChips.addEventListener("pointerup", stopChipPointer, true);
+  els.shapeChips.addEventListener("pointercancel", stopChipPointer, true);
   els.shapeChips.addEventListener("click", (event) => {
     const btn = event.target.closest("[data-shape]");
     if (!btn) {

@@ -7,6 +7,7 @@ import { appendInkPoint, beginInkPoints, finishInkPoints } from "./interact.js";
 import { UNDO_HOLD_MS } from "./undoHold.js";
 import {
   SHAPE_HOLD_CHIPS,
+  SHAPE_HOLD_CHIP_GAP_PX,
   SHAPE_HOLD_CHIP_HEIGHT,
   SHAPE_HOLD_DISMISS_MS,
   SHAPE_HOLD_GHOST_ALPHA,
@@ -16,7 +17,10 @@ import {
   applyShapeChip,
   canShapeHold,
   classifyStrokeShape,
+  clientHitsShapeChipMenu,
   createShapeHold,
+  isShapeHoldJitter,
+  placeShapeChipMenu,
   shapeOfferFromStroke,
 } from "./shapeHold.js";
 
@@ -144,6 +148,7 @@ describe("#51 400ms hold offers chips, does not auto-convert", () => {
     assert.equal(UNDO_HOLD_MS, 400);
     assert.equal(SHAPE_HOLD_GHOST_ALPHA, 0.4);
     assert.equal(SHAPE_HOLD_CHIP_HEIGHT, 36);
+    assert.equal(SHAPE_HOLD_CHIP_GAP_PX, 24);
     assert.equal(SHAPE_HOLD_MOVE_SLOP_PX, 16);
     assert.equal(SHAPE_HOLD_DISMISS_MS, 8000);
     assert.deepEqual(SHAPE_HOLD_TOOLS, ["pen", "highlighter", "pencil"]);
@@ -349,6 +354,452 @@ describe("#51 400ms hold offers chips, does not auto-convert", () => {
     assert.equal(done.snapped, false);
     assert.deepEqual(done.points, dragged);
     assert.notEqual(done.points.length, 2);
+  });
+});
+
+describe("#70 hold-end jitter must not turn ink into a triangle", () => {
+  function fanTriangleTail(stroke) {
+    const last = stroke[stroke.length - 1];
+    return [
+      { x: last.x + 0.08, y: last.y - 0.22 },
+      { x: last.x - 0.18, y: last.y + 0.2 },
+      { x: last.x + 0.02, y: last.y + 0.04 },
+    ];
+  }
+
+  function recordHoldMove(hold, live, client, norm, onOffer, fromChips = false) {
+    const append = hold.noteMove({
+      client,
+      getPoints: () => live,
+      onOffer,
+      fromChips,
+    });
+    if (append) {
+      const next = appendInkPoint(live, norm, client, null);
+      hold.rememberPoints(next);
+      return next;
+    }
+    return hold.frozenPoints() || live;
+  }
+
+  it("treats SHAPE_HOLD_MOVE_SLOP as freeze, not a new point", () => {
+    assert.equal(SHAPE_HOLD_MOVE_SLOP_PX, 16);
+    assert.equal(isShapeHoldJitter({ x: 200, y: 40 }, { x: 200, y: 40 }), true);
+    assert.equal(isShapeHoldJitter({ x: 208, y: 45 }, { x: 200, y: 40 }), true);
+    assert.equal(isShapeHoldJitter({ x: 220, y: 40 }, { x: 200, y: 40 }), false);
+    assert.equal(isShapeHoldJitter({ x: 200, y: 40 }, null), false);
+  });
+
+  it("does not append jitter while the 400ms end-hold is running", () => {
+    const clock = createClock();
+    const hold = createShapeHold({
+      holdMs: SHAPE_HOLD_MS,
+      now: clock.now,
+      setTimeoutFn: clock.setTimeoutFn,
+      clearTimeoutFn: clock.clearTimeoutFn,
+    });
+    const dragged = lineStroke(0.08, 0.42, 0.88, 0.4, 28, 0.003);
+    const startClient = { x: 20, y: 80 };
+    let live = [dragged[0]];
+    let offered = null;
+    const onOffer = (next) => {
+      offered = next;
+    };
+    hold.begin({
+      tool: "pen",
+      client: startClient,
+      getPoints: () => live,
+      onOffer,
+    });
+    hold.rememberPoints(live);
+    for (let index = 1; index < dragged.length; index += 1) {
+      live = recordHoldMove(hold, live, { x: startClient.x + index * 20, y: 80 }, dragged[index], onOffer);
+    }
+    const endClient = { x: startClient.x + (dragged.length - 1) * 20, y: 80 };
+    assert.deepEqual(live, dragged);
+    const heldCount = live.length;
+    const fan = fanTriangleTail(dragged);
+    for (let index = 0; index < 10; index += 1) {
+      clock.advance(40);
+      const jitterClient = {
+        x: endClient.x + (index % 2 ? 8 : -7),
+        y: endClient.y + (index % 2 ? 6 : -5),
+      };
+      live = recordHoldMove(hold, live, jitterClient, fan[index % fan.length], onOffer);
+      assert.equal(hold.noteMove({ client: jitterClient, getPoints: () => live, onOffer }), false);
+    }
+    clock.advance(400);
+    assert.equal(live.length, heldCount);
+    assert.deepEqual(live, dragged);
+    assert.equal(hold.isOffering(), true);
+    assert.ok(offered);
+    assert.deepEqual(offered.ghostPoints, offered.chips[offered.kind] || offered.chips.line);
+    assert.ok(SHAPE_HOLD_CHIPS.includes(offered.kind));
+    assert.notEqual(offered.ghostPoints.length, 3);
+    assert.notEqual(offered.ghostPoints.length, 4);
+    const done = hold.finish([...live, ...fan]);
+    assert.equal(done.snapped, false);
+    assert.deepEqual(done.points, dragged);
+    assert.notEqual(done.points.length, 3);
+    assert.ok(done.offer);
+    assert.deepEqual(SHAPE_HOLD_CHIPS, ["line", "rect", "circle"]);
+    assert.ok(done.offer.chips.line);
+    assert.ok(done.offer.chips.rect);
+    assert.ok(done.offer.chips.circle);
+  });
+
+  it("keeps freehand (not a leftover triangle) when no chip is picked", () => {
+    const clock = createClock();
+    const hold = createShapeHold({
+      holdMs: SHAPE_HOLD_MS,
+      now: clock.now,
+      setTimeoutFn: clock.setTimeoutFn,
+      clearTimeoutFn: clock.clearTimeoutFn,
+    });
+    const dragged = lineStroke(0.1, 0.3, 0.86, 0.32, 22, 0.004);
+    hold.begin({
+      tool: "highlighter",
+      client: { x: 12, y: 30 },
+      getPoints: () => dragged,
+    });
+    hold.noteMove({ client: { x: 190, y: 30 }, getPoints: () => dragged });
+    clock.advance(200);
+    assert.equal(
+      hold.noteMove({
+        client: { x: 198, y: 36 },
+        getPoints: () => dragged,
+      }),
+      false,
+    );
+    clock.advance(200);
+    const done = hold.finish([...dragged, { x: 0.7, y: 0.08 }, { x: 0.4, y: 0.7 }]);
+    assert.equal(done.snapped, false);
+    assert.deepEqual(done.points, dragged);
+    assert.ok(done.offer);
+    assert.deepEqual(done.offer.ghostPoints, done.offer.chips.line);
+    assert.notEqual(done.points.length, 3);
+  });
+
+  it("long freehand plus hold does not grow a tail even on a large pointer jump", () => {
+    const clock = createClock();
+    const hold = createShapeHold({
+      holdMs: SHAPE_HOLD_MS,
+      now: clock.now,
+      setTimeoutFn: clock.setTimeoutFn,
+      clearTimeoutFn: clock.clearTimeoutFn,
+    });
+    const dragged = lineStroke(0.06, 0.28, 0.9, 0.3, 32, 0.003);
+    const startClient = { x: 24, y: 60 };
+    let live = [dragged[0]];
+    let offered = null;
+    const onOffer = (next) => {
+      offered = next;
+    };
+    hold.begin({
+      tool: "pen",
+      client: startClient,
+      getPoints: () => live,
+      onOffer,
+    });
+    hold.rememberPoints(live);
+    for (let index = 1; index < dragged.length; index += 1) {
+      live = recordHoldMove(hold, live, { x: startClient.x + index * 22, y: 60 }, dragged[index], onOffer);
+    }
+    const endClient = { x: startClient.x + (dragged.length - 1) * 22, y: 60 };
+    const last = dragged[dragged.length - 1];
+    assert.deepEqual(live, dragged);
+    const heldCount = live.length;
+    clock.advance(80);
+    const tailClient = { x: endClient.x, y: endClient.y + 145 };
+    const tailNorm = { x: last.x, y: last.y + 0.22 };
+    live = recordHoldMove(hold, live, tailClient, tailNorm, onOffer);
+    assert.equal(live.length, heldCount);
+    assert.deepEqual(live, dragged);
+    assert.notEqual(live.at(-1)?.y, tailNorm.y);
+    clock.advance(400);
+    assert.equal(hold.isOffering(), true);
+    assert.ok(offered);
+    assert.ok(offered.chips.line);
+    assert.ok(offered.chips.rect);
+    assert.ok(offered.chips.circle);
+    const done = hold.finish([...live, tailNorm]);
+    assert.equal(done.snapped, false);
+    assert.deepEqual(done.points, dragged);
+  });
+
+  it("a 145px downward client jump during an active hold/offer does not grow the stroke if chips remain", () => {
+    const clock = createClock();
+    const hold = createShapeHold({
+      holdMs: SHAPE_HOLD_MS,
+      now: clock.now,
+      setTimeoutFn: clock.setTimeoutFn,
+      clearTimeoutFn: clock.clearTimeoutFn,
+    });
+    const dragged = lineStroke(0.1, 0.36, 0.84, 0.38, 20, 0.003);
+    const startClient = { x: 16, y: 60 };
+    let live = [dragged[0]];
+    let offered = null;
+    const onOffer = (next) => {
+      offered = next;
+    };
+    hold.begin({
+      tool: "pen",
+      client: startClient,
+      getPoints: () => live,
+      onOffer,
+    });
+    hold.rememberPoints(live);
+    for (let index = 1; index < dragged.length; index += 1) {
+      live = recordHoldMove(hold, live, { x: startClient.x + index * 20, y: 60 }, dragged[index], onOffer);
+    }
+    const endClient = { x: startClient.x + (dragged.length - 1) * 20, y: 60 };
+    clock.advance(400);
+    assert.equal(hold.isOffering(), true);
+    assert.ok(offered);
+    assert.ok(SHAPE_HOLD_CHIPS.includes(offered.kind));
+    assert.deepEqual(offered.ghostPoints, offered.chips[offered.kind] || offered.chips.line);
+    const before = live.slice();
+    const last = live[live.length - 1];
+    const jumpClient = { x: endClient.x, y: endClient.y + 145 };
+    const jumpNorm = { x: last.x, y: last.y + 0.28 };
+    const accept = hold.noteMove({
+      client: jumpClient,
+      getPoints: () => live,
+      onOffer,
+    });
+    if (accept) {
+      live = appendInkPoint(live, jumpNorm, jumpClient, null);
+    }
+    if (hold.isOffering() || hold.isHoldLocked()) {
+      assert.equal(accept, false);
+      assert.equal(live.length, before.length);
+      assert.deepEqual(live, before);
+    }
+    assert.equal(live.length, before.length);
+    assert.deepEqual(live, before);
+    assert.notEqual(live.at(-1)?.y, jumpNorm.y);
+    assert.ok(offered == null || offered.chips.line);
+    assert.deepEqual(SHAPE_HOLD_CHIPS, ["line", "rect", "circle"]);
+  });
+
+  it("chip menu appearing or a jump toward chips during hold does not grow the stroke", () => {
+    const clock = createClock();
+    const hold = createShapeHold({
+      holdMs: SHAPE_HOLD_MS,
+      now: clock.now,
+      setTimeoutFn: clock.setTimeoutFn,
+      clearTimeoutFn: clock.clearTimeoutFn,
+    });
+    const underline = lineStroke(0.12, 0.18, 0.62, 0.185, 18, 0.002);
+    const startClient = { x: 40, y: 70 };
+    let live = [underline[0]];
+    let offered = null;
+    const onOffer = (next) => {
+      offered = next;
+    };
+    hold.begin({
+      tool: "highlighter",
+      client: startClient,
+      getPoints: () => live,
+      onOffer,
+    });
+    hold.rememberPoints(live);
+    for (let index = 1; index < underline.length; index += 1) {
+      live = recordHoldMove(hold, live, { x: startClient.x + index * 18, y: 70 }, underline[index], onOffer);
+    }
+    const endClient = { x: startClient.x + (underline.length - 1) * 18, y: 70 };
+    const last = live[live.length - 1];
+    hold.rememberPoints(live);
+    live = [...live, { x: last.x + 0.42, y: last.y + 0.55 }];
+    clock.advance(400);
+    assert.equal(hold.isOffering(), true);
+    assert.ok(offered);
+    assert.deepEqual(offered.ghostPoints, offered.chips.line);
+    assert.notEqual(offered.ghostPoints.length, 3);
+    assert.ok(SHAPE_HOLD_CHIPS.includes(offered.kind));
+    const before = hold.frozenPoints();
+    assert.deepEqual(before, underline);
+    const chipClient = { x: endClient.x + 120, y: endClient.y + 145 };
+    const chipNorm = { x: last.x + 0.48, y: last.y + 0.58 };
+    live = recordHoldMove(hold, live, chipClient, chipNorm, onOffer, true);
+    assert.equal(hold.isOffering(), true);
+    assert.deepEqual(hold.frozenPoints(), underline);
+    assert.deepEqual(live, underline);
+    assert.notEqual(live.at(-1)?.y, chipNorm.y);
+    const done = hold.finish([...underline, chipNorm]);
+    assert.equal(done.snapped, false);
+    assert.deepEqual(done.points, underline);
+    assert.deepEqual(done.offer.ghostPoints, done.offer.chips.line);
+  });
+
+  it("wires freeze before append and does not add a toolbar cell or triangle chip", () => {
+    assert.match(main, /function eventHitsShapeChips/);
+    assert.match(main, /function restoreFrozenStroke/);
+    assert.match(main, /function lockStrokeBeforeChips/);
+    assert.match(main, /ignoreChipMountMoves/);
+    assert.match(main, /fromChips: chipHit/);
+    assert.match(main, /shapeHold\.rememberPoints/);
+    assert.match(main, /restoreFrozenStroke\(\)/);
+    assert.match(main, /lockStrokeBeforeChips\(\)/);
+    assert.match(main, /append = shapeHold\.noteMove/);
+    assert.match(main, /if \(append\) \{\s*state\.currentStroke\.points = appendInkPoint/);
+    assert.match(main, /placeShapeChipMenu/);
+    assert.match(main, /SHAPE_HOLD_CHIP_GAP_PX/);
+    assert.match(main, /clientHitsShapeChipMenu/);
+    const showChips = main.slice(main.indexOf("function showShapeChips"), main.indexOf("function dismissShapeChips"));
+    assert.ok(showChips.indexOf("lockStrokeBeforeChips()") < showChips.indexOf("els.shapeChips.hidden = false"));
+    assert.ok(showChips.indexOf("els.shapeChips.style.left") < showChips.indexOf('els.shapeChips.style.visibility = ""'));
+    assert.match(main, /addEventListener\("pointermove", stopChipPointer, true\)/);
+    assert.match(shapeHoldSrc, /isShapeHoldJitter/);
+    assert.match(shapeHoldSrc, /frozen/);
+    assert.match(shapeHoldSrc, /lastGood/);
+    assert.match(shapeHoldSrc, /isHoldLocked/);
+    assert.match(shapeHoldSrc, /fromChips/);
+    assert.match(shapeHoldSrc, /SHAPE_HOLD_CHIP_GAP_PX = 24/);
+    assert.doesNotMatch(shapeHoldSrc, /triangle|삼각/);
+    assert.doesNotMatch(main, /triangle|삼각/);
+    assert.deepEqual(SHAPE_HOLD_CHIPS, ["line", "rect", "circle"]);
+    assert.equal((html.match(/data-shape="/g) || []).length, 3);
+    assert.doesNotMatch(html, /data-shape="triangle"/);
+    assert.equal((html.match(/class="toolbar"/g) || []).length, 1);
+    assert.doesNotMatch(toolbar, /shape-chips|data-shape=/);
+    assert.match(html, /id="shape-chips"/);
+    assert.match(html, />직선</);
+    assert.match(html, />사각</);
+    assert.match(html, />원</);
+    assert.match(main, /beginInkPoints\(/);
+    assert.match(main, /lastInkUpClient/);
+    assert.doesNotMatch(main, /currentStroke\.points = (?:next|result|snapped)/);
+    assert.match(css, /\.shape-chips \{[\s\S]*touch-action: none/);
+  });
+
+  it("places chips 24px from the stroke end and never overlapping it", () => {
+    assert.equal(SHAPE_HOLD_CHIP_GAP_PX, 24);
+    const tip = { x: 180, y: 220 };
+    const menu = placeShapeChipMenu({
+      tip,
+      menuWidth: 200,
+      menuHeight: 44,
+      viewport: { width: 390, height: 844 },
+    });
+    const nearestX = Math.max(menu.left, Math.min(tip.x, menu.left + menu.width));
+    const nearestY = Math.max(menu.top, Math.min(tip.y, menu.top + menu.height));
+    const gap = Math.hypot(tip.x - nearestX, tip.y - nearestY);
+    assert.ok(gap >= 24);
+    assert.equal(
+      tip.x >= menu.left && tip.x <= menu.left + menu.width && tip.y >= menu.top && tip.y <= menu.top + menu.height,
+      false,
+    );
+    assert.ok(menu.left >= 8);
+    assert.ok(menu.top >= 8);
+    assert.ok(menu.left + menu.width <= 390 - 8);
+    assert.ok(menu.top + menu.height <= 844 - 8);
+    assert.equal(clientHitsShapeChipMenu(tip, menu), false);
+    assert.equal(clientHitsShapeChipMenu({ x: menu.left + 10, y: menu.top + 10 }, menu), true);
+  });
+
+  it("does not teleport the chip menu to a far viewport corner when the tip is mid-page", () => {
+    const tip = { x: 200, y: 360 };
+    const menu = placeShapeChipMenu({
+      tip,
+      menuWidth: 200,
+      menuHeight: 44,
+      viewport: { width: 390, height: 844 },
+    });
+    assert.ok(Math.abs(menu.top - (tip.y + SHAPE_HOLD_CHIP_GAP_PX)) < 1 || Math.abs(menu.top + menu.height + SHAPE_HOLD_CHIP_GAP_PX - tip.y) < 1);
+    assert.ok(menu.left + menu.width < 390 - 4);
+    assert.notEqual(menu.top, 844 - 44 - 8);
+    assert.ok(Math.hypot(menu.left + menu.width / 2 - tip.x, menu.top - tip.y) < 180);
+  });
+
+  it("highlighter underline plus 400ms hold keeps the tip when a chip-menu event arrives", () => {
+    const clock = createClock();
+    const hold = createShapeHold({
+      holdMs: SHAPE_HOLD_MS,
+      now: clock.now,
+      setTimeoutFn: clock.setTimeoutFn,
+      clearTimeoutFn: clock.clearTimeoutFn,
+    });
+    const underline = lineStroke(0.14, 0.2, 0.64, 0.205, 20, 0.001);
+    const startClient = { x: 48, y: 96 };
+    let live = [underline[0]];
+    let offered = null;
+    const onOffer = (next) => {
+      offered = next;
+    };
+    hold.begin({
+      tool: "highlighter",
+      client: startClient,
+      getPoints: () => live,
+      onOffer,
+    });
+    hold.rememberPoints(live);
+    for (let index = 1; index < underline.length; index += 1) {
+      live = recordHoldMove(hold, live, { x: startClient.x + index * 20, y: 96 }, underline[index], onOffer);
+    }
+    const endClient = { x: startClient.x + (underline.length - 1) * 20, y: 96 };
+    const tip = live[live.length - 1];
+    hold.rememberPoints(live);
+    clock.advance(400);
+    assert.equal(hold.isOffering(), true);
+    assert.deepEqual(hold.frozenPoints(), underline);
+    assert.deepEqual(offered.ghostPoints, offered.chips.line);
+    assert.deepEqual(offered.ghostPoints.at(-1), tip);
+    const menu = placeShapeChipMenu({
+      tip: { x: endClient.x, y: endClient.y },
+      menuWidth: 200,
+      menuHeight: 44,
+      viewport: { width: 390, height: 844 },
+    });
+    const menuClient = { x: menu.left + 20, y: menu.top + 12 };
+    const menuNorm = { x: 0.92, y: 0.88 };
+    live = recordHoldMove(hold, live, menuClient, menuNorm, onOffer, true);
+    assert.equal(hold.isOffering(), true);
+    assert.deepEqual(live, underline);
+    assert.deepEqual(live.at(-1), tip);
+    assert.notEqual(live.at(-1)?.x, menuNorm.x);
+    assert.notEqual(live.at(-1)?.y, menuNorm.y);
+    assert.equal(clientHitsShapeChipMenu(menuClient, menu), true);
+    assert.equal(clientHitsShapeChipMenu(endClient, menu), false);
+    const done = hold.finish([...underline, menuNorm]);
+    assert.deepEqual(done.points, underline);
+    assert.deepEqual(done.points.at(-1), tip);
+    assert.deepEqual(done.offer.ghostPoints, done.offer.chips.line);
+  });
+
+  it("a move past 16px while chips are up dismisses first and does not append that event", () => {
+    const clock = createClock();
+    const hold = createShapeHold({
+      holdMs: SHAPE_HOLD_MS,
+      now: clock.now,
+      setTimeoutFn: clock.setTimeoutFn,
+      clearTimeoutFn: clock.clearTimeoutFn,
+    });
+    const underline = lineStroke(0.1, 0.3, 0.7, 0.31, 16, 0);
+    let live = [underline[0]];
+    let offered = null;
+    const onOffer = (next) => {
+      offered = next;
+    };
+    hold.begin({
+      tool: "highlighter",
+      client: { x: 20, y: 40 },
+      getPoints: () => live,
+      onOffer,
+    });
+    hold.rememberPoints(live);
+    for (let index = 1; index < underline.length; index += 1) {
+      live = recordHoldMove(hold, live, { x: 20 + index * 18, y: 40 }, underline[index], onOffer);
+    }
+    clock.advance(400);
+    assert.equal(hold.isOffering(), true);
+    const tip = live.at(-1);
+    const away = { x: 20 + (underline.length - 1) * 18 + 40, y: 40 };
+    live = recordHoldMove(hold, live, away, { x: tip.x + 0.2, y: tip.y + 0.2 }, onOffer, false);
+    assert.equal(hold.isOffering(), false);
+    assert.equal(offered, null);
+    assert.deepEqual(live, underline);
+    assert.deepEqual(live.at(-1), tip);
   });
 });
 

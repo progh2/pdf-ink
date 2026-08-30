@@ -1,6 +1,7 @@
 export const SHAPE_HOLD_MS = 400;
 export const SHAPE_HOLD_GHOST_ALPHA = 0.4;
 export const SHAPE_HOLD_CHIP_HEIGHT = 36;
+export const SHAPE_HOLD_CHIP_GAP_PX = 24;
 export const SHAPE_HOLD_MOVE_SLOP_PX = 16;
 export const SHAPE_HOLD_DISMISS_MS = 8000;
 export const SHAPE_HOLD_MIN_SPAN = 0.045;
@@ -254,6 +255,108 @@ export function applyShapeChip(chip, points) {
   return offer.chips[chip] || points;
 }
 
+function copyPoints(points) {
+  if (!Array.isArray(points)) {
+    return [];
+  }
+  return points
+    .filter((point) => point && Number.isFinite(point.x) && Number.isFinite(point.y))
+    .map((point) => ({ x: point.x, y: point.y }));
+}
+
+export function isShapeHoldJitter(client, lastClient, slopPx = SHAPE_HOLD_MOVE_SLOP_PX) {
+  if (!client || !lastClient) {
+    return false;
+  }
+  const dx = Number(client.x) - Number(lastClient.x);
+  const dy = Number(client.y) - Number(lastClient.y);
+  if (!Number.isFinite(dx) || !Number.isFinite(dy)) {
+    return false;
+  }
+  return Math.hypot(dx, dy) <= slopPx;
+}
+
+function menuContainsPoint(left, top, width, height, x, y, pad = 0) {
+  return x >= left - pad && x <= left + width + pad && y >= top - pad && y <= top + height + pad;
+}
+
+function menuEdgeDistance(left, top, width, height, x, y) {
+  const nearestX = Math.max(left, Math.min(x, left + width));
+  const nearestY = Math.max(top, Math.min(y, top + height));
+  return Math.hypot(x - nearestX, y - nearestY);
+}
+
+export function clientHitsShapeChipMenu(client, menu, pad = 8) {
+  if (!client || !menu) {
+    return false;
+  }
+  const x = Number(client.x);
+  const y = Number(client.y);
+  const left = Number(menu.left);
+  const top = Number(menu.top);
+  const width = Number(menu.width);
+  const height = Number(menu.height);
+  if (![x, y, left, top, width, height].every(Number.isFinite)) {
+    return false;
+  }
+  return menuContainsPoint(left, top, width, height, x, y, pad);
+}
+
+export function placeShapeChipMenu({
+  tip,
+  menuWidth = 200,
+  menuHeight = SHAPE_HOLD_CHIP_HEIGHT + 8,
+  viewport = { width: 390, height: 844 },
+  gap = SHAPE_HOLD_CHIP_GAP_PX,
+  margin = 8,
+} = {}) {
+  const tx = Number(tip?.x);
+  const ty = Number(tip?.y);
+  const width = Number(menuWidth) || 200;
+  const height = Number(menuHeight) || SHAPE_HOLD_CHIP_HEIGHT + 8;
+  const vw = Number(viewport?.width) || width + margin * 2;
+  const vh = Number(viewport?.height) || height + margin * 2;
+  const candidates = [
+    { left: tx - width / 2, top: ty + gap },
+    { left: tx - width / 2, top: ty - gap - height },
+    { left: tx + gap, top: ty - height / 2 },
+    { left: tx - gap - width, top: ty - height / 2 },
+    { left: tx + gap, top: ty + gap },
+    { left: tx - gap - width, top: ty + gap },
+    { left: tx + gap, top: ty - gap - height },
+    { left: tx - gap - width, top: ty - gap - height },
+  ];
+  const fits = (pos) => {
+    if (!Number.isFinite(pos.left) || !Number.isFinite(pos.top)) {
+      return false;
+    }
+    if (pos.left < margin || pos.top < margin) {
+      return false;
+    }
+    if (pos.left + width > vw - margin || pos.top + height > vh - margin) {
+      return false;
+    }
+    if (menuContainsPoint(pos.left, pos.top, width, height, tx, ty)) {
+      return false;
+    }
+    return menuEdgeDistance(pos.left, pos.top, width, height, tx, ty) >= gap - 0.01;
+  };
+  for (const pos of candidates) {
+    if (fits(pos)) {
+      return { left: pos.left, top: pos.top, width, height };
+    }
+  }
+  let left = Math.min(vw - width - margin, Math.max(margin, tx + gap));
+  let top = Math.min(vh - height - margin, Math.max(margin, ty + gap));
+  if (menuContainsPoint(left, top, width, height, tx, ty)) {
+    top = Math.min(vh - height - margin, Math.max(margin, ty - gap - height));
+  }
+  if (menuContainsPoint(left, top, width, height, tx, ty)) {
+    left = Math.min(vw - width - margin, Math.max(margin, tx - gap - width));
+  }
+  return { left, top, width, height };
+}
+
 export function createShapeHold({
   holdMs = SHAPE_HOLD_MS,
   moveSlopPx = SHAPE_HOLD_MOVE_SLOP_PX,
@@ -267,6 +370,9 @@ export function createShapeHold({
   let offer = null;
   let armed = false;
   let lastSignificantAt = 0;
+  let frozen = null;
+  let lastGood = null;
+  let drawn = false;
 
   const clearTimer = () => {
     if (timer) {
@@ -275,12 +381,29 @@ export function createShapeHold({
     }
   };
 
+  const pointsForOffer = (getPoints) => {
+    if (lastGood?.length) {
+      return lastGood;
+    }
+    if (frozen?.length) {
+      return frozen;
+    }
+    return typeof getPoints === "function" ? getPoints() : [];
+  };
+
+  const freezeFrom = (points) => {
+    frozen = copyPoints(points);
+    return frozen;
+  };
+
   const fire = (getPoints, onOffer) => {
     timer = 0;
     if (offer || !armed || !canShapeHold(tool)) {
       return;
     }
-    const next = shapeOfferFromStroke(typeof getPoints === "function" ? getPoints() : []);
+    const source = pointsForOffer(getPoints);
+    freezeFrom(source);
+    const next = shapeOfferFromStroke(frozen);
     if (!next) {
       return;
     }
@@ -296,6 +419,9 @@ export function createShapeHold({
       offer = null;
       armed = false;
       lastSignificantAt = 0;
+      frozen = null;
+      lastGood = null;
+      drawn = false;
     },
     begin({ tool: nextTool, client, getPoints, onOffer } = {}) {
       this.reset();
@@ -308,43 +434,87 @@ export function createShapeHold({
       lastSignificantAt = now();
       timer = setTimeoutFn(() => fire(getPoints, onOffer), holdMs);
     },
-    noteMove({ client, getPoints, onOffer } = {}) {
-      if (!armed || !canShapeHold(tool) || !client) {
-        return false;
+    rememberPoints(points) {
+      lastGood = copyPoints(points);
+    },
+    frozenPoints() {
+      if (frozen?.length) {
+        return copyPoints(frozen);
       }
-      const dx = client.x - (lastClient?.x ?? client.x);
-      const dy = client.y - (lastClient?.y ?? client.y);
-      if (Math.hypot(dx, dy) <= moveSlopPx) {
-        if (!offer && now() - lastSignificantAt >= holdMs) {
-          fire(getPoints, onOffer);
+      if (lastGood?.length) {
+        return copyPoints(lastGood);
+      }
+      return null;
+    },
+    noteMove({ client, getPoints, onOffer, fromChips = false } = {}) {
+      if (!armed || !canShapeHold(tool) || !client) {
+        return true;
+      }
+      if (fromChips) {
+        if (!frozen?.length) {
+          freezeFrom(lastGood || (typeof getPoints === "function" ? getPoints() : []));
         }
         return false;
       }
+      if (offer) {
+        if (isShapeHoldJitter(client, lastClient, moveSlopPx)) {
+          return false;
+        }
+        offer = null;
+        frozen = null;
+        lastClient = client;
+        lastSignificantAt = now();
+        drawn = true;
+        clearTimer();
+        timer = setTimeoutFn(() => fire(getPoints, onOffer), holdMs);
+        onOffer?.(null);
+        return false;
+      }
+      const still = drawn && now() - lastSignificantAt >= Math.min(50, holdMs);
+      const locking = Boolean(drawn && (frozen || still));
+      if (isShapeHoldJitter(client, lastClient, moveSlopPx)) {
+        if (drawn) {
+          freezeFrom(lastGood || (typeof getPoints === "function" ? getPoints() : []));
+          if (!offer && now() - lastSignificantAt >= holdMs) {
+            fire(getPoints, onOffer);
+          }
+        }
+        return !drawn;
+      }
       lastClient = client;
       lastSignificantAt = now();
-      if (offer) {
-        offer = null;
-        onOffer?.(null);
+      if (locking) {
+        clearTimer();
+        timer = setTimeoutFn(() => fire(getPoints, onOffer), holdMs);
+        return false;
       }
+      drawn = true;
+      frozen = null;
       clearTimer();
       timer = setTimeoutFn(() => fire(getPoints, onOffer), holdMs);
-      return false;
+      return true;
     },
     finish(freehandPoints) {
       clearTimer();
+      const keptPoints = frozen?.length ? frozen : lastGood?.length ? lastGood : freehandPoints;
       if (armed && !offer && now() - lastSignificantAt >= holdMs) {
-        offer = shapeOfferFromStroke(freehandPoints);
+        offer = shapeOfferFromStroke(keptPoints);
       }
       const kept = offer;
       lastClient = null;
       armed = false;
+      frozen = null;
+      lastGood = null;
+      drawn = false;
       return {
-        points: freehandPoints,
+        points: keptPoints,
         offer: kept,
         snapped: false,
       };
     },
     isOffering: () => Boolean(offer),
     currentOffer: () => offer,
+    isFrozen: () => Boolean(frozen),
+    isHoldLocked: () => Boolean(frozen || offer || (drawn && now() - lastSignificantAt >= Math.min(50, holdMs))),
   };
 }
