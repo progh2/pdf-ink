@@ -10,6 +10,12 @@ import {
   pasteItems,
   pickItemsAt,
   pickItemsInRect,
+  ROTATE_HANDLE_COLOR,
+  ROTATE_HANDLE_GAP_CSS,
+  ROTATE_HANDLE_SIZE_CSS,
+  ROTATE_HANDLE_STROKE_CSS,
+  rotateHandleAt,
+  rotateHandleCenter,
   selectedBounds,
   translateItem,
   translateItems,
@@ -91,6 +97,26 @@ describe("선택", () => {
     const kept = deleteSelectedItems(items, [3]);
     assert.equal(kept, items);
     assert.equal(items.length, 4);
+  });
+
+  it("places a rotate handle above the selection box and wraps a rotated image", () => {
+    assert.equal(ROTATE_HANDLE_SIZE_CSS, 16);
+    assert.equal(ROTATE_HANDLE_STROKE_CSS, 1.6);
+    assert.equal(ROTATE_HANDLE_GAP_CSS, 20);
+    assert.equal(ROTATE_HANDLE_COLOR, "#2C2A26");
+    const bounds = { x: 0.2, y: 0.2, w: 0.4, h: 0.3 };
+    const handle = rotateHandleCenter(bounds, 600);
+    assert.ok(Math.abs(handle.x - 0.4) < 1e-10);
+    assert.ok(Math.abs(handle.y - (0.2 - 20 / 600)) < 1e-10);
+    assert.equal(rotateHandleAt(bounds, handle, 400, 600), "rotate");
+    assert.equal(rotateHandleAt(bounds, { x: 0.4, y: 0.35 }, 400, 600), null);
+    const image = { type: "image", x: 0.3, y: 0.4, w: 0.4, h: 0.2, locked: false, rotate: 90 };
+    const box = itemBounds(image, 400, 400);
+    assert.ok(Math.abs(box.w - 0.2) < 1e-10);
+    assert.ok(Math.abs(box.h - 0.4) < 1e-10);
+    assert.ok(Math.abs(box.x + box.w / 2 - 0.5) < 1e-10);
+    assert.ok(Math.abs(box.y + box.h / 2 - 0.5) < 1e-10);
+    assert.equal(itemBounds({ type: "image", locked: true, x: 0.2, y: 0.2, w: 0.2, h: 0.2 }), null);
   });
 
   it("restores deleted items through undo", () => {

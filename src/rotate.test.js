@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   addRotation,
+  angleDegFromCenter,
   imagePaintDest,
   normalizeRotation,
   rotateItem,
@@ -11,7 +12,9 @@ import {
   rotatePointAround,
   rotateRect,
   rotateSelectedItems,
+  wrapRotation,
 } from "./rotate.js";
+import { cloneItems, createHistory, recordChange, undoChange } from "./history.js";
 
 describe("페이지 회전", () => {
   it("snaps to quarter turns", () => {
@@ -112,14 +115,63 @@ describe("선택 회전", () => {
     assert.equal(next[0], locked);
   });
 
-  it("swaps paint dest so a 90-degree image fills its box", () => {
-    const dest = imagePaintDest({ w: 0.4, h: 0.2, rotate: 90 }, 1000, 500);
-    assert.equal(dest.rotate, 90);
-    assert.equal(dest.destW, 100);
-    assert.equal(dest.destH, 400);
+  it("paints the stored box and keeps a free angle", () => {
+    const dest = imagePaintDest({ w: 0.4, h: 0.2, rotate: 45 }, 1000, 500);
+    assert.equal(dest.rotate, 45);
+    assert.equal(dest.destW, 400);
+    assert.equal(dest.destH, 100);
+    const turned = imagePaintDest({ w: 0.4, h: 0.2, rotate: 90 }, 1000, 500);
+    assert.equal(turned.rotate, 90);
+    assert.equal(turned.destW, 400);
+    assert.equal(turned.destH, 100);
     const upright = imagePaintDest({ w: 0.4, h: 0.2, rotate: 0 }, 1000, 500);
     assert.equal(upright.rotate, 0);
     assert.equal(upright.destW, 400);
     assert.equal(upright.destH, 100);
+  });
+
+  it("rotates freely around the selection center with no 90 snap", () => {
+    const center = { x: 0.5, y: 0.5 };
+    const tilted = rotatePointAround({ x: 0.6, y: 0.5 }, 45, center, 400, 400);
+    const step = Math.SQRT1_2 * 0.1;
+    assert.ok(Math.abs(tilted.x - (0.5 + step)) < 1e-10);
+    assert.ok(Math.abs(tilted.y - (0.5 + step)) < 1e-10);
+    assert.equal(wrapRotation(-30), 330);
+    assert.ok(Math.abs(angleDegFromCenter(center, { x: 0.6, y: 0.5 }, 400, 400)) < 1e-10);
+    assert.ok(Math.abs(angleDegFromCenter(center, { x: 0.5, y: 0.6 }, 400, 400) - 90) < 1e-10);
+    const stroke = {
+      type: "pen",
+      points: [
+        { x: 0.6, y: 0.5 },
+        { x: 0.7, y: 0.5 },
+      ],
+    };
+    const image = { type: "image", x: 0.3, y: 0.4, w: 0.4, h: 0.2, locked: false, rotate: 0 };
+    const next = rotateSelectedItems([stroke, image], [0, 1], 33, center, 400, 400);
+    assert.ok(Math.abs(next[0].points[0].x - 0.6) > 0.01);
+    assert.ok(Math.abs(next[0].points[0].x - 0.5) > 0.01);
+    assert.equal(next[1].w, 0.4);
+    assert.equal(next[1].h, 0.2);
+    assert.ok(Math.abs(next[1].rotate - 33) < 1e-10);
+    assert.ok(Math.abs(next[1].x - 0.3) < 1e-10);
+    assert.ok(Math.abs(next[1].y - 0.4) < 1e-10);
+  });
+
+  it("restores a free rotation through undo", () => {
+    const items = [
+      {
+        type: "pen",
+        points: [
+          { x: 0.2, y: 0.2 },
+          { x: 0.4, y: 0.2 },
+        ],
+      },
+    ];
+    const after = rotateSelectedItems(items, [0], 40, { x: 0.3, y: 0.2 }, 400, 400);
+    const pages = { 1: cloneItems(after) };
+    const history = createHistory();
+    recordChange(history, { page: 1, before: items, after });
+    undoChange(history, pages);
+    assert.deepEqual(pages[1][0].points, items[0].points);
   });
 });
