@@ -7,6 +7,7 @@ import {
   HIGHLIGHTER_OPACITY_DEFAULT,
   PENCIL_COLOR,
   STAMP_COLOR,
+  STAMP_GHOST_ALPHA,
   STAMP_HEIGHT_CSS,
   STAMP_LABELS,
   STAMP_WIDTH_CSS,
@@ -64,6 +65,18 @@ describe("stamp geometry", () => {
     assert.doesNotMatch(paintStampSrc, /textBaseline = "top"/);
     assert.doesNotMatch(paintStampSrc, /labelTop|labelColor|labelBottom/);
     assert.doesNotMatch(paintStampSrc, /ctx\.arc\(/);
+  });
+
+  it("reuses paintStamp for a 40% ghost of the same 108×64 oval", () => {
+    assert.equal(STAMP_GHOST_ALPHA, 0.4);
+    assert.equal(STAMP_WIDTH_CSS, 108);
+    assert.equal(STAMP_HEIGHT_CSS, 64);
+    assert.match(inkSrc, /export function paintStampGhost/);
+    assert.match(inkSrc, /paintStamp\(ctx, item, scale, canvas, STAMP_GHOST_ALPHA\)/);
+    assert.match(paintStampSrc, /0\.9 \* fade/);
+    assert.match(paintStampSrc, /0\.96 \* fade/);
+    assert.match(paintStampSrc, /stampPaintLayout/);
+    assert.match(paintStampSrc, /ellipse\(/);
   });
 });
 

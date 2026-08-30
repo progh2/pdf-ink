@@ -2,6 +2,7 @@ import {
   HIGHLIGHTER_OPACITY_DEFAULT,
   PENCIL_COLOR,
   STAMP_COLOR,
+  STAMP_GHOST_ALPHA,
   highlighterStrokeStyle,
   normalizeStamp,
   stampItemSize,
@@ -285,7 +286,8 @@ export function paintPencil(ctx, stroke, scale, canvas) {
   ctx.restore();
 }
 
-export function paintStamp(ctx, item, scale, canvas) {
+export function paintStamp(ctx, item, scale, canvas, alpha = 1) {
+  const fade = Number.isFinite(alpha) ? Math.min(1, Math.max(0, alpha)) : 1;
   const cx = item.x * canvas.width;
   const cy = item.y * canvas.height;
   const tilt = Number.isFinite(item.tilt) ? item.tilt : stampTilt(item.x, item.y);
@@ -295,7 +297,7 @@ export function paintStamp(ctx, item, scale, canvas) {
   ctx.translate(cx, cy);
   ctx.rotate(tilt);
   ctx.strokeStyle = layout.inkColor;
-  ctx.globalAlpha = 0.9;
+  ctx.globalAlpha = 0.9 * fade;
   ctx.lineWidth = layout.outerWidth;
   ctx.beginPath();
   ctx.ellipse(0, 0, layout.rx, layout.ry, 0, 0, Math.PI * 2);
@@ -306,7 +308,7 @@ export function paintStamp(ctx, item, scale, canvas) {
   ctx.ellipse(0, 0, layout.innerRx, layout.innerRy, 0, 0, Math.PI * 2);
   ctx.stroke();
 
-  ctx.globalAlpha = 0.96;
+  ctx.globalAlpha = 0.96 * fade;
   ctx.fillStyle = layout.inkColor;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
@@ -315,6 +317,11 @@ export function paintStamp(ctx, item, scale, canvas) {
     ctx.fillText(line, 0, layout.textYs[index]);
   });
   ctx.restore();
+}
+
+/** Same oval + phrase as paintStamp, at the locked 40% ghost fade. */
+export function paintStampGhost(ctx, item, scale, canvas) {
+  paintStamp(ctx, item, scale, canvas, STAMP_GHOST_ALPHA);
 }
 
 export function paintErase(ctx, stroke, scale, canvas) {

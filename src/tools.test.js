@@ -11,6 +11,7 @@ import {
   SLOT_KINDS,
   STAMP_ASPECT,
   STAMP_COLOR,
+  STAMP_GHOST_ALPHA,
   STAMP_HANDLE_CSS,
   STAMP_HEIGHT_CSS,
   STAMP_WIDTH_CSS,
@@ -170,6 +171,29 @@ describe("#32 stroke scale", () => {
     const scaleFn = main.slice(main.indexOf("function strokeScale"), main.indexOf("function drawStrokesOn"));
     assert.match(scaleFn, /inkCanvasScale/);
     assert.doesNotMatch(scaleFn, /getBoundingClientRect/);
+  });
+});
+
+describe("stamp ghost preview", () => {
+  it("shows a 40% paintStamp ghost only while the stamp tool is selected", () => {
+    assert.equal(STAMP_GHOST_ALPHA, 0.4);
+    assert.equal(STAMP_WIDTH_CSS, 108);
+    assert.equal(STAMP_HEIGHT_CSS, 64);
+    assert.match(main, /paintStampGhost/);
+    assert.match(main, /stampGhostAllowed/);
+    assert.match(main, /hideStampGhost/);
+    assert.match(main, /showStampGhost/);
+    assert.match(main, /moveStampGhost/);
+    assert.match(main, /state\.stampGhost/);
+    assert.match(main, /stampItemAt/);
+    assert.match(main, /state\.stampGhost\?\.point/);
+    assert.match(main, /placeStamp\(view, point\)/);
+    assert.match(main, /if \(!stampGhostAllowed\(\)\) \{\s*hideStampGhost\(\);/);
+    assert.doesNotMatch(toolbar, /stamp-ghost|ghost-btn|id="stamp-ghost"/);
+    assert.doesNotMatch(html, /id="stamp-ghost-btn"|data-tool="stamp-ghost"/);
+    assert.equal((html.match(/class="toolbar"/g) || []).length, 1);
+    assert.doesNotMatch(main, /stampGhost.*select-handle|select-handle.*stampGhost/);
+    assert.doesNotMatch(main, /cropping.*stampGhost|stampGhost.*cropping/);
   });
 });
 

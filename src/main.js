@@ -44,7 +44,7 @@ import {
   pointerMidpoint,
   scaleFromPinch,
 } from "./viewport.js";
-import { applyEraserToInk, isPixelErase, isStrokeErase, paintGhost, paintItem, paintStamp, removeHitItems, removeHitStamps, stampInkItem, stampTilt } from "./ink.js";
+import { applyEraserToInk, isPixelErase, isStrokeErase, paintGhost, paintItem, paintStamp, paintStampGhost, removeHitItems, removeHitStamps, stampInkItem, stampTilt } from "./ink.js";
 import {
   appendInkPoint,
   beginInkPoints,
@@ -131,7 +131,6 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
 
 const LONG_PRESS_MS = 450;
 const SLOT_PRESS_SLOP = 24;
-const STAMP_TAP_SLOP = 16;
 
 const els = {
   fileInput: document.querySelector("#file-input"),
@@ -244,7 +243,8 @@ const state = {
   eraseMode: loadEraser().mode,
   eraserWidth: loadEraser().width,
   pendingStamp: null,
-  shapeOffer: null,
+  stampGhost: null,
+  shapeOffer: null;
   userScale: 1,
   panX: 0,
   panY: 0,
@@ -306,6 +306,78 @@ function usesStamp() {
   return state.tool === "stamp";
 }
 
+function stampGhostAllowed() {
+  return usesStamp() && state.interactMode === "edit" && !state.rectTool;
+}
+
+function stampItemAt(point) {
+  return stampInkItem(activeSlot().stamp, point.x, point.y, stampTilt(point.x, point.y));
+}
+
+function hideStampGhost() {
+  const prev = state.stampGhost;
+  if (!prev) {
+    return;
+  }
+  state.stampGhost = null;
+  const view = state.pageViews.find((item) => item.pageNum === prev.page);
+  if (view) {
+    drawStrokesOn(view);
+  }
+}
+
+function showStampGhost(view, point) {
+  if (!stampGhostAllowed() || !view || !point) {
+    hideStampGhost();
+    return;
+  }
+  const prevPage = state.stampGhost?.page;
+  state.stampGhost = { page: view.pageNum, point: { x: point.x, y: point.y } };
+  drawStrokesOn(view);
+  if (prevPage != null && prevPage !== view.pageNum) {
+    const old = state.pageViews.find((item) => item.pageNum === prevPage);
+    if (old) {
+      drawStrokesOn(old);
+    }
+  }
+}
+
+function moveStampGhost(event) {
+  if (!stampGhostAllowed()) {
+    hideStampGhost();
+    return;
+  }
+  if (overlayOpen() || event.target.closest?.(WRITE_CHROME)) {
+    if (!state.pendingStamp) {
+      hideStampGhost();
+    }
+    return;
+  }
+  if (!allowsInkPointer(event) && !state.pendingStamp) {
+    hideStampGhost();
+    return;
+  }
+  let view = state.pendingStamp?.view;
+  let canvas = state.drawCanvas;
+  if (!view || !canvas) {
+    const stage = event.target.closest?.(".page-stage");
+    canvas = stage?.querySelector(".ink-canvas");
+    view = state.pageViews.find((item) => item.stage === stage);
+  }
+  if (!view || !canvas) {
+    if (!state.pendingStamp) {
+      hideStampGhost();
+    }
+    return;
+  }
+  const point = eventToNorm(event, canvas);
+  if (state.pendingStamp) {
+    state.pendingStamp.point = point;
+    state.pendingStamp.view = view;
+  }
+  showStampGhost(view, point);
+}
+
 function showBanner(message) {
   els.banner.hidden = !message;
   els.banner.textContent = message || "";
@@ -355,6 +427,7 @@ function resetEditorExtras() {
   hideMarquee();
   hideSelectUi();
   closePreview();
+  hideStampGhost();
   syncHistoryButtons();
   syncRectTool();
 }
@@ -437,6 +510,9 @@ function drawStrokesOn(view, liveStroke = null) {
       scale,
       canvas,
     );
+  }
+  if (stampGhostAllowed() && state.stampGhost && view.pageNum === state.stampGhost.page) {
+    paintStampGhost(ctx, stampItemAt(state.stampGhost.point), scale, canvas);
   }
   paintImageLayer(view.underCanvas, items, true, () => drawStrokesOn(view));
   paintImageLayer(view.overCanvas, items, false, () => drawStrokesOn(view));
@@ -919,7 +995,7 @@ function newStroke(point) {
 }
 
 function placeStamp(view, point) {
-  const item = stampInkItem(activeSlot().stamp, point.x, point.y, stampTilt(point.x, point.y));
+  const item = stampItemAt(point);
   commitPageChange(view.pageNum, () => {
     pageStrokes(view.pageNum).push(item);
   });
@@ -1168,6 +1244,9 @@ function shapeHoldCallbacks() {
 
 function abortStroke() {
   state.pendingStamp = null;
+  if (!stampGhostAllowed()) {
+    hideStampGhost();
+  }
   releasePaperScroll();
   shapeHold.reset();
   dismissShapeChips();
@@ -1225,6 +1304,7 @@ function startStroke(event, stage) {
     };
     state.drawing = false;
     state.currentStroke = null;
+    showStampGhost(view, point);
     return;
   }
   state.pendingStamp = null;
@@ -1278,10 +1358,13 @@ function endStroke(event) {
         // Capture may already be released.
       }
     }
-    const moved = Math.hypot(event.clientX - state.pendingStamp.startX, event.clientY - state.pendingStamp.startY);
     const view = state.pendingStamp.view || state.pageViews.find((item) => item.pageNum === state.drawPage);
-    if (moved <= STAMP_TAP_SLOP && view) {
-      placeStamp(view, state.pendingStamp.point);
+    const point =
+      state.stampGhost?.point ||
+      (state.drawCanvas ? eventToNorm(event, state.drawCanvas) : null) ||
+      state.pendingStamp.point;
+    if (event.type !== "pointercancel" && view && point) {
+      placeStamp(view, point);
     }
     state.pendingStamp = null;
     releasePaperScroll();
@@ -1423,6 +1506,9 @@ function syncRectTool() {
   document.querySelectorAll("#more-panel [data-more]").forEach((btn) => {
     btn.classList.toggle("is-selected", btn.dataset.more === state.rectTool);
   });
+  if (!stampGhostAllowed()) {
+    hideStampGhost();
+  }
 }
 
 function syncFullscreenItem() {
@@ -1436,6 +1522,9 @@ function syncToolSelection() {
   syncInkTools();
   syncPenOnly();
   syncZoomLock();
+  if (!stampGhostAllowed()) {
+    hideStampGhost();
+  }
 }
 
 function setPenOnly(on) {
@@ -1671,6 +1760,12 @@ function persistSlotChange() {
   saveInkTools(state.inkTools);
   syncInkTools();
   syncSlotEditor();
+  if (state.stampGhost) {
+    const view = state.pageViews.find((item) => item.pageNum === state.stampGhost.page);
+    if (view) {
+      drawStrokesOn(view);
+    }
+  }
 }
 
 function setSlotKind(kind) {
@@ -1688,6 +1783,9 @@ function setSlotKind(kind) {
     slot.stamp = normalizeStamp(slot.stamp);
   }
   persistSlotChange();
+  if (!stampGhostAllowed()) {
+    hideStampGhost();
+  }
 }
 
 function clearSelection() {
@@ -1800,6 +1898,7 @@ function setInteractMode(mode) {
     state.rectTool = null;
     clearSelection();
     hideMarquee();
+    hideStampGhost();
   }
   applyChrome();
   syncRectTool();
@@ -2877,6 +2976,7 @@ function startPinch() {
     return;
   }
   abortStroke();
+  hideStampGhost();
   gesture = {
     type: "pinch",
     startDist: pointerDistance(pts[0], pts[1]),
@@ -3044,6 +3144,11 @@ function onWorkspacePointerMove(event) {
   if (state.currentRect) {
     moveRect(event);
     return;
+  }
+  if (stampGhostAllowed()) {
+    moveStampGhost(event);
+  } else if (state.stampGhost) {
+    hideStampGhost();
   }
   moveStroke(event);
 }

@@ -25,6 +25,7 @@ export const STAMP_WIDTH_CSS = 108;
 export const STAMP_HEIGHT_CSS = 64;
 export const STAMP_ASPECT = STAMP_WIDTH_CSS / STAMP_HEIGHT_CSS;
 export const STAMP_COLOR = "#C42B2B";
+export const STAMP_GHOST_ALPHA = 0.4;
 export const STAMP_MIN_SCALE = 0.4;
 export const STAMP_MAX_SCALE = 4;
 export const STAMP_HANDLE_CSS = 8;
