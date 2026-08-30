@@ -289,6 +289,7 @@ export function createShapeHold({
   let armed = false;
   let lastSignificantAt = 0;
   let frozen = null;
+  let lastGood = null;
   let drawn = false;
 
   const clearTimer = () => {
@@ -299,10 +300,18 @@ export function createShapeHold({
   };
 
   const pointsForOffer = (getPoints) => {
-    if (frozen) {
+    if (lastGood?.length) {
+      return lastGood;
+    }
+    if (frozen?.length) {
       return frozen;
     }
     return typeof getPoints === "function" ? getPoints() : [];
+  };
+
+  const freezeFrom = (points) => {
+    frozen = copyPoints(points);
+    return frozen;
   };
 
   const fire = (getPoints, onOffer) => {
@@ -310,12 +319,11 @@ export function createShapeHold({
     if (offer || !armed || !canShapeHold(tool)) {
       return;
     }
-    const next = shapeOfferFromStroke(pointsForOffer(getPoints));
+    const source = pointsForOffer(getPoints);
+    freezeFrom(source);
+    const next = shapeOfferFromStroke(frozen);
     if (!next) {
       return;
-    }
-    if (!frozen) {
-      frozen = copyPoints(pointsForOffer(getPoints));
     }
     offer = next;
     onOffer?.(next);
@@ -330,6 +338,7 @@ export function createShapeHold({
       armed = false;
       lastSignificantAt = 0;
       frozen = null;
+      lastGood = null;
       drawn = false;
     },
     begin({ tool: nextTool, client, getPoints, onOffer } = {}) {
@@ -343,27 +352,42 @@ export function createShapeHold({
       lastSignificantAt = now();
       timer = setTimeoutFn(() => fire(getPoints, onOffer), holdMs);
     },
-    noteMove({ client, getPoints, onOffer } = {}) {
+    rememberPoints(points) {
+      lastGood = copyPoints(points);
+    },
+    frozenPoints() {
+      if (frozen?.length) {
+        return copyPoints(frozen);
+      }
+      if (lastGood?.length) {
+        return copyPoints(lastGood);
+      }
+      return null;
+    },
+    noteMove({ client, getPoints, onOffer, fromChips = false } = {}) {
       if (!armed || !canShapeHold(tool) || !client) {
         return true;
       }
-      const still = drawn && now() - lastSignificantAt >= Math.min(50, holdMs);
-      const locking = Boolean(frozen || offer || still);
-      if (isShapeHoldJitter(client, lastClient, moveSlopPx)) {
-        frozen = copyPoints(typeof getPoints === "function" ? getPoints() : []);
-        if (!offer && now() - lastSignificantAt >= holdMs) {
-          fire(getPoints, onOffer);
+      if (fromChips || offer) {
+        if (!frozen?.length) {
+          freezeFrom(lastGood || (typeof getPoints === "function" ? getPoints() : []));
         }
         return false;
+      }
+      const still = drawn && now() - lastSignificantAt >= Math.min(50, holdMs);
+      const locking = Boolean(drawn && (frozen || still));
+      if (isShapeHoldJitter(client, lastClient, moveSlopPx)) {
+        if (drawn) {
+          freezeFrom(lastGood || (typeof getPoints === "function" ? getPoints() : []));
+          if (!offer && now() - lastSignificantAt >= holdMs) {
+            fire(getPoints, onOffer);
+          }
+        }
+        return !drawn;
       }
       lastClient = client;
       lastSignificantAt = now();
       if (locking) {
-        frozen = null;
-        if (offer) {
-          offer = null;
-          onOffer?.(null);
-        }
         clearTimer();
         timer = setTimeoutFn(() => fire(getPoints, onOffer), holdMs);
         return false;
@@ -376,7 +400,7 @@ export function createShapeHold({
     },
     finish(freehandPoints) {
       clearTimer();
-      const keptPoints = frozen && frozen.length ? frozen : freehandPoints;
+      const keptPoints = frozen?.length ? frozen : lastGood?.length ? lastGood : freehandPoints;
       if (armed && !offer && now() - lastSignificantAt >= holdMs) {
         offer = shapeOfferFromStroke(keptPoints);
       }
@@ -384,6 +408,7 @@ export function createShapeHold({
       lastClient = null;
       armed = false;
       frozen = null;
+      lastGood = null;
       drawn = false;
       return {
         points: keptPoints,

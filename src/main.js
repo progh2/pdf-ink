@@ -261,6 +261,7 @@ let ignoreAfterPanel = false;
 let lastInkUpClient = null;
 const shapeHold = createShapeHold({ holdMs: SHAPE_HOLD_MS });
 let shapeOfferDismissTimer = 0;
+let ignoreChipMountMoves = 0;
 let captureConfirmArmedAt = 0;
 let renderGen = 0;
 let paperScrollHold = null;
@@ -1048,9 +1049,35 @@ function overlayOpen() {
 }
 
 function hideShapeChips() {
+  ignoreChipMountMoves = 0;
   if (els.shapeChips) {
     els.shapeChips.hidden = true;
   }
+}
+
+function eventHitsShapeChips(event) {
+  if (event?.target?.closest?.(".shape-chips")) {
+    return true;
+  }
+  const bar = els.shapeChips;
+  if (!bar || bar.hidden) {
+    return false;
+  }
+  const box = bar.getBoundingClientRect();
+  const x = Number(event?.clientX);
+  const y = Number(event?.clientY);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) {
+    return false;
+  }
+  return x >= box.left && x <= box.right && y >= box.top && y <= box.bottom;
+}
+
+function restoreFrozenStroke() {
+  const frozen = shapeHold.frozenPoints?.();
+  if (!frozen?.length || !state.currentStroke) {
+    return;
+  }
+  state.currentStroke.points = frozen;
 }
 
 function clearShapeOfferDismiss() {
@@ -1074,6 +1101,8 @@ function showShapeChips(offer, view) {
     hideShapeChips();
     return;
   }
+  restoreFrozenStroke();
+  ignoreChipMountMoves += 1;
   els.shapeChips.hidden = false;
   for (const btn of els.shapeChips.querySelectorAll("[data-shape]")) {
     btn.classList.toggle("is-candidate", btn.dataset.shape === offer.kind);
@@ -1093,6 +1122,15 @@ function showShapeChips(offer, view) {
   const height = SHAPE_HOLD_CHIP_HEIGHT + 8;
   els.shapeChips.style.left = `${Math.min(window.innerWidth - width - 8, Math.max(8, left))}px`;
   els.shapeChips.style.top = `${Math.min(window.innerHeight - height - 8, Math.max(8, top))}px`;
+  restoreFrozenStroke();
+  const later = typeof window.queueMicrotask === "function" ? window.queueMicrotask.bind(window) : (fn) => window.setTimeout(fn, 0);
+  later(() => {
+    ignoreChipMountMoves = Math.max(0, ignoreChipMountMoves - 1);
+    restoreFrozenStroke();
+    if (state.drawing) {
+      drawLive();
+    }
+  });
   if (state.shapeOffer && Number.isInteger(state.shapeOffer.index)) {
     armShapeOfferDismiss();
   }
@@ -1149,6 +1187,7 @@ function shapeHoldCallbacks() {
         }
         return;
       }
+      restoreFrozenStroke();
       state.shapeOffer = {
         page: state.drawPage,
         index: null,
@@ -1161,6 +1200,7 @@ function shapeHoldCallbacks() {
       };
       const view = state.pageViews.find((item) => item.pageNum === state.drawPage);
       showShapeChips(offer, view);
+      restoreFrozenStroke();
       drawLive();
     },
   };
@@ -1239,6 +1279,7 @@ function startStroke(event, stage) {
       client,
       ...shapeHoldCallbacks(),
     });
+    shapeHold.rememberPoints(state.currentStroke.points);
   } else {
     shapeHold.reset();
   }
@@ -1254,15 +1295,19 @@ function moveStroke(event) {
   }
   event.preventDefault();
   const client = { x: event.clientX, y: event.clientY };
+  const chipHit = Boolean(ignoreChipMountMoves) || eventHitsShapeChips(event);
   let append = true;
   if (canShapeHold(state.currentStroke.type)) {
     append = shapeHold.noteMove({
       client,
+      fromChips: chipHit,
       ...shapeHoldCallbacks(),
     });
-    if (shapeHold.isOffering() || shapeHold.isHoldLocked()) {
+    if (chipHit || shapeHold.isOffering() || shapeHold.isHoldLocked() || (els.shapeChips && !els.shapeChips.hidden)) {
       append = false;
     }
+  } else if (chipHit) {
+    append = false;
   }
   if (append) {
     state.currentStroke.points = appendInkPoint(
@@ -1271,6 +1316,11 @@ function moveStroke(event) {
       client,
       lastInkUpClient,
     );
+    if (canShapeHold(state.currentStroke.type)) {
+      shapeHold.rememberPoints(state.currentStroke.points);
+    }
+  } else if (canShapeHold(state.currentStroke.type)) {
+    restoreFrozenStroke();
   }
   drawLive();
 }
@@ -3459,10 +3509,13 @@ els.copyBtn.addEventListener("click", (event) => {
   copySelection();
 });
 if (els.shapeChips) {
-  els.shapeChips.addEventListener("pointerdown", (event) => {
+  const stopChipPointer = (event) => {
     event.preventDefault();
     event.stopPropagation();
-  });
+  };
+  els.shapeChips.addEventListener("pointerdown", stopChipPointer);
+  els.shapeChips.addEventListener("pointermove", stopChipPointer);
+  els.shapeChips.addEventListener("pointerup", stopChipPointer);
   els.shapeChips.addEventListener("click", (event) => {
     const btn = event.target.closest("[data-shape]");
     if (!btn) {
