@@ -3,7 +3,7 @@ export function normalizeInteractMode(value) {
 }
 
 export function interactModeLabel(mode) {
-  return normalizeInteractMode(mode) === "view" ? "읽기" : "편집";
+  return normalizeInteractMode(mode) === "view" ? "보기" : "편집";
 }
 
 export function canCreateInk({ interactMode, penOnly, pointerType, rectTool, tool } = {}) {
