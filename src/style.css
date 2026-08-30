@@ -692,11 +692,12 @@ body {
   bottom: -4px;
 }
 
-.select-layer.is-image .select-handle {
+.select-layer.is-image .select-handle,
+.select-layer.is-stamp .select-handle {
   display: block;
 }
 
-.select-layer:not(.is-image) .select-handle {
+.select-layer:not(.is-image):not(.is-stamp) .select-handle {
   display: none;
 }
 

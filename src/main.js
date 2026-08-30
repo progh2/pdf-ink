@@ -102,6 +102,7 @@ import {
   defaultColorForKind,
   normalizeStamp,
   slotAriaLabel,
+  resizeStamp,
   stampPaintLayout,
 } from "./tools.js";
 
@@ -1386,9 +1387,9 @@ function paintStampPreview(label) {
     return;
   }
   const layout = stampPaintLayout(label, 1);
-  const pad = 16;
-  const cssWidth = Math.ceil(layout.radius * 2 + pad * 2);
-  const cssHeight = Math.ceil(layout.radius + layout.labelBottom + pad);
+  const pad = 12;
+  const cssWidth = Math.ceil(layout.width + pad * 2);
+  const cssHeight = Math.ceil(layout.height + pad * 2);
   const dpr = window.devicePixelRatio || 1;
   canvas.style.width = `${cssWidth}px`;
   canvas.style.height = `${cssHeight}px`;
@@ -1396,7 +1397,7 @@ function paintStampPreview(label) {
   canvas.height = Math.round(cssHeight * dpr);
   const ctx = canvas.getContext("2d");
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  const item = stampInkItem(label, 0.5, (pad + layout.radius) / cssHeight, -0.1);
+  const item = stampInkItem(label, 0.5, 0.5, -0.1);
   paintStamp(ctx, item, dpr, canvas);
 }
 
@@ -1596,6 +1597,14 @@ function selectedImageItem() {
   return item?.type === "image" ? item : null;
 }
 
+function selectedStampItem() {
+  if (state.selectIndices.length !== 1) {
+    return null;
+  }
+  const item = pageStrokes(state.selectPage || state.page)[state.selectIndices[0]];
+  return item?.type === "stamp" ? item : null;
+}
+
 function placeSelectBox(view, rect) {
   if (!view || !rect) {
     els.selectLayer.hidden = true;
@@ -1653,7 +1662,9 @@ function syncSelectHud() {
   els.cropConfirm.hidden = !cropping;
   els.copyBtn.hidden = cropping;
   els.pasteBtn.hidden = cropping;
+  const stamp = selectedStampItem();
   els.selectLayer.classList.toggle("is-image", Boolean(image) && !cropping);
+  els.selectLayer.classList.toggle("is-stamp", Boolean(stamp) && !cropping);
   if (cropping) {
     const rect = rectFromPoints(state.cropping.a, state.cropping.b);
     placeSelectBox(view, rect);
@@ -1809,8 +1820,10 @@ function startSelect(event, stage) {
   }
 
   const image = selectedImageItem();
-  if (image && state.selectPage === state.drawPage) {
-    const handle = handleAt(itemBounds(image, cssW, cssH), point);
+  const stamp = selectedStampItem();
+  const resizable = image || stamp;
+  if (resizable && state.selectPage === state.drawPage) {
+    const handle = handleAt(itemBounds(resizable, cssW, cssH), point);
     if (handle) {
       state.selectDrag = {
         mode: "resize",
@@ -1869,7 +1882,14 @@ function moveSelect(event) {
     state.pages[key] = translateItems(drag.origin, drag.indices, point.x - drag.start.x, point.y - drag.start.y);
   } else if (drag.mode === "resize") {
     const next = cloneItems(drag.origin);
-    next[drag.indices[0]] = resizeImage(drag.origin[drag.indices[0]], drag.handle, point);
+    const origin = drag.origin[drag.indices[0]];
+    const viewNow = state.pageViews.find((item) => item.pageNum === drag.page);
+    const cssW = viewNow?.cssWidth || 400;
+    const cssH = viewNow?.cssHeight || 600;
+    next[drag.indices[0]] =
+      origin?.type === "stamp"
+        ? resizeStamp(origin, drag.handle, point, cssW, cssH)
+        : resizeImage(origin, drag.handle, point);
     state.pages[key] = next;
   }
   const view = state.pageViews.find((item) => item.pageNum === drag.page);

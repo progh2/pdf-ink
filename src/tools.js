@@ -21,11 +21,13 @@ export const PENCIL_COLOR = "#C23A32";
 export const PENCIL_LABEL = "색연필";
 
 export const STAMP_LABELS = ["참 잘했어요", "반려", "승인", "진행해", "응아냐"];
-export const STAMP_DIAMETER_CSS = 72;
+export const STAMP_WIDTH_CSS = 108;
+export const STAMP_HEIGHT_CSS = 64;
+export const STAMP_ASPECT = STAMP_WIDTH_CSS / STAMP_HEIGHT_CSS;
 export const STAMP_COLOR = "#C42B2B";
-export const STAMP_LABEL_COLOR = "#5C574E";
-export const STAMP_LABEL_GAP_CSS = 8;
-export const STAMP_LABEL_SIZE_CSS = 14;
+export const STAMP_MIN_SCALE = 0.4;
+export const STAMP_MAX_SCALE = 4;
+export const STAMP_HANDLE_CSS = 8;
 
 export const SLOT_KINDS = ["pen", "highlighter", "pencil", "stamp"];
 export const SLOT_KIND_LABELS = {
@@ -137,24 +139,93 @@ export function stampLines(label) {
   return [label];
 }
 
-/** Circle + label-below metrics. Canvas paintStamp and the slot-panel preview share this. */
-export function stampPaintLayout(label, scale = 1) {
+/** CSS-pixel size of a stamp, aspect locked to the default oval. */
+export function stampItemSize(item) {
+  const w = Number(item?.w);
+  const h = Number(item?.h);
+  if (Number.isFinite(w) && w > 0) {
+    return { w, h: w / STAMP_ASPECT };
+  }
+  if (Number.isFinite(h) && h > 0) {
+    return { w: h * STAMP_ASPECT, h };
+  }
+  return { w: STAMP_WIDTH_CSS, h: STAMP_HEIGHT_CSS };
+}
+
+/**
+ * Horizontal oval + in-stamp text metrics.
+ * Canvas paintStamp and the stamp-panel preview share this. No caption below.
+ */
+export function stampPaintLayout(label, scale = 1, size) {
   const lines = stampLines(normalizeStamp(label));
-  const radius = (STAMP_DIAMETER_CSS / 2) * scale;
-  const gap = STAMP_LABEL_GAP_CSS * scale;
-  const fontSize = STAMP_LABEL_SIZE_CSS * scale;
-  const lineHeight = fontSize * 1.15;
-  const labelTop = radius + gap;
+  const box = stampItemSize(size);
+  const width = box.w * scale;
+  const height = box.h * scale;
+  const rx = width / 2;
+  const ry = height / 2;
+  const ringGap = Math.max(2.4 * scale, height * 0.055);
+  const outerWidth = Math.max(1.8 * scale, height * 0.045);
+  const innerWidth = Math.max(1.1 * scale, height * 0.028);
+  const inset = ringGap + (outerWidth + innerWidth) / 2;
+  const innerRx = Math.max(4 * scale, rx - inset);
+  const innerRy = Math.max(3 * scale, ry - inset);
+  const fontSize =
+    lines.length > 1 ? Math.min(innerRy * 0.7, innerRx * 0.38) : Math.min(innerRy * 0.92, innerRx * 0.48);
+  const lineHeight = fontSize * 1.12;
+  const textBlock = lines.length * lineHeight;
+  const textStart = -textBlock / 2 + lineHeight / 2;
+  const textYs = lines.map((_, index) => textStart + index * lineHeight);
   return {
-    radius,
-    gap,
+    width,
+    height,
+    rx,
+    ry,
+    innerRx,
+    innerRy,
     fontSize,
     lineHeight,
     lines,
-    circleColor: STAMP_COLOR,
-    labelColor: STAMP_LABEL_COLOR,
-    labelTop,
-    labelBottom: labelTop + lines.length * lineHeight,
+    textYs,
+    inkColor: STAMP_COLOR,
+    outerWidth,
+    innerWidth,
+    ringGap,
+  };
+}
+
+/** GoodNotes-style corner scale: opposite corner stays, aspect stays. */
+export function resizeStamp(item, handle, point, cssWidth = 400, cssHeight = 600) {
+  const size = stampItemSize(item);
+  const pageW = Math.max(1, Number(cssWidth) || 1);
+  const pageH = Math.max(1, Number(cssHeight) || 1);
+  const halfW = size.w / pageW / 2;
+  const halfH = size.h / pageH / 2;
+  const left = item.x - halfW;
+  const top = item.y - halfH;
+  const right = item.x + halfW;
+  const bottom = item.y + halfH;
+  const anchors = {
+    nw: { x: right, y: bottom },
+    ne: { x: left, y: bottom },
+    se: { x: left, y: top },
+    sw: { x: right, y: top },
+  };
+  const anchor = anchors[handle] || anchors.se;
+  const dw = Math.abs((Number(point?.x) - anchor.x) * pageW);
+  const dh = Math.abs((Number(point?.y) - anchor.y) * pageH);
+  const nextW = Math.min(
+    STAMP_WIDTH_CSS * STAMP_MAX_SCALE,
+    Math.max(STAMP_WIDTH_CSS * STAMP_MIN_SCALE, Math.max(dw, dh * STAMP_ASPECT)),
+  );
+  const nextH = nextW / STAMP_ASPECT;
+  const signX = handle === "ne" || handle === "se" ? 1 : -1;
+  const signY = handle === "se" || handle === "sw" ? 1 : -1;
+  return {
+    ...item,
+    x: anchor.x + (signX * nextW) / pageW / 2,
+    y: anchor.y + (signY * nextH) / pageH / 2,
+    w: nextW,
+    h: nextH,
   };
 }
 

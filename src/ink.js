@@ -4,6 +4,7 @@ import {
   STAMP_COLOR,
   highlighterStrokeStyle,
   normalizeStamp,
+  stampItemSize,
   stampPaintLayout,
 } from "./tools.js";
 
@@ -87,52 +88,14 @@ function rotateAround(point, origin, angle) {
   return { x: origin.x + dx * cos - dy * sin, y: origin.y + dx * sin + dy * cos };
 }
 
-function pointInRect(point, rect) {
-  return point.x >= rect.left && point.x <= rect.right && point.y >= rect.top && point.y <= rect.bottom;
-}
-
-function polylineHitsCircle(points, center, radius) {
+function polylineHitsEllipse(points, center, rx, ry, pad) {
+  const erx = Math.max(1, rx + pad);
+  const ery = Math.max(1, ry + pad);
   for (const [start, end] of asSegments(points)) {
-    if (distPointToSegment(center, start, end) <= radius) {
+    const a = { x: (start.x - center.x) / erx, y: (start.y - center.y) / ery };
+    const b = { x: (end.x - center.x) / erx, y: (end.y - center.y) / ery };
+    if (distPointToSegment({ x: 0, y: 0 }, a, b) <= 1) {
       return true;
-    }
-  }
-  return false;
-}
-
-function polylineHitsRect(points, rect, pad) {
-  const grown = {
-    left: rect.left - pad,
-    top: rect.top - pad,
-    right: rect.right + pad,
-    bottom: rect.bottom + pad,
-  };
-  const edges = [
-    [
-      { x: grown.left, y: grown.top },
-      { x: grown.right, y: grown.top },
-    ],
-    [
-      { x: grown.right, y: grown.top },
-      { x: grown.right, y: grown.bottom },
-    ],
-    [
-      { x: grown.right, y: grown.bottom },
-      { x: grown.left, y: grown.bottom },
-    ],
-    [
-      { x: grown.left, y: grown.bottom },
-      { x: grown.left, y: grown.top },
-    ],
-  ];
-  for (const [start, end] of asSegments(points)) {
-    if (pointInRect(start, grown) || pointInRect(end, grown)) {
-      return true;
-    }
-    for (const [a, b] of edges) {
-      if (segmentsIntersect(start, end, a, b)) {
-        return true;
-      }
     }
   }
   return false;
@@ -142,21 +105,8 @@ function stampHitsEraser(item, eraserPts, eraserHalf, cssWidth, cssHeight) {
   const center = { x: item.x * cssWidth, y: item.y * cssHeight };
   const tilt = Number.isFinite(item.tilt) ? item.tilt : stampTilt(item.x, item.y);
   const local = eraserPts.map((point) => rotateAround(point, center, -tilt));
-  const layout = stampPaintLayout(item.stamp, 1);
-  if (polylineHitsCircle(local, center, layout.radius + eraserHalf)) {
-    return true;
-  }
-  const width = Math.max(...layout.lines.map((line) => line.length), 1) * layout.fontSize;
-  return polylineHitsRect(
-    local,
-    {
-      left: center.x - width / 2,
-      top: center.y + layout.labelTop,
-      right: center.x + width / 2,
-      bottom: center.y + layout.labelBottom,
-    },
-    eraserHalf,
-  );
+  const size = stampItemSize(item);
+  return polylineHitsEllipse(local, center, size.w / 2, size.h / 2, eraserHalf);
 }
 
 export function itemHitsEraser(item, eraser, cssWidth, cssHeight) {
@@ -203,7 +153,8 @@ export function applyEraserToInk(items, eraser, cssWidth, cssHeight) {
   return items.concat(eraser);
 }
 
-export function stampInkItem(label, x, y, tilt = 0) {
+export function stampInkItem(label, x, y, tilt = 0, size) {
+  const box = stampItemSize(size);
   return {
     type: "stamp",
     stamp: normalizeStamp(label),
@@ -211,6 +162,8 @@ export function stampInkItem(label, x, y, tilt = 0) {
     y,
     tilt,
     color: STAMP_COLOR,
+    w: box.w,
+    h: box.h,
   };
 }
 
@@ -321,25 +274,30 @@ export function paintStamp(ctx, item, scale, canvas) {
   const cx = item.x * canvas.width;
   const cy = item.y * canvas.height;
   const tilt = Number.isFinite(item.tilt) ? item.tilt : stampTilt(item.x, item.y);
-  const layout = stampPaintLayout(item.stamp, scale);
+  const layout = stampPaintLayout(item.stamp, scale, item);
 
   ctx.save();
   ctx.translate(cx, cy);
   ctx.rotate(tilt);
-  ctx.strokeStyle = layout.circleColor;
-  ctx.lineWidth = Math.max(1.6 * scale, 2.2 * scale);
-  ctx.globalAlpha = 0.88;
+  ctx.strokeStyle = layout.inkColor;
+  ctx.globalAlpha = 0.9;
+  ctx.lineWidth = layout.outerWidth;
   ctx.beginPath();
-  ctx.arc(0, 0, layout.radius, 0, Math.PI * 2);
+  ctx.ellipse(0, 0, layout.rx, layout.ry, 0, 0, Math.PI * 2);
   ctx.stroke();
 
-  ctx.globalAlpha = 1;
-  ctx.fillStyle = layout.labelColor;
+  ctx.lineWidth = layout.innerWidth;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, layout.innerRx, layout.innerRy, 0, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.globalAlpha = 0.96;
+  ctx.fillStyle = layout.inkColor;
   ctx.textAlign = "center";
-  ctx.textBaseline = "top";
+  ctx.textBaseline = "middle";
   ctx.font = `700 ${Math.max(10 * scale, layout.fontSize)}px "Apple SD Gothic Neo", "Noto Sans KR", sans-serif`;
   layout.lines.forEach((line, index) => {
-    ctx.fillText(line, 0, layout.labelTop + index * layout.lineHeight);
+    ctx.fillText(line, 0, layout.textYs[index]);
   });
   ctx.restore();
 }
