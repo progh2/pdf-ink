@@ -25,8 +25,10 @@ export function imageItem({
   src = "",
   locked = false,
   crop = null,
+  rotate = 0,
   id,
 } = {}) {
+  const n = Math.round(Number(rotate) / 90) * 90;
   return {
     type: "image",
     id: id || `img-${Math.round(Date.now() % 1e9)}`,
@@ -37,6 +39,7 @@ export function imageItem({
     src: typeof src === "string" ? src : "",
     locked: Boolean(locked),
     crop: normalizeCrop(crop),
+    rotate: Number.isFinite(n) ? ((n % 360) + 360) % 360 : 0,
   };
 }
 

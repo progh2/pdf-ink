@@ -69,10 +69,12 @@ import { MOSAIC_CELL_CSS, mosaicBoxesPx, mosaicItem } from "./mosaic.js";
 import { captureRegionPng, composePageRgba, cropRgba, writePngClipboard } from "./capture.js";
 import {
   copyItems,
+  deleteItems,
   itemBounds,
   offsetItems,
   pickItemsAt,
   pickItemsInRect,
+  pointInBounds,
   selectedBounds,
   translateItems,
 } from "./select.js";
@@ -88,7 +90,7 @@ import {
   lockImage,
   resizeImage,
 } from "./image.js";
-import { addRotation, rotateItems } from "./rotate.js";
+import { addRotation, boundsCenter, isLockedImage, normalizeRotation, rotateItems, rotateItemsAround } from "./rotate.js";
 import {
   filterLeaves,
   inkKey,
@@ -165,6 +167,9 @@ const els = {
   selectHud: document.querySelector("#float-bar"),
   copyBtn: document.querySelector("#copy-btn"),
   pasteBtn: document.querySelector("#paste-btn"),
+  rotateLeftBtn: document.querySelector("#rotate-left-btn"),
+  rotateRightBtn: document.querySelector("#rotate-right-btn"),
+  deleteBtn: document.querySelector("#delete-btn"),
   cropBtn: document.querySelector("#crop-btn"),
   lockBtn: document.querySelector("#lock-btn"),
   cropConfirm: document.querySelector("#crop-confirm"),
@@ -458,17 +463,26 @@ function paintImageLayer(canvas, items, locked, onReady) {
       continue;
     }
     const crop = item.crop || { x: 0, y: 0, w: 1, h: 1 };
-    ctx.drawImage(
-      entry.img,
-      crop.x * entry.img.width,
-      crop.y * entry.img.height,
-      Math.max(1, entry.img.width * crop.w),
-      Math.max(1, entry.img.height * crop.h),
-      item.x * canvas.width,
-      item.y * canvas.height,
-      item.w * canvas.width,
-      item.h * canvas.height,
-    );
+    const destW = item.w * canvas.width;
+    const destH = item.h * canvas.height;
+    const destX = item.x * canvas.width;
+    const destY = item.y * canvas.height;
+    const sx = crop.x * entry.img.width;
+    const sy = crop.y * entry.img.height;
+    const sw = Math.max(1, entry.img.width * crop.w);
+    const sh = Math.max(1, entry.img.height * crop.h);
+    const rot = normalizeRotation(item.rotate);
+    if (!rot) {
+      ctx.drawImage(entry.img, sx, sy, sw, sh, destX, destY, destW, destH);
+      continue;
+    }
+    const localW = rot % 180 === 90 ? destH : destW;
+    const localH = rot % 180 === 90 ? destW : destH;
+    ctx.save();
+    ctx.translate(destX + destW / 2, destY + destH / 2);
+    ctx.rotate((rot * Math.PI) / 180);
+    ctx.drawImage(entry.img, sx, sy, sw, sh, -localW / 2, -localH / 2, localW, localH);
+    ctx.restore();
   }
 }
 
@@ -1854,8 +1868,18 @@ function syncSelectHud() {
   els.cropConfirm.hidden = !cropping;
   els.copyBtn.hidden = cropping;
   els.pasteBtn.hidden = cropping;
+  const locked = Boolean(image?.locked);
+  if (els.rotateLeftBtn) {
+    els.rotateLeftBtn.hidden = cropping || locked;
+  }
+  if (els.rotateRightBtn) {
+    els.rotateRightBtn.hidden = cropping || locked;
+  }
+  if (els.deleteBtn) {
+    els.deleteBtn.hidden = cropping || locked;
+  }
   const stamp = selectedStampItem();
-  els.selectLayer.classList.toggle("is-image", Boolean(image) && !cropping);
+  els.selectLayer.classList.toggle("is-image", Boolean(image) && !image.locked && !cropping);
   els.selectLayer.classList.toggle("is-stamp", Boolean(stamp) && !cropping);
   if (cropping) {
     const rect = rectFromPoints(state.cropping.a, state.cropping.b);
@@ -2013,7 +2037,14 @@ function startSelect(event, stage) {
 
   const image = selectedImageItem();
   const stamp = selectedStampItem();
-  const resizable = image || stamp;
+  const resizable = (image && !image.locked ? image : null) || stamp;
+  if (image?.locked && state.selectPage === state.drawPage) {
+    const lockedBounds = itemBounds(image, cssW, cssH);
+    if (lockedBounds && pointInBounds(point, lockedBounds, 0.014)) {
+      syncSelectHud();
+      return;
+    }
+  }
   if (resizable && state.selectPage === state.drawPage) {
     const handle = handleAt(itemBounds(resizable, cssW, cssH), point);
     if (handle) {
@@ -2146,6 +2177,51 @@ function copySelection() {
     return;
   }
   state.inkClipboard = copyItems(items, state.selectIndices, 0, 0);
+}
+
+function selectionLocked() {
+  const items = pageStrokes(state.selectPage || state.page);
+  return (state.selectIndices || []).some((index) => isLockedImage(items[index]));
+}
+
+function rotateSelection(delta) {
+  if (state.interactMode === "view" || state.cropping || !state.selectIndices.length || selectionLocked()) {
+    return;
+  }
+  const pageNum = state.selectPage || state.page;
+  const items = pageStrokes(pageNum);
+  const view = state.pageViews.find((entry) => entry.pageNum === pageNum);
+  const bounds = selectedBounds(items, state.selectIndices, view?.cssWidth || 400, view?.cssHeight || 600);
+  const center = boundsCenter(bounds);
+  if (!center) {
+    return;
+  }
+  commitPageChange(pageNum, () => {
+    const key = inkKey(leafAt(state.leaves, pageNum));
+    state.pages[key] = rotateItemsAround(pageStrokes(pageNum), state.selectIndices, center, delta);
+  });
+  if (view) {
+    drawStrokesOn(view);
+  }
+  syncSelectHud();
+}
+
+function deleteSelection() {
+  if (state.interactMode === "view" || state.cropping || !state.selectIndices.length || selectionLocked()) {
+    return;
+  }
+  const pageNum = state.selectPage || state.page;
+  commitPageChange(pageNum, () => {
+    const key = inkKey(leafAt(state.leaves, pageNum));
+    state.pages[key] = deleteItems(pageStrokes(pageNum), state.selectIndices);
+  });
+  state.selectIndices = [];
+  state.cropping = null;
+  const view = state.pageViews.find((entry) => entry.pageNum === pageNum);
+  if (view) {
+    drawStrokesOn(view);
+  }
+  syncSelectHud();
 }
 
 function pasteClipboard() {
@@ -3252,6 +3328,21 @@ els.copyBtn.addEventListener("click", (event) => {
   event.stopPropagation();
   copySelection();
 });
+els.rotateLeftBtn?.addEventListener("click", (event) => {
+  event.preventDefault();
+  event.stopPropagation();
+  rotateSelection(-90);
+});
+els.rotateRightBtn?.addEventListener("click", (event) => {
+  event.preventDefault();
+  event.stopPropagation();
+  rotateSelection(90);
+});
+els.deleteBtn?.addEventListener("click", (event) => {
+  event.preventDefault();
+  event.stopPropagation();
+  deleteSelection();
+});
 if (els.shapeChips) {
   els.shapeChips.addEventListener("pointerdown", (event) => {
     event.preventDefault();
@@ -3384,6 +3475,17 @@ document.addEventListener("pointerdown", (event) => {
 });
 
 document.addEventListener("keydown", (event) => {
+  if (event.key === "Delete" || event.key === "Backspace") {
+    if (event.target.closest("input, textarea, [contenteditable]")) {
+      return;
+    }
+    if (els.writeScreen.hidden || state.interactMode === "view") {
+      return;
+    }
+    event.preventDefault();
+    deleteSelection();
+    return;
+  }
   if (!(event.ctrlKey || event.metaKey)) {
     return;
   }

@@ -83,6 +83,9 @@ describe("M4 #25 chrome", () => {
     assert.match(html, /id="float-bar"/);
     assert.match(html, /id="copy-btn">복사/);
     assert.match(html, /id="paste-btn">붙여넣기/);
+    assert.match(html, /id="rotate-left-btn">왼쪽/);
+    assert.match(html, /id="rotate-right-btn">오른쪽/);
+    assert.match(html, /id="delete-btn">삭제/);
     assert.match(toolbar, /id="select-btn"|data-tool="select"/);
     assert.match(html, /id="select-btn"/);
     assert.match(css, /\.select-layer \{[\s\S]*z-index: 8/);
@@ -109,5 +112,31 @@ describe("M4 #25 chrome", () => {
     assert.match(html, /accept="image\/png,image\/jpeg,image\/webp/);
     assert.match(main, /els\.pasteBtn\.addEventListener\("click"/);
     assert.doesNotMatch(main, /addEventListener\("paste"/);
+  });
+
+  it("puts object rotate/delete on the select HUD and keeps ⋯ page rotate", () => {
+    const floatBar = html.slice(html.indexOf('id="float-bar"'), html.indexOf('id="shape-chips"'));
+    assert.match(floatBar, /id="copy-btn">복사/);
+    assert.match(floatBar, /id="paste-btn">붙여넣기/);
+    assert.match(floatBar, /id="rotate-left-btn">왼쪽/);
+    assert.match(floatBar, /id="rotate-right-btn">오른쪽/);
+    assert.match(floatBar, /id="delete-btn">삭제/);
+    assert.ok(floatBar.indexOf('id="paste-btn"') < floatBar.indexOf('id="rotate-left-btn"'));
+    assert.ok(floatBar.indexOf('id="rotate-right-btn"') < floatBar.indexOf('id="delete-btn"'));
+    assert.match(more, /data-rotate="-90">왼쪽/);
+    assert.match(more, /data-rotate="90">오른쪽/);
+    assert.match(more, /class="more-rotate"/);
+    assert.match(main, /rotateCurrentPage\(Number\(btn\.dataset\.rotate\)\)/);
+    assert.match(main, /function rotateSelection/);
+    assert.match(main, /rotateItemsAround/);
+    assert.match(main, /function deleteSelection/);
+    assert.match(main, /event\.key === "Delete" \|\| event\.key === "Backspace"/);
+    assert.match(main, /deleteSelection\(\)/);
+    assert.match(main, /selectionLocked\(\)/);
+    assert.match(main, /isLockedImage/);
+    assert.doesNotMatch(toolbar, /rotate-left-btn|rotate-right-btn|delete-btn/);
+    assert.doesNotMatch(html, /id="rotate-panel"|class="toolbar-cell"/);
+    assert.equal((html.match(/class="toolbar"/g) || []).length, 1);
+    assert.match(css, /\.float-bar button \{[\s\S]*height: 44px/);
   });
 });

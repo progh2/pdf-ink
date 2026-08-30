@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { resizeStamp, STAMP_ASPECT, STAMP_HEIGHT_CSS, STAMP_WIDTH_CSS } from "./tools.js";
+import { cloneItems, createHistory, recordChange, undoChange } from "./history.js";
 import {
   copyItems,
+  deleteItems,
   isSelectable,
   itemBounds,
   offsetItems,
@@ -67,5 +69,33 @@ describe("선택", () => {
     assert.ok(Math.abs(box.w * 400 / (box.h * 600) - STAMP_ASPECT) < 1e-6);
     const grown = resizeStamp({ ...stamp, w: STAMP_WIDTH_CSS, h: STAMP_HEIGHT_CSS }, "se", { x: 0.9, y: 0.85 }, 400, 600);
     assert.ok(Math.abs(grown.w / grown.h - STAMP_ASPECT) < 1e-6);
+  });
+
+  it("deletes the current selection and undo restores it", () => {
+    const items = [stroke, stamp, { type: "image", locked: false, x: 0.1, y: 0.1, w: 0.2, h: 0.2 }];
+    const next = deleteItems(items, [0, 2]);
+    assert.equal(next.length, 1);
+    assert.equal(next[0], stamp);
+    assert.equal(items.length, 3);
+
+    const pages = { 1: cloneItems(items) };
+    const history = createHistory();
+    const before = cloneItems(pages[1]);
+    pages[1] = deleteItems(pages[1], [1]);
+    recordChange(history, { page: 1, before, after: pages[1] });
+    assert.equal(pages[1].length, 2);
+    undoChange(history, pages);
+    assert.equal(pages[1].length, 3);
+    assert.equal(pages[1][1].stamp, "승인");
+  });
+
+  it("does not delete a locked image", () => {
+    const locked = { type: "image", locked: true, x: 0.1, y: 0.1, w: 0.2, h: 0.2 };
+    const items = [stroke, locked, stamp];
+    const next = deleteItems(items, [0, 1, 2]);
+    assert.equal(next.length, 1);
+    assert.equal(next[0], locked);
+    assert.ok(itemBounds(locked, 400, 600));
+    assert.equal(isSelectable(locked), false);
   });
 });

@@ -34,7 +34,7 @@ function strokeBounds(item) {
 }
 
 export function itemBounds(item, cssWidth = 400, cssHeight = 600) {
-  if (!isSelectable(item)) {
+  if (!item || typeof item !== "object" || item.erase || item.type === "erase") {
     return null;
   }
   if (item.type === "stamp") {
@@ -94,6 +94,9 @@ export function boundsIntersect(a, b) {
 export function pickItemsAt(items, point, cssWidth, cssHeight, pad = 0.014) {
   const hits = [];
   (items || []).forEach((item, index) => {
+    if (!isSelectable(item)) {
+      return;
+    }
     const bounds = itemBounds(item, cssWidth, cssHeight);
     if (bounds && pointInBounds(point, bounds, pad)) {
       hits.push(index);
@@ -105,6 +108,9 @@ export function pickItemsAt(items, point, cssWidth, cssHeight, pad = 0.014) {
 export function pickItemsInRect(items, rect, cssWidth, cssHeight) {
   const hits = [];
   (items || []).forEach((item, index) => {
+    if (!isSelectable(item)) {
+      return;
+    }
     const bounds = itemBounds(item, cssWidth, cssHeight);
     if (bounds && boundsIntersect(bounds, rect)) {
       hits.push(index);
@@ -149,4 +155,14 @@ export function offsetItems(items, dx = PASTE_NUDGE, dy = PASTE_NUDGE) {
 
 export function pasteItems(items, clipboard) {
   return (items || []).concat((clipboard || []).map((item) => JSON.parse(JSON.stringify(item))));
+}
+
+export function deleteItems(items, indices) {
+  const drop = new Set(indices || []);
+  return (items || []).filter((item, index) => {
+    if (!drop.has(index)) {
+      return true;
+    }
+    return item?.type === "image" && item.locked;
+  });
 }
