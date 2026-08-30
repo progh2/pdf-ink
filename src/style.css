@@ -726,12 +726,37 @@ body {
   bottom: -4px;
 }
 
+.select-handle[data-handle="rotate"] {
+  display: block;
+  width: 16px;
+  height: 16px;
+  left: 50%;
+  top: -20px;
+  margin-left: -8px;
+  margin-top: -8px;
+  background: #fff;
+  border: 1.6px solid #2C2A26;
+  border-radius: 50%;
+  box-sizing: border-box;
+  pointer-events: auto;
+  touch-action: none;
+  cursor: grab;
+}
+
+.select-layer.is-rotating .select-handle[data-handle="rotate"] {
+  cursor: grabbing;
+}
+
+.select-layer.is-cropping .select-handle[data-handle="rotate"] {
+  display: none;
+}
+
 .select-layer.is-image .select-handle,
 .select-layer.is-stamp .select-handle {
   display: block;
 }
 
-.select-layer:not(.is-image):not(.is-stamp) .select-handle {
+.select-layer:not(.is-image):not(.is-stamp) .select-handle:not([data-handle="rotate"]) {
   display: none;
 }
 
