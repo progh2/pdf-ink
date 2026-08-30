@@ -342,6 +342,7 @@ export function createShapeHold({
       if (!armed || !canShapeHold(tool) || !client) {
         return true;
       }
+      const locking = Boolean(frozen) || Boolean(offer) || now() - lastSignificantAt >= holdMs;
       if (isShapeHoldJitter(client, lastClient, moveSlopPx)) {
         frozen = copyPoints(typeof getPoints === "function" ? getPoints() : []);
         if (!offer && now() - lastSignificantAt >= holdMs) {
@@ -351,11 +352,17 @@ export function createShapeHold({
       }
       lastClient = client;
       lastSignificantAt = now();
-      frozen = null;
-      if (offer) {
-        offer = null;
-        onOffer?.(null);
+      if (locking) {
+        frozen = null;
+        if (offer) {
+          offer = null;
+          onOffer?.(null);
+        }
+        clearTimer();
+        timer = setTimeoutFn(() => fire(getPoints, onOffer), holdMs);
+        return false;
       }
+      frozen = null;
       clearTimer();
       timer = setTimeoutFn(() => fire(getPoints, onOffer), holdMs);
       return true;
@@ -379,5 +386,6 @@ export function createShapeHold({
     isOffering: () => Boolean(offer),
     currentOffer: () => offer,
     isFrozen: () => Boolean(frozen),
+    isHoldLocked: () => Boolean(frozen) || Boolean(offer) || now() - lastSignificantAt >= holdMs,
   };
 }

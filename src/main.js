@@ -1260,6 +1260,9 @@ function moveStroke(event) {
       client,
       ...shapeHoldCallbacks(),
     });
+    if (shapeHold.isOffering() || shapeHold.isHoldLocked()) {
+      append = false;
+    }
   }
   if (append) {
     state.currentStroke.points = appendInkPoint(

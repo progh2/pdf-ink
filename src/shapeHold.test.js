@@ -472,12 +472,68 @@ describe("#70 hold-end jitter must not turn ink into a triangle", () => {
     assert.notEqual(done.points.length, 3);
   });
 
+  it("a 145px downward client jump during an active hold/offer does not grow the stroke if chips remain", () => {
+    const clock = createClock();
+    const hold = createShapeHold({
+      holdMs: SHAPE_HOLD_MS,
+      now: clock.now,
+      setTimeoutFn: clock.setTimeoutFn,
+      clearTimeoutFn: clock.clearTimeoutFn,
+    });
+    const dragged = lineStroke(0.1, 0.36, 0.84, 0.38, 20, 0.003);
+    const startClient = { x: 16, y: 60 };
+    let live = [dragged[0]];
+    let offered = null;
+    const onOffer = (next) => {
+      offered = next;
+    };
+    hold.begin({
+      tool: "pen",
+      client: startClient,
+      getPoints: () => live,
+      onOffer,
+    });
+    for (let index = 1; index < dragged.length; index += 1) {
+      live = recordHoldMove(hold, live, { x: startClient.x + index * 20, y: 60 }, dragged[index], onOffer);
+    }
+    const endClient = { x: startClient.x + (dragged.length - 1) * 20, y: 60 };
+    clock.advance(400);
+    assert.equal(hold.isOffering(), true);
+    assert.ok(offered);
+    assert.ok(SHAPE_HOLD_CHIPS.includes(offered.kind));
+    assert.deepEqual(offered.ghostPoints, offered.chips[offered.kind] || offered.chips.line);
+    const before = live.slice();
+    const last = live[live.length - 1];
+    const jumpClient = { x: endClient.x, y: endClient.y + 145 };
+    const jumpNorm = { x: last.x, y: last.y + 0.28 };
+    const accept = hold.noteMove({
+      client: jumpClient,
+      getPoints: () => live,
+      onOffer,
+    });
+    if (accept) {
+      live = appendInkPoint(live, jumpNorm, jumpClient, null);
+    }
+    if (hold.isOffering() || hold.isHoldLocked()) {
+      assert.equal(accept, false);
+      assert.equal(live.length, before.length);
+      assert.deepEqual(live, before);
+    }
+    assert.equal(live.length, before.length);
+    assert.deepEqual(live, before);
+    assert.notEqual(live.at(-1)?.y, jumpNorm.y);
+    assert.ok(offered == null || offered.chips.line);
+    assert.deepEqual(SHAPE_HOLD_CHIPS, ["line", "rect", "circle"]);
+  });
+
   it("wires freeze before append and does not add a toolbar cell or triangle chip", () => {
     assert.match(main, /let append = true/);
     assert.match(main, /append = shapeHold\.noteMove/);
+    assert.match(main, /if \(shapeHold\.isOffering\(\) \|\| shapeHold\.isHoldLocked\(\)\)/);
     assert.match(main, /if \(append\) \{\s*state\.currentStroke\.points = appendInkPoint/);
     assert.match(shapeHoldSrc, /isShapeHoldJitter/);
     assert.match(shapeHoldSrc, /frozen/);
+    assert.match(shapeHoldSrc, /isHoldLocked/);
     assert.doesNotMatch(shapeHoldSrc, /triangle|삼각/);
     assert.doesNotMatch(main, /triangle|삼각/);
     assert.deepEqual(SHAPE_HOLD_CHIPS, ["line", "rect", "circle"]);
