@@ -8,7 +8,7 @@ export const PREVIEW_FILTER_LABELS = {
 };
 
 export function makePdfLeaf(pdfPage, extras = {}) {
-  return {
+  const leaf = {
     id: extras.id || `p${pdfPage}`,
     kind: "pdf",
     pdfPage,
@@ -16,6 +16,11 @@ export function makePdfLeaf(pdfPage, extras = {}) {
     rotate: normalizeRotation(extras.rotate || 0),
     title: extras.title || "",
   };
+  // A duplicated page carries its own ink, so it needs its own key (#55).
+  if (extras.inkId) {
+    leaf.inkId = String(extras.inkId);
+  }
+  return leaf;
 }
 
 export function makeOutlineLeaf(id, extras = {}) {
@@ -35,6 +40,21 @@ export function defaultLeaves(pageCount) {
   return Array.from({ length: n }, (_, index) => makePdfLeaf(index + 1));
 }
 
+/** Ids address ink and rows, so a duplicated page must not reuse one (#55). */
+function uniqueId(base, used) {
+  if (base && !used.has(base)) {
+    used.add(base);
+    return base;
+  }
+  let n = 2;
+  while (used.has(`${base}#${n}`)) {
+    n += 1;
+  }
+  const id = `${base}#${n}`;
+  used.add(id);
+  return id;
+}
+
 export function normalizeLeaves(leaves, pageCount) {
   const n = Math.max(0, Math.round(Number(pageCount) || 0));
   if (!Array.isArray(leaves) || !leaves.length) {
@@ -42,18 +62,24 @@ export function normalizeLeaves(leaves, pageCount) {
   }
   const out = [];
   const seen = new Set();
+  const ids = new Set();
   for (const raw of leaves) {
     if (!raw || typeof raw !== "object") {
       continue;
     }
     if (raw.kind === "outline") {
-      out.push(makeOutlineLeaf(raw.id || `o:${out.length + 1}`, raw));
+      const leaf = makeOutlineLeaf(raw.id || `o:${out.length + 1}`, raw);
+      leaf.id = uniqueId(leaf.id, ids);
+      out.push(leaf);
       continue;
     }
     const pdfPage = Number(raw.pdfPage || raw.page);
-    if (pdfPage >= 1 && pdfPage <= n && !seen.has(pdfPage)) {
+    // The same source page may appear more than once: that is a duplicate (#55).
+    if (pdfPage >= 1 && pdfPage <= n) {
       seen.add(pdfPage);
-      out.push(makePdfLeaf(pdfPage, raw));
+      const leaf = makePdfLeaf(pdfPage, raw);
+      leaf.id = uniqueId(leaf.id, ids);
+      out.push(leaf);
     }
   }
   for (let page = 1; page <= n; page += 1) {
@@ -61,6 +87,7 @@ export function normalizeLeaves(leaves, pageCount) {
       continue;
     }
     const leaf = makePdfLeaf(page);
+    leaf.id = uniqueId(leaf.id, ids);
     const idx = out.findIndex((item) => item.kind === "pdf" && item.pdfPage > page);
     if (idx === -1) {
       out.push(leaf);
@@ -78,7 +105,7 @@ export function inkKey(leaf) {
   if (leaf.kind === "outline") {
     return leaf.id;
   }
-  return String(leaf.pdfPage);
+  return leaf.inkId ? String(leaf.inkId) : String(leaf.pdfPage);
 }
 
 export function insertOutlineAfter(leaves, index, id) {
