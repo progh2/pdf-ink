@@ -103,6 +103,16 @@ import {
   toggleBookmark,
 } from "./preview.js";
 import {
+  addOutlineEntry,
+  deleteOutlineEntry,
+  normalizeOutline,
+  outlineDestPage,
+  outlineTitleForPage,
+  renameOutlineEntry,
+  setOutlineTitleText,
+  tocRowAction,
+} from "./outline.js";
+import {
   HIGHLIGHTER_OPACITY_DEFAULT,
   HIGHLIGHTER_PALETTE,
   PEN_PALETTE,
@@ -155,6 +165,10 @@ const els = {
   previewBackdrop: document.querySelector("#preview-backdrop"),
   previewClose: document.querySelector("#preview-close"),
   previewList: document.querySelector("#preview-list"),
+  previewPages: document.querySelector("#preview-pages"),
+  previewToc: document.querySelector("#preview-toc"),
+  tocAdd: document.querySelector("#toc-add"),
+  tocList: document.querySelector("#toc-list"),
   outlineInsert: document.querySelector("#outline-insert"),
   fullscreenItem: document.querySelector("#fullscreen-item"),
   marquee: document.querySelector("#marquee"),
@@ -218,7 +232,9 @@ const state = {
   pendingCapture: null,
   immersive: false,
   leaves: [],
+  outline: [],
   previewFilter: "all",
+  previewTab: "pages",
   selectIndices: [],
   selectPage: 1,
   selectDrag: null,
@@ -300,7 +316,7 @@ function persistStrokes() {
     return;
   }
   try {
-    saveStrokes(state.identity, state.pages, state.leaves);
+    saveStrokes(state.identity, state.pages, state.leaves, state.outline);
   } catch {
     showBanner("필기를 저장하지 못했습니다. 브라우저 저장 공간이 부족할 수 있습니다.");
   }
@@ -927,6 +943,7 @@ async function openPdfBuffer(buffer, { identity, name, page = 1 }) {
   state.pageCount = state.leaves.length;
   state.page = Math.min(Math.max(1, page), state.pageCount);
   state.pages = stored.pages;
+  state.outline = normalizeOutline(stored.outline);
   state.baseCss = { width: 0, height: 0 };
   resetEditorExtras();
   if (!state.zoomLock) {
@@ -983,7 +1000,7 @@ async function goToPage(nextPage) {
   }
   await persistSession();
   if (!els.previewDrawer.hidden) {
-    renderPreviewList();
+    renderPreview();
   }
 }
 
@@ -2376,7 +2393,121 @@ function openPreview() {
   closeAllPanels();
   els.previewDrawer.hidden = false;
   els.previewBackdrop.hidden = false;
+  renderPreview();
+}
+
+function setPreviewTab(tab) {
+  state.previewTab = tab === "toc" ? "toc" : "pages";
+  renderPreview();
+}
+
+function renderPreview() {
+  const onToc = state.previewTab === "toc";
+  document.querySelectorAll("#preview-tabs [data-preview-tab]").forEach((btn) => {
+    btn.classList.toggle("is-selected", btn.dataset.previewTab === state.previewTab);
+  });
+  if (els.previewPages) {
+    els.previewPages.hidden = onToc;
+  }
+  if (els.previewToc) {
+    els.previewToc.hidden = !onToc;
+  }
+  if (onToc) {
+    renderTocList();
+    return;
+  }
   renderPreviewList();
+}
+
+function addTocEntry() {
+  state.outline = addOutlineEntry(state.outline, state.page);
+  persistStrokes();
+  renderTocList();
+}
+
+function saveTocTitle(id, title) {
+  state.outline = renameOutlineEntry(state.outline, id, title);
+  persistStrokes();
+  renderTocList();
+}
+
+function removeTocEntry(id) {
+  state.outline = deleteOutlineEntry(state.outline, id);
+  persistStrokes();
+  renderTocList();
+}
+
+function beginTocTitleEdit(titleEl, entry) {
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "preview-toc-edit";
+  input.value = entry.title;
+  input.setAttribute("aria-label", "개요 제목");
+  const commit = () => {
+    if (input.dataset.saved) {
+      return;
+    }
+    input.dataset.saved = "1";
+    saveTocTitle(entry.id, input.value);
+  };
+  input.addEventListener("click", (event) => event.stopPropagation());
+  input.addEventListener("pointerdown", (event) => event.stopPropagation());
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      input.blur();
+    }
+  });
+  input.addEventListener("blur", commit);
+  titleEl.replaceWith(input);
+  input.focus();
+  input.select();
+}
+
+function renderTocList() {
+  if (!els.tocList) {
+    return;
+  }
+  els.tocList.replaceChildren();
+  for (const entry of state.outline) {
+    const dest = outlineDestPage(entry);
+    const row = document.createElement("div");
+    row.className = "preview-toc-row";
+    if (dest === state.page) {
+      row.classList.add("is-current");
+    }
+    const title = document.createElement("button");
+    title.type = "button";
+    title.className = "preview-toc-title";
+    setOutlineTitleText(title, entry.title || outlineTitleForPage(dest));
+    title.addEventListener("click", (event) => {
+      event.stopPropagation();
+      if (tocRowAction(title.className) === "edit") {
+        beginTocTitleEdit(title, entry);
+      }
+    });
+    const jump = document.createElement("span");
+    jump.className = "preview-toc-jump";
+    jump.setAttribute("aria-hidden", "true");
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "preview-toc-delete";
+    del.textContent = "x";
+    del.setAttribute("aria-label", "개요 삭제");
+    del.addEventListener("click", (event) => {
+      event.stopPropagation();
+      if (tocRowAction(del.className) === "delete") {
+        removeTocEntry(entry.id);
+      }
+    });
+    row.append(title, jump, del);
+    row.addEventListener("click", (event) => {
+      if (tocRowAction(event.target?.className) === "jump") {
+        goToPage(dest);
+      }
+    });
+    els.tocList.append(row);
+  }
 }
 
 async function renderPreviewList() {
@@ -2460,7 +2591,7 @@ function insertOutlinePage() {
   state.page = Math.min(pageNum + 1, state.pageCount);
   rebuildPages();
   if (!els.previewDrawer.hidden) {
-    renderPreviewList();
+    renderPreview();
   }
 }
 
@@ -2564,7 +2695,7 @@ function undoInk() {
   if (applyHistoryLeaves(entry, "undo")) {
     rebuildPages();
     if (!els.previewDrawer.hidden) {
-      renderPreviewList();
+      renderPreview();
     }
     return;
   }
@@ -2581,7 +2712,7 @@ function redoInk() {
   if (applyHistoryLeaves(entry, "redo")) {
     rebuildPages();
     if (!els.previewDrawer.hidden) {
-      renderPreviewList();
+      renderPreview();
     }
     return;
   }
@@ -3303,12 +3434,18 @@ els.imageInput.addEventListener("change", () => {
 });
 els.previewClose.addEventListener("click", closePreview);
 els.previewBackdrop.addEventListener("click", closePreview);
+document.querySelectorAll("#preview-tabs [data-preview-tab]").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    setPreviewTab(btn.dataset.previewTab);
+  });
+});
 document.querySelectorAll("#preview-filters [data-preview-filter]").forEach((btn) => {
   btn.addEventListener("click", () => {
     state.previewFilter = btn.dataset.previewFilter;
     renderPreviewList();
   });
 });
+els.tocAdd.addEventListener("click", addTocEntry);
 els.outlineInsert.addEventListener("click", insertOutlinePage);
 els.copyBtn.addEventListener("click", (event) => {
   event.preventDefault();

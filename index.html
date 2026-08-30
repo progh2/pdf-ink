@@ -188,13 +188,23 @@
           <h2>미리보기</h2>
           <button type="button" class="preview-close" id="preview-close" aria-label="미리보기 닫기">닫기</button>
         </div>
-        <div class="preview-filters" id="preview-filters">
-          <button type="button" data-preview-filter="all">전체</button>
-          <button type="button" data-preview-filter="bookmarks">책갈피</button>
-          <button type="button" data-preview-filter="outline">개요</button>
+        <div class="preview-tabs" id="preview-tabs">
+          <button type="button" data-preview-tab="pages">페이지</button>
+          <button type="button" data-preview-tab="toc">개요</button>
         </div>
-        <div class="preview-list" id="preview-list"></div>
-        <button type="button" class="preview-insert" id="outline-insert">개요 페이지 넣기</button>
+        <div class="preview-pages" id="preview-pages">
+          <div class="preview-filters" id="preview-filters">
+            <button type="button" data-preview-filter="all">전체</button>
+            <button type="button" data-preview-filter="bookmarks">책갈피</button>
+            <button type="button" data-preview-filter="outline">개요</button>
+          </div>
+          <div class="preview-list" id="preview-list"></div>
+          <button type="button" class="preview-insert" id="outline-insert">개요 페이지 넣기</button>
+        </div>
+        <div class="preview-toc" id="preview-toc" hidden>
+          <button type="button" class="preview-toc-add" id="toc-add" aria-label="개요 추가">+</button>
+          <div class="preview-toc-list" id="toc-list"></div>
+        </div>
       </aside>
       <button type="button" class="preview-backdrop" id="preview-backdrop" hidden aria-label="미리보기 닫기"></button>
 

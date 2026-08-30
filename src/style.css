@@ -833,6 +833,132 @@ body {
   cursor: pointer;
 }
 
+.preview-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+}
+
+.preview-tabs button {
+  height: 32px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--title);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.preview-tabs button.is-selected {
+  background: var(--selected);
+}
+
+.preview-pages {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.preview-toc {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.preview-toc-add {
+  flex: 0 0 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--selected);
+  color: var(--title);
+  font: inherit;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.preview-toc-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.preview-toc-row {
+  height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 2px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.preview-toc-title {
+  flex: 0 1 auto;
+  max-width: calc(100% - 40px);
+  min-width: 0;
+  height: 36px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--title);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: text;
+}
+
+.preview-toc-jump {
+  flex: 1 1 auto;
+  min-width: 8px;
+  height: 36px;
+  align-self: stretch;
+}
+
+.preview-toc-edit {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: calc(100% - 40px);
+  height: 28px;
+  padding: 0 4px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--title);
+  font: inherit;
+  font-size: 12px;
+}
+
+.preview-toc-delete {
+  flex: 0 0 32px;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
 .preview-filters {
   display: grid;
   grid-template-columns: 1fr;
