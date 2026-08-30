@@ -6,16 +6,12 @@ import { fileURLToPath } from "node:url";
 import { appendInkPoint, beginInkPoints, finishInkPoints } from "./interact.js";
 import { UNDO_HOLD_MS } from "./undoHold.js";
 import {
-  SHAPE_HOLD_CHIPS,
-  SHAPE_HOLD_CHIP_HEIGHT,
-  SHAPE_HOLD_GHOST_ALPHA,
   SHAPE_HOLD_MS,
   SHAPE_HOLD_TOOLS,
-  applyShapeChip,
   canShapeHold,
   classifyStrokeShape,
   createShapeHold,
-  shapeOfferFromStroke,
+  snapStrokePoints,
 } from "./shapeHold.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -129,27 +125,29 @@ describe("#51 shape hold classify", () => {
     );
   });
 
-  it("builds chip geometries without auto-replacing the freehand", () => {
+  it("snaps helpers replace a line-like polyline with two points", () => {
     const dragged = lineStroke(0.12, 0.3, 0.8, 0.33, 18, 0.005);
-    const offer = shapeOfferFromStroke(dragged);
-    assert.ok(offer);
-    assert.deepEqual(SHAPE_HOLD_CHIPS, ["line", "rect", "circle"]);
-    assert.equal(offer.chips.line.length, 2);
-    assert.equal(offer.chips.rect.length, 5);
-    assert.ok(offer.chips.circle.length > 8);
-    assert.deepEqual(offer.chips.line[0], dragged[0]);
-    assert.deepEqual(offer.chips.line[1], dragged.at(-1));
-    assert.deepEqual(applyShapeChip("line", dragged), offer.chips.line);
-    assert.notDeepEqual(applyShapeChip("rect", boxStroke()), boxStroke());
+    const snapped = snapStrokePoints(dragged);
+    assert.equal(snapped.length, 2);
+    assert.deepEqual(snapped[0], dragged[0]);
+    assert.deepEqual(snapped[1], dragged.at(-1));
+    const box = snapStrokePoints(boxStroke());
+    assert.equal(box.length, 5);
+    const mess = [
+      { x: 0.1, y: 0.2 },
+      { x: 0.3, y: 0.8 },
+      { x: 0.5, y: 0.2 },
+      { x: 0.7, y: 0.8 },
+      { x: 0.9, y: 0.2 },
+    ];
+    assert.deepEqual(snapStrokePoints(mess), mess);
   });
 });
 
-describe("#51 400ms hold is an offer, not convert-on-hold", () => {
+describe("#51 400ms hold snaps; lift without hold keeps freehand", () => {
   it("uses a different 400ms switch from undo-hold", () => {
     assert.equal(SHAPE_HOLD_MS, 400);
     assert.equal(UNDO_HOLD_MS, 400);
-    assert.equal(SHAPE_HOLD_GHOST_ALPHA, 0.4);
-    assert.equal(SHAPE_HOLD_CHIP_HEIGHT, 36);
     assert.deepEqual(SHAPE_HOLD_TOOLS, ["pen", "highlighter", "pencil"]);
     assert.equal(canShapeHold("pen"), true);
     assert.equal(canShapeHold("highlighter"), true);
@@ -164,7 +162,7 @@ describe("#51 400ms hold is an offer, not convert-on-hold", () => {
     assert.match(main, /bindUndoHold\(els\.undoBtn,\s*\{\s*onUndo:\s*undoInk,\s*onRedo:\s*redoInk/);
   });
 
-  it("hold 400ms on a dragged line-like stroke offers ghost+chips and does not replace points", () => {
+  it("hold 400ms on a dragged line-like stroke snaps to a line", () => {
     const clock = createClock();
     const hold = createShapeHold({
       holdMs: SHAPE_HOLD_MS,
@@ -173,13 +171,12 @@ describe("#51 400ms hold is an offer, not convert-on-hold", () => {
     });
     const dragged = lineStroke(0.1, 0.4, 0.85, 0.42, 24, 0.004);
     let live = [dragged[0]];
-    let offered = null;
     hold.begin({
       tool: "pen",
       client: { x: 10, y: 40 },
       getPoints: () => live,
-      onOffer: (next) => {
-        offered = next;
+      onSnap: (next) => {
+        live = next.points;
       },
     });
     for (let index = 1; index < dragged.length; index += 1) {
@@ -187,27 +184,25 @@ describe("#51 400ms hold is an offer, not convert-on-hold", () => {
       hold.noteMove({
         client: { x: 10 + index * 8, y: 40 },
         getPoints: () => live,
-        onOffer: (next) => {
-          offered = next;
+        onSnap: (next) => {
+          live = next.points;
         },
       });
     }
     clock.advance(399);
-    assert.equal(hold.isOffering(), false);
-    assert.equal(offered, null);
+    assert.equal(hold.isSnapped(), false);
     assert.deepEqual(live, dragged);
     clock.advance(1);
-    assert.equal(hold.isOffering(), true);
-    assert.ok(offered);
-    assert.equal(offered.kind, "line");
-    assert.deepEqual(live, dragged);
+    assert.equal(hold.isSnapped(), true);
+    assert.equal(hold.snappedKind(), "line");
+    assert.equal(live.length, 2);
     const done = hold.finish(live);
-    assert.equal(done.snapped, false);
-    assert.deepEqual(done.points, dragged);
-    assert.equal(done.offer.chips.line.length, 2);
+    assert.equal(done.snapped, true);
+    assert.equal(done.kind, "line");
+    assert.equal(done.points.length, 2);
   });
 
-  it("lift before 400ms keeps freehand and has no offer", () => {
+  it("lift before 400ms keeps freehand", () => {
     const clock = createClock();
     const hold = createShapeHold({
       holdMs: SHAPE_HOLD_MS,
@@ -227,10 +222,9 @@ describe("#51 400ms hold is an offer, not convert-on-hold", () => {
     });
     clock.advance(399);
     const done = hold.finish(live);
-    assert.equal(hold.isOffering(), false);
-    assert.equal(done.offer, null);
-    assert.deepEqual(done.points, dragged);
+    assert.equal(hold.isSnapped(), false);
     assert.equal(done.snapped, false);
+    assert.deepEqual(done.points, dragged);
   });
 
   it("moving before 400ms resets the hold timer", () => {
@@ -251,19 +245,12 @@ describe("#51 400ms hold is an offer, not convert-on-hold", () => {
     clock.advance(200);
     hold.noteMove({ client: { x: 160, y: 0 }, getPoints: () => live });
     clock.advance(200);
-    assert.equal(hold.isOffering(), false);
+    assert.equal(hold.isSnapped(), false);
     clock.advance(200);
-    assert.equal(hold.isOffering(), true);
+    assert.equal(hold.isSnapped(), true);
   });
 
-  it("picking a chip converts; dismissing keeps freehand", () => {
-    const dragged = lineStroke(0.15, 0.4, 0.82, 0.41, 20, 0.003);
-    assert.deepEqual(applyShapeChip("line", dragged).length, 2);
-    assert.notEqual(applyShapeChip("rect", dragged).length, dragged.length);
-    assert.deepEqual(dragged.length > 2, true);
-  });
-
-  it("does not offer on stamps, eraser, or tiny dots", () => {
+  it("does not snap stamps, eraser, or tiny dots", () => {
     const clock = createClock();
     const hold = createShapeHold({
       holdMs: SHAPE_HOLD_MS,
@@ -276,7 +263,7 @@ describe("#51 400ms hold is an offer, not convert-on-hold", () => {
       getPoints: () => lineStroke(0.1, 0.1, 0.8, 0.1),
     });
     clock.advance(400);
-    assert.equal(hold.isOffering(), false);
+    assert.equal(hold.isSnapped(), false);
 
     const erase = createShapeHold({
       holdMs: SHAPE_HOLD_MS,
@@ -289,7 +276,7 @@ describe("#51 400ms hold is an offer, not convert-on-hold", () => {
       getPoints: () => lineStroke(0.1, 0.1, 0.8, 0.1),
     });
     clock.advance(400);
-    assert.equal(erase.isOffering(), false);
+    assert.equal(erase.isSnapped(), false);
 
     const dot = createShapeHold({
       holdMs: SHAPE_HOLD_MS,
@@ -302,7 +289,7 @@ describe("#51 400ms hold is an offer, not convert-on-hold", () => {
       getPoints: () => [{ x: 0.5, y: 0.5 }],
     });
     clock.advance(400);
-    assert.equal(dot.isOffering(), false);
+    assert.equal(dot.isSnapped(), false);
   });
 });
 
@@ -329,7 +316,7 @@ describe("#47 leftover taps still are not a line", () => {
       getPoints: () => second,
     });
     clock.advance(400);
-    assert.equal(hold.isOffering(), false);
+    assert.equal(hold.isSnapped(), false);
     second = appendInkPoint(second, bNorm, bClient, aClient);
     second = finishInkPoints(second, bNorm, bClient, aClient);
     const done = hold.finish(second);
@@ -341,20 +328,16 @@ describe("#47 leftover taps still are not a line", () => {
 });
 
 describe("#51 chrome lock", () => {
-  it("puts three 36px chips on the paper, not on the one toolbar", () => {
+  it("keeps one toolbar and does not add a cell or paper chips", () => {
     assert.equal((html.match(/class="toolbar"/g) || []).length, 1);
-    assert.match(html, /id="shape-chips"/);
-    assert.match(html, /data-shape="line"/);
-    assert.match(html, /data-shape="rect"/);
-    assert.match(html, /data-shape="circle"/);
+    assert.doesNotMatch(html, /id="shape-chips"|data-shape=/);
     assert.doesNotMatch(toolbar, /shape-chips|data-shape=/);
-    assert.match(css, /\.shape-chips button \{[\s\S]*height: 36px/);
+    assert.doesNotMatch(css, /\.shape-chips/);
     assert.match(css, /\.toolbar \{[\s\S]*flex-wrap: nowrap/);
     assert.match(main, /shapeHold\.begin/);
-    assert.match(main, /onOffer/);
+    assert.match(main, /onSnap/);
     assert.match(main, /beginInkPoints\(/);
     assert.match(main, /lastInkUpClient/);
-    assert.match(main, /SHAPE_HOLD_GHOST_ALPHA/);
-    assert.doesNotMatch(main, /currentStroke\.points = (?:next|result|snapped|offer)/);
+    assert.match(main, /currentStroke\.points = result\.points/);
   });
 });

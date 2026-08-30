@@ -197,21 +197,6 @@ function tracePath(ctx, points, canvas, scale, jitter = 0, salt = 0) {
   ctx.stroke();
 }
 
-export function paintGhost(ctx, stroke, scale, canvas) {
-  const points = stroke.points || [];
-  if (!points.length) {
-    return;
-  }
-  ctx.save();
-  ctx.globalCompositeOperation = "source-over";
-  ctx.strokeStyle = stroke.color || "rgba(26, 26, 26, 0.4)";
-  ctx.lineCap = "round";
-  ctx.lineJoin = "round";
-  ctx.lineWidth = (stroke.width || 2) * scale;
-  tracePath(ctx, points, canvas, scale);
-  ctx.restore();
-}
-
 export function paintPen(ctx, stroke, scale, canvas) {
   const points = stroke.points || [];
   if (!points.length) {

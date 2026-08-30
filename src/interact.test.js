@@ -162,7 +162,7 @@ describe("#47 두 탭이 직선이 되면 안 됨", () => {
     assert.match(main, /lastInkUpClient/);
     assert.match(main, /createShapeHold\(/);
     assert.match(main, /from "\.\/shapeHold\.js"/);
-    assert.match(html, /id="shape-chips"/);
+    assert.doesNotMatch(html, /id="shape-chips"|data-shape=/);
     assert.doesNotMatch(toolbar, /shape-chips|data-shape=/);
     assert.equal((html.match(/class="toolbar"/g) || []).length, 1);
     assert.doesNotMatch(toolbar, /data-slot=/);
