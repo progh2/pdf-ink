@@ -1254,17 +1254,19 @@ function moveStroke(event) {
   }
   event.preventDefault();
   const client = { x: event.clientX, y: event.clientY };
-  state.currentStroke.points = appendInkPoint(
-    state.currentStroke.points,
-    eventToNorm(event, state.drawCanvas),
-    client,
-    lastInkUpClient,
-  );
-  if (canShapeHold(state.currentStroke.type)) {
-    shapeHold.noteMove({
+  const holdMove = canShapeHold(state.currentStroke.type)
+    ? shapeHold.noteMove({
+        client,
+        ...shapeHoldCallbacks(),
+      })
+    : true;
+  if (holdMove) {
+    state.currentStroke.points = appendInkPoint(
+      state.currentStroke.points,
+      eventToNorm(event, state.drawCanvas),
       client,
-      ...shapeHoldCallbacks(),
-    });
+      lastInkUpClient,
+    );
   }
   drawLive();
 }

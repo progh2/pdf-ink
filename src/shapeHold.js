@@ -267,6 +267,7 @@ export function createShapeHold({
   let offer = null;
   let armed = false;
   let lastSignificantAt = 0;
+  let drawn = false;
 
   const clearTimer = () => {
     if (timer) {
@@ -296,6 +297,7 @@ export function createShapeHold({
       offer = null;
       armed = false;
       lastSignificantAt = 0;
+      drawn = false;
     },
     begin({ tool: nextTool, client, getPoints, onOffer } = {}) {
       this.reset();
@@ -310,7 +312,7 @@ export function createShapeHold({
     },
     noteMove({ client, getPoints, onOffer } = {}) {
       if (!armed || !canShapeHold(tool) || !client) {
-        return false;
+        return true;
       }
       const dx = client.x - (lastClient?.x ?? client.x);
       const dy = client.y - (lastClient?.y ?? client.y);
@@ -318,8 +320,9 @@ export function createShapeHold({
         if (!offer && now() - lastSignificantAt >= holdMs) {
           fire(getPoints, onOffer);
         }
-        return false;
+        return !(drawn || offer);
       }
+      drawn = true;
       lastClient = client;
       lastSignificantAt = now();
       if (offer) {
@@ -328,7 +331,7 @@ export function createShapeHold({
       }
       clearTimer();
       timer = setTimeoutFn(() => fire(getPoints, onOffer), holdMs);
-      return false;
+      return true;
     },
     finish(freehandPoints) {
       clearTimer();
@@ -338,6 +341,7 @@ export function createShapeHold({
       const kept = offer;
       lastClient = null;
       armed = false;
+      drawn = false;
       return {
         points: freehandPoints,
         offer: kept,

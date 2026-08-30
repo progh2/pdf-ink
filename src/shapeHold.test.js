@@ -352,6 +352,180 @@ describe("#51 400ms hold offers chips, does not auto-convert", () => {
   });
 });
 
+function feedStroke(hold, points, startClient, stepPx = 20) {
+  let live = beginInkPoints(points[0], startClient, null);
+  let offered = null;
+  const onOffer = (next) => {
+    offered = next;
+  };
+  hold.begin({
+    tool: "pen",
+    client: startClient,
+    getPoints: () => live,
+    onOffer,
+  });
+  for (let index = 1; index < points.length; index += 1) {
+    const client = { x: startClient.x + index * stepPx, y: startClient.y };
+    const accept = hold.noteMove({
+      client,
+      getPoints: () => live,
+      onOffer,
+    });
+    if (accept) {
+      live = appendInkPoint(live, points[index], client, null);
+    }
+  }
+  return {
+    live,
+    offered: () => offered,
+    move(norm, client) {
+      const accept = hold.noteMove({
+        client,
+        getPoints: () => live,
+        onOffer,
+      });
+      if (accept) {
+        live = appendInkPoint(live, norm, client, null);
+      }
+      return accept;
+    },
+    points: () => live,
+  };
+}
+
+describe("#70 hold at end of a long stroke does not leak a triangle", () => {
+  it("does not append jitter points during the 400ms end hold", () => {
+    const clock = createClock();
+    const hold = createShapeHold({
+      holdMs: SHAPE_HOLD_MS,
+      now: clock.now,
+      setTimeoutFn: clock.setTimeoutFn,
+      clearTimeoutFn: clock.clearTimeoutFn,
+    });
+    const dragged = lineStroke(0.1, 0.4, 0.85, 0.42, 24, 0.004);
+    const stroke = feedStroke(hold, dragged, { x: 10, y: 40 }, 20);
+    const beforeHold = stroke.points().slice();
+    assert.ok(beforeHold.length > 3);
+    const endClient = { x: 10 + (dragged.length - 1) * 20, y: 40 };
+    for (let index = 0; index < 10; index += 1) {
+      clock.advance(35);
+      const accept = stroke.move(
+        {
+          x: 0.85 + (index % 2 ? 0.02 : -0.015),
+          y: 0.55 + (index % 2 ? 0.08 : -0.04),
+        },
+        {
+          x: endClient.x + (index % 2 ? 8 : -7),
+          y: endClient.y + (index % 2 ? 6 : -5),
+        },
+      );
+      assert.equal(accept, false);
+    }
+    assert.deepEqual(stroke.points(), beforeHold);
+    assert.notEqual(stroke.points().length, 3);
+    clock.advance(50);
+    assert.equal(hold.isOffering(), true);
+    assert.ok(stroke.offered());
+    assert.ok(stroke.offered().chips.line);
+    assert.ok(stroke.offered().chips.rect);
+    assert.ok(stroke.offered().chips.circle);
+    assert.notEqual(stroke.offered().ghostPoints.length, 3);
+    assert.ok(stroke.offered().ghostPoints.length === 2 || stroke.offered().ghostPoints.length > 4);
+  });
+
+  it("pointerup after a hold keeps freehand, not a leftover triangle", () => {
+    const clock = createClock();
+    const hold = createShapeHold({
+      holdMs: SHAPE_HOLD_MS,
+      now: clock.now,
+      setTimeoutFn: clock.setTimeoutFn,
+      clearTimeoutFn: clock.clearTimeoutFn,
+    });
+    const dragged = lineStroke(0.12, 0.3, 0.82, 0.33, 20, 0.003);
+    const stroke = feedStroke(hold, dragged, { x: 8, y: 24 }, 22);
+    const freehand = stroke.points().slice();
+    const endClient = { x: 8 + (dragged.length - 1) * 22, y: 24 };
+    clock.advance(200);
+    stroke.move({ x: 0.45, y: 0.7 }, { x: endClient.x + 10, y: endClient.y + 8 });
+    clock.advance(200);
+    assert.deepEqual(stroke.points(), freehand);
+    const done = hold.finish(stroke.points());
+    assert.equal(hold.isOffering(), true);
+    assert.ok(done.offer);
+    assert.ok(done.offer.chips.line);
+    assert.ok(done.offer.chips.rect);
+    assert.ok(done.offer.chips.circle);
+    assert.equal(done.snapped, false);
+    assert.deepEqual(done.points, freehand);
+    assert.notEqual(done.points.length, 3);
+    assert.ok(done.points.length > 3);
+    assert.notEqual(done.offer.ghostPoints.length, 3);
+  });
+
+  it("dismissing chips keeps the long freehand stroke", () => {
+    const clock = createClock();
+    const hold = createShapeHold({
+      holdMs: SHAPE_HOLD_MS,
+      now: clock.now,
+      setTimeoutFn: clock.setTimeoutFn,
+      clearTimeoutFn: clock.clearTimeoutFn,
+    });
+    const dragged = lineStroke(0.1, 0.5, 0.84, 0.52, 18, 0);
+    const stroke = feedStroke(hold, dragged, { x: 12, y: 30 }, 24);
+    const freehand = stroke.points().slice();
+    clock.advance(400);
+    const done = hold.finish(stroke.points());
+    assert.ok(done.offer);
+    assert.deepEqual(done.points, freehand);
+    assert.equal(applyShapeChip("line", done.points).length, 2);
+    assert.deepEqual(done.points, freehand);
+    assert.notEqual(done.points.length, 3);
+  });
+
+  it("still records a short drag that never leaves the slop bubble", () => {
+    const hold = createShapeHold();
+    const start = { x: 40, y: 40 };
+    const mid = { x: 48, y: 43 };
+    let live = beginInkPoints({ x: 0.2, y: 0.2 }, start, null);
+    hold.begin({
+      tool: "pen",
+      client: start,
+      getPoints: () => live,
+    });
+    const accept = hold.noteMove({
+      client: mid,
+      getPoints: () => live,
+    });
+    assert.equal(accept, true);
+    live = appendInkPoint(live, { x: 0.22, y: 0.21 }, mid, null);
+    assert.equal(live.length, 2);
+    const done = hold.finish(live);
+    assert.deepEqual(done.points, live);
+  });
+
+  it("wires moveStroke to skip appendInkPoint while the end hold is still", () => {
+    assert.match(main, /const holdMove = canShapeHold/);
+    assert.match(main, /if \(holdMove\) \{\s*state\.currentStroke\.points = appendInkPoint/);
+    assert.match(main, /shapeHold\.noteMove/);
+    assert.match(main, /shapeHold\.finish\(freehand\)/);
+    assert.match(main, /beginInkPoints\(/);
+    assert.match(main, /lastInkUpClient/);
+  });
+
+  it("does not add a toolbar cell or drop the three paper chips", () => {
+    assert.equal((html.match(/class="toolbar"/g) || []).length, 1);
+    assert.deepEqual(SHAPE_HOLD_CHIPS, ["line", "rect", "circle"]);
+    assert.match(html, /id="shape-chips"/);
+    assert.match(html, /data-shape="line"/);
+    assert.match(html, /data-shape="rect"/);
+    assert.match(html, /data-shape="circle"/);
+    assert.doesNotMatch(html, /data-shape="triangle"/);
+    assert.doesNotMatch(toolbar, /shape-chips|data-shape=/);
+    assert.doesNotMatch(main, /data-shape="triangle"/);
+    assert.match(css, /\.shape-chips button \{[\s\S]*height: 36px/);
+  });
+});
+
 describe("#47 leftover taps still are not a line", () => {
   const aClient = { x: 40, y: 80 };
   const bClient = { x: 220, y: 360 };
