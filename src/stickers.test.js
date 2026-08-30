@@ -12,6 +12,8 @@ import {
   STUDIO_HANDLES,
   STUDIO_SCALE_MAX,
   STUDIO_SCALE_MIN,
+  STICKER_MENU_ACTIONS,
+  STICKER_MENU_LABELS,
   STUDIO_TOOLS,
   addFolder,
   cornerScale,
@@ -26,6 +28,7 @@ import {
   normalizeAngle,
   normalizeFolders,
   normalizeStickers,
+  gridIndexAt,
   moveRegion,
   pixelAt,
   pointInRegion,
@@ -33,6 +36,7 @@ import {
   regionPixelRect,
   resizeRegion,
   renameFolder,
+  reorderStickers,
   rotatedSize,
   scaledSize,
   stickerFitSize,
@@ -338,10 +342,10 @@ describe("#100 배선", () => {
   const main = readFileSync(join(here, "main.js"), "utf8");
   const css = readFileSync(join(here, "style.css"), "utf8");
 
-  it("deletes a sticker straight from the grid, no confirm", () => {
-    assert.match(main, /class = "sticker-cell-close"|className = "sticker-cell-close"/);
-    assert.match(main, /removeSticker\(sticker\.id\)/);
-    assert.match(css, /\.sticker-cell-close \{[\s\S]*width: 20px[\s\S]*height: 20px/);
+  it("deletes only through the hold menu now (#103), never a stray tap", () => {
+    assert.match(main, /removeSticker\(id\)/);
+    assert.doesNotMatch(css, /\.sticker-cell-close/, "the always-on ✕ is gone");
+    assert.doesNotMatch(main, /sticker-cell-close/);
     assert.doesNotMatch(main, /confirm\(/);
   });
 
@@ -358,5 +362,72 @@ describe("#100 배선", () => {
     assert.match(main, /index === stickerRegionPick[\s\S]*is-selected/);
     assert.match(css, /\.sticker-region-handle \{[\s\S]*width: 8px/);
     assert.match(css, /\.sticker-region \{[\s\S]*1\.5px solid #c4a574/);
+  });
+});
+
+describe("#103 스티커 메뉴와 순서", () => {
+  const mine = (list, folder) => list.filter((s) => s.folderId === folder).map((s) => s.id);
+
+  function library() {
+    const a = { ...makeSticker({ src: "a" }), id: "a" };
+    const b = { ...makeSticker({ src: "b" }), id: "b" };
+    const c = { ...makeSticker({ src: "c" }), id: "c" };
+    const other = { ...makeSticker({ src: "x", folderId: "f:2" }), id: "x" };
+    return [a, other, b, c];
+  }
+
+  it("offers edit and delete, nothing destructive by accident", () => {
+    assert.deepEqual(STICKER_MENU_ACTIONS, ["edit", "delete"]);
+    assert.equal(STICKER_MENU_LABELS.delete, "삭제");
+  });
+
+  it("reorders inside the folder and leaves other folders alone", () => {
+    const list = library();
+    const moved = reorderStickers(list, DEFAULT_FOLDER_ID, 0, 2);
+    assert.deepEqual(mine(moved, DEFAULT_FOLDER_ID), ["b", "c", "a"]);
+    assert.deepEqual(mine(moved, "f:2"), ["x"], "the other folder is untouched");
+    assert.equal(moved.length, list.length);
+    // Back the other way.
+    assert.deepEqual(mine(reorderStickers(moved, DEFAULT_FOLDER_ID, 2, 0), DEFAULT_FOLDER_ID), ["a", "b", "c"]);
+  });
+
+  it("ignores a no-op or out-of-range drag", () => {
+    const list = library();
+    assert.equal(reorderStickers(list, DEFAULT_FOLDER_ID, 1, 1), list);
+    assert.equal(reorderStickers(list, DEFAULT_FOLDER_ID, -1, 2), list);
+    assert.equal(reorderStickers(list, DEFAULT_FOLDER_ID, 0, 9), list);
+  });
+
+  it("finds the slot under a drag in the wrapping grid", () => {
+    const geom = { gridLeft: 100, gridTop: 200, columns: 4, count: 10 };
+    assert.equal(gridIndexAt({ ...geom, x: 110, y: 210 }), 0);
+    assert.equal(gridIndexAt({ ...geom, x: 110 + 72, y: 210 }), 1);
+    assert.equal(gridIndexAt({ ...geom, x: 110, y: 210 + 72 }), 4);
+    assert.equal(gridIndexAt({ ...geom, x: 9000, y: 9000 }), 9, "clamped to the last one");
+    assert.equal(gridIndexAt({ ...geom, x: -500, y: -500 }), 0);
+  });
+});
+
+describe("#103 배선", () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const main = readFileSync(join(here, "main.js"), "utf8");
+  const html = readFileSync(join(here, "..", "index.html"), "utf8");
+  const css = readFileSync(join(here, "style.css"), "utf8");
+
+  it("holds for the menu, taps to place, holds-then-drags to reorder", () => {
+    for (const action of STICKER_MENU_ACTIONS) {
+      assert.match(html, new RegExp(`data-sticker-menu="${action}"`), action);
+    }
+    assert.match(main, /openStickerMenu\(sticker\.id, cell\.getBoundingClientRect\(\)\)/);
+    assert.match(main, /if \(wasHeld && wasDragging\) \{[\s\S]*reorderStickerTo/);
+    assert.match(main, /if \(!wasHeld\) \{\s*placeSticker\(sticker\);/);
+    // A plain drag (no hold) still files it in another folder.
+    assert.match(main, /moveSticker\(state\.stickers, sticker\.id, target\)/);
+    assert.match(css, /\.sticker-cell\.is-grabbed/);
+  });
+
+  it("keeps the new order in the store", () => {
+    assert.match(main, /reorderStickers\(state\.stickers, state\.stickerFolder, from, slot\)/);
+    assert.match(main, /function reorderStickerTo[\s\S]*persistStickers\(\)/);
   });
 });

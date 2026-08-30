@@ -135,7 +135,10 @@ import {
   normalizeFolders,
   normalizeStickers,
   REGION_HANDLES,
+  STICKER_GAP,
+  STICKER_THUMB,
   cornerScale,
+  gridIndexAt,
   deleteRegionAt,
   moveRegion,
   pixelAt,
@@ -143,6 +146,7 @@ import {
   regionPixelRect,
   resizeRegion,
   renameFolder,
+  reorderStickers,
   rotatedSize,
   scaledSize,
   stickerFitSize,
@@ -162,6 +166,7 @@ import {
   offsetItems,
   pickItemsAt,
   pickItemsInRect,
+  lockedImageAt,
   rotateHandleAt,
   selectedBounds,
   selectHudTop,
@@ -297,6 +302,8 @@ const els = {
   stickerStudio: document.querySelector("#sticker-studio"),
   stickerStudioCanvas: document.querySelector("#sticker-studio-canvas"),
   stickerStudioBox: document.querySelector("#sticker-studio-box"),
+  stickerMenu: document.querySelector("#sticker-menu"),
+  lockMenu: document.querySelector("#lock-menu"),
   stickerTools: document.querySelector("#sticker-tools"),
   stickerAngle: document.querySelector("#sticker-angle"),
   stickerSave: document.querySelector("#sticker-save"),
@@ -379,6 +386,8 @@ const state = {
   stickerFolders: [],
   stickerFolder: DEFAULT_FOLDER_ID,
   stickerPick: null,
+  stickerMenuAt: null,
+  lockMenuAt: null,
   studioTool: "chroma",
   studioScale: 1,
   pageMenuAt: 0,
@@ -423,7 +432,7 @@ const thumbCache = createPaintCache(THUMB_BITMAP_LIMIT);
 const stagePool = [];
 
 const WRITE_CHROME =
-  ".sheet-card, .slot-panel, .toolbar, .write-top, .m4-bar, .more-panel, .marquee, .preview-drawer, .page-menu, .sticker-sheet, .select-hud, .float-bar, #float-bar, .select-layer, #select-layer, .shape-chips, #area-link-panel, #split-tabs, #split-pane, #area-layer";
+  ".sheet-card, .slot-panel, .toolbar, .write-top, .m4-bar, .more-panel, .marquee, .preview-drawer, .page-menu, .sticker-sheet, #lock-menu, #sticker-menu, .select-hud, .float-bar, #float-bar, .select-layer, #select-layer, .shape-chips, #area-link-panel, #split-tabs, #split-pane, #area-layer";
 
 function isWriteChrome(target) {
   return Boolean(target?.closest?.(WRITE_CHROME));
@@ -2224,6 +2233,7 @@ function closeAllPanels() {
   closeEraserPanel();
   closeMorePanel();
   hidePageMenu();
+  hideLockMenu();
 }
 
 function placePanel(panel, anchorBtn) {
@@ -2490,6 +2500,7 @@ function setZoomLock(on) {
 function setInteractMode(mode) {
   state.interactMode = mode === "view" ? "view" : "edit";
   saveInteractMode(state.interactMode);
+  hideLockMenu();
   viewNoticeAt = null;
   if (state.interactMode === "edit" && els.banner.textContent === VIEW_NOTICE_TEXT) {
     showBanner("");
@@ -3076,6 +3087,73 @@ function endRect(event) {
   }
 }
 
+/* ---- 고정한 이미지 풀기 (#104) ---- */
+
+let lockHoldTimer = 0;
+
+function hideLockMenu() {
+  if (els.lockMenu) {
+    els.lockMenu.hidden = true;
+  }
+  state.lockMenuAt = null;
+}
+
+function cancelLockHold() {
+  window.clearTimeout(lockHoldTimer);
+  lockHoldTimer = 0;
+}
+
+/** Select tool only: a locked image has no other way back (#104). */
+function armLockHold(event, point, items, cssW, cssH) {
+  cancelLockHold();
+  if (state.tool !== "select" || state.interactMode === "view") {
+    return;
+  }
+  const index = lockedImageAt(items, point, cssW, cssH);
+  if (index < 0) {
+    return;
+  }
+  const page = state.drawPage;
+  const at = { x: event.clientX, y: event.clientY };
+  lockHoldTimer = window.setTimeout(() => {
+    lockHoldTimer = 0;
+    openLockMenu(page, index, at);
+  }, PAGE_HOLD_MS);
+}
+
+function openLockMenu(page, index, at) {
+  if (!els.lockMenu) {
+    return;
+  }
+  state.lockMenuAt = { page, index };
+  els.lockMenu.hidden = false;
+  const width = 140;
+  els.lockMenu.style.left = `${Math.min(window.innerWidth - width - 8, Math.max(8, at.x))}px`;
+  els.lockMenu.style.top = `${Math.min(window.innerHeight - 52, Math.max(8, at.y))}px`;
+}
+
+function unlockFromMenu() {
+  const spot = state.lockMenuAt;
+  hideLockMenu();
+  if (!spot) {
+    return;
+  }
+  const item = pageStrokes(spot.page)[spot.index];
+  if (item?.type !== "image" || !item.locked) {
+    return;
+  }
+  commitPageChange(spot.page, () => {
+    pageStrokes(spot.page)[spot.index] = lockImage(item, false);
+    state.selectIndices = [spot.index];
+    state.selectPage = spot.page;
+  });
+  const view = state.pageViews.find((entry) => entry.pageNum === spot.page);
+  if (view) {
+    drawStrokesOn(view);
+  }
+  syncSelectHud();
+}
+
 function startSelect(event, stage) {
   if (state.interactMode === "view") {
     return;
@@ -3098,6 +3176,8 @@ function startSelect(event, stage) {
   const items = pageStrokes(state.drawPage);
   const cssW = view?.cssWidth || 400;
   const cssH = view?.cssHeight || 600;
+
+  armLockHold(event, point, items, cssW, cssH);
 
   if (state.cropping) {
     state.selectDrag = { mode: "crop", page: state.drawPage, a: point, b: point };
@@ -3156,6 +3236,7 @@ function startSelect(event, stage) {
 }
 
 function moveSelect(event) {
+  cancelLockHold();
   const drag = state.selectDrag;
   if (!drag || !state.drawCanvas) {
     return;
@@ -3203,6 +3284,7 @@ function moveSelect(event) {
 }
 
 function endSelect(event) {
+  cancelLockHold();
   const drag = state.selectDrag;
   if (!drag) {
     return;
@@ -4568,6 +4650,7 @@ function closeStickerSheet() {
   if (!els.stickerSheet) {
     return;
   }
+  hideStickerMenu();
   els.stickerSheet.hidden = true;
   els.stickerBackdrop.hidden = true;
   closeStudio();
@@ -4723,6 +4806,7 @@ function renderStickerFolders() {
     btn.classList.toggle("is-selected", folder.id === state.stickerFolder);
     btn.addEventListener("click", () => {
       state.stickerFolder = folder.id;
+      hideStickerMenu();
       closeStudio();
       renderStickerFolders();
       renderStickerGrid();
@@ -4804,29 +4888,33 @@ function renderStickerGrid() {
       img.alt = sticker.name || "스티커";
       cell.append(img);
       bindStickerCell(cell, sticker);
-      const wrap = document.createElement("div");
-      wrap.className = "sticker-cell-wrap";
-      const kill = document.createElement("button");
-      kill.type = "button";
-      kill.className = "sticker-cell-close";
-      kill.textContent = "✕";
-      kill.setAttribute("aria-label", "스티커 지우기");
-      kill.addEventListener("click", (event) => {
-        event.stopPropagation();
-        removeSticker(sticker.id);
-      });
-      wrap.append(cell, kill);
-      return wrap;
+      return cell;
     }),
   );
 }
 
-/** Tap puts it on the paper, hold opens the studio, drag files it away. */
+/**
+ * Tap puts it on the paper. Hold opens the menu (편집·삭제), and holding then
+ * dragging reorders inside the folder. A plain drag still files it away (#103).
+ */
 function bindStickerCell(cell, sticker) {
   let dragging = false;
   let start = null;
   let held = false;
   let timer = 0;
+
+  const stop = () => {
+    window.clearTimeout(timer);
+    timer = 0;
+  };
+
+  const release = () => {
+    stop();
+    cell.classList.remove("is-grabbed");
+    start = null;
+    dragging = false;
+    clearFolderDrop();
+  };
 
   cell.addEventListener("pointerdown", (event) => {
     start = { x: event.clientX, y: event.clientY, id: event.pointerId };
@@ -4835,40 +4923,59 @@ function bindStickerCell(cell, sticker) {
     timer = window.setTimeout(() => {
       timer = 0;
       held = true;
-      openStudio(sticker.id);
-    }, PAGE_HOLD_MS);
-  });
-
-  cell.addEventListener("pointermove", (event) => {
-    if (!start || start.id !== event.pointerId || held) {
-      return;
-    }
-    if (!dragging && Math.hypot(event.clientX - start.x, event.clientY - start.y) > 8) {
-      window.clearTimeout(timer);
-      dragging = true;
+      cell.classList.add("is-grabbed");
       try {
         cell.setPointerCapture(event.pointerId);
       } catch {
         // optional
       }
+      openStickerMenu(sticker.id, cell.getBoundingClientRect());
+    }, PAGE_HOLD_MS);
+  });
+
+  cell.addEventListener("pointermove", (event) => {
+    if (!start || start.id !== event.pointerId) {
+      return;
     }
-    if (dragging) {
-      event.preventDefault();
-      markFolderDrop(event);
+    const moved = Math.hypot(event.clientX - start.x, event.clientY - start.y);
+    if (moved <= 8) {
+      return;
     }
+    if (!dragging) {
+      stop();
+      dragging = true;
+      if (held) {
+        hideStickerMenu();
+      } else {
+        try {
+          cell.setPointerCapture(event.pointerId);
+        } catch {
+          // optional
+        }
+      }
+    }
+    event.preventDefault();
+    if (held) {
+      cell.classList.add("is-dragging");
+      return;
+    }
+    markFolderDrop(event);
   });
 
   const finish = (event) => {
     if (!start || start.id !== event.pointerId) {
       return;
     }
-    window.clearTimeout(timer);
     const wasDragging = dragging;
     const wasHeld = held;
-    start = null;
-    dragging = false;
     const target = folderAtPoint(event);
-    clearFolderDrop();
+    const slot = wasHeld && wasDragging ? stickerSlotAt(event) : -1;
+    cell.classList.remove("is-dragging");
+    release();
+    if (wasHeld && wasDragging) {
+      reorderStickerTo(sticker, slot);
+      return;
+    }
     if (wasDragging) {
       if (target && target !== sticker.folderId) {
         state.stickers = moveSticker(state.stickers, sticker.id, target);
@@ -4883,19 +4990,70 @@ function bindStickerCell(cell, sticker) {
   };
 
   cell.addEventListener("pointerup", finish);
-  cell.addEventListener("pointercancel", () => {
-    window.clearTimeout(timer);
-    start = null;
-    dragging = false;
-    held = false;
-    clearFolderDrop();
-  });
+  cell.addEventListener("pointercancel", release);
   cell.addEventListener("contextmenu", (event) => {
     event.preventDefault();
-    window.clearTimeout(timer);
+    stop();
     held = true;
-    openStudio(sticker.id);
+    openStickerMenu(sticker.id, cell.getBoundingClientRect());
   });
+}
+
+function stickerSlotAt(event) {
+  const box = els.stickerGrid.getBoundingClientRect();
+  const stride = STICKER_THUMB + STICKER_GAP;
+  return gridIndexAt({
+    x: event.clientX,
+    y: event.clientY,
+    gridLeft: box.left,
+    gridTop: box.top,
+    columns: Math.max(1, Math.floor((box.width + STICKER_GAP) / stride)),
+    count: stickersInFolder(state.stickers, state.stickerFolder).length,
+  });
+}
+
+function reorderStickerTo(sticker, slot) {
+  const mine = stickersInFolder(state.stickers, state.stickerFolder);
+  const from = mine.findIndex((item) => item.id === sticker.id);
+  if (from < 0 || slot < 0 || slot === from) {
+    return;
+  }
+  state.stickers = reorderStickers(state.stickers, state.stickerFolder, from, slot);
+  persistStickers();
+  renderStickerGrid();
+}
+
+function hideStickerMenu() {
+  if (els.stickerMenu) {
+    els.stickerMenu.hidden = true;
+  }
+  state.stickerMenuAt = null;
+}
+
+function openStickerMenu(id, rect) {
+  if (!els.stickerMenu) {
+    return;
+  }
+  state.stickerMenuAt = id;
+  els.stickerMenu.hidden = false;
+  const spot = placePageMenu(rect.top, rect.right, window.innerHeight, 2);
+  els.stickerMenu.style.left = `${Math.min(window.innerWidth - 148, spot.left)}px`;
+  els.stickerMenu.style.top = `${spot.top}px`;
+}
+
+function runStickerMenu(action) {
+  const id = state.stickerMenuAt;
+  hideStickerMenu();
+  if (!id) {
+    return;
+  }
+  if (action === "edit") {
+    openStudio(id);
+    return;
+  }
+  if (action === "delete") {
+    removeSticker(id);
+  }
 }
 
 function folderAtPoint(event) {
@@ -5254,6 +5412,7 @@ function startPan(event) {
 }
 
 function movePan(event) {
+  cancelLockHold();
   if (!gesture || gesture.type !== "pan") {
     return;
   }
@@ -5696,6 +5855,12 @@ for (const label of STAMP_LABELS) {
   els.stampPhrases.append(btn);
 }
 
+els.lockMenu?.querySelectorAll("[data-lock-menu]").forEach((btn) => {
+  btn.addEventListener("click", unlockFromMenu);
+});
+els.stickerMenu?.querySelectorAll("[data-sticker-menu]").forEach((btn) => {
+  btn.addEventListener("click", () => runStickerMenu(btn.dataset.stickerMenu));
+});
 els.stickerClose?.addEventListener("click", closeStickerSheet);
 els.stickerBackdrop?.addEventListener("click", closeStickerSheet);
 els.stickerDrop?.addEventListener("click", () => els.stickerFile.click());
@@ -6208,6 +6373,16 @@ document.addEventListener("pointerdown", (event) => {
 
 document.addEventListener("keydown", (event) => {
   const typing = event.target.closest?.("input, textarea, [contenteditable='true']");
+  if (event.key === "Escape" && els.lockMenu && !els.lockMenu.hidden && !typing) {
+    event.preventDefault();
+    hideLockMenu();
+    return;
+  }
+  if (event.key === "Escape" && els.stickerMenu && !els.stickerMenu.hidden && !typing) {
+    event.preventDefault();
+    hideStickerMenu();
+    return;
+  }
   if (event.key === "Escape" && els.stickerSheet && !els.stickerSheet.hidden && !typing) {
     event.preventDefault();
     closeStickerSheet();

@@ -109,6 +109,49 @@ export function moveSticker(stickers, id, folderId) {
   );
 }
 
+export const STICKER_MENU_ACTIONS = ["edit", "delete"];
+export const STICKER_MENU_LABELS = { edit: "편집", delete: "삭제" };
+
+/**
+ * Order inside a folder. The store keeps one flat list, so a folder move only
+ * rewrites the slots that folder owns (#103).
+ */
+export function reorderStickers(stickers, folderId, from, to) {
+  const list = stickers || [];
+  const slots = [];
+  list.forEach((sticker, index) => {
+    if (sticker.folderId === folderId) {
+      slots.push(index);
+    }
+  });
+  const start = Number(from);
+  const end = Number(to);
+  if (!(start >= 0 && start < slots.length) || !(end >= 0 && end < slots.length) || start === end) {
+    return list;
+  }
+  const mine = slots.map((index) => list[index]);
+  const [moved] = mine.splice(start, 1);
+  mine.splice(end, 0, moved);
+  const out = list.slice();
+  slots.forEach((index, at) => {
+    out[index] = mine[at];
+  });
+  return out;
+}
+
+/** Which thumb slot a drag is over, in a wrapping grid. */
+export function gridIndexAt({ x, y, gridLeft, gridTop, cell = STICKER_THUMB, gap = STICKER_GAP, columns, count } = {}) {
+  const n = Math.max(0, Math.round(Number(count) || 0));
+  const cols = Math.max(1, Math.round(Number(columns) || 1));
+  if (n <= 0) {
+    return 0;
+  }
+  const stride = Math.max(1, Number(cell) + Number(gap));
+  const col = Math.min(cols - 1, Math.max(0, Math.floor(((Number(x) || 0) - (Number(gridLeft) || 0)) / stride)));
+  const row = Math.max(0, Math.floor(((Number(y) || 0) - (Number(gridTop) || 0)) / stride));
+  return Math.min(n - 1, row * cols + col);
+}
+
 export function deleteSticker(stickers, id) {
   return (stickers || []).filter((sticker) => sticker.id !== id);
 }

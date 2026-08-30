@@ -167,6 +167,29 @@ export function boundsIntersect(a, b) {
   return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
 }
 
+/**
+ * A locked image is deliberately not selectable, which used to make it
+ * impossible to unlock. This finds one under the finger for the hold menu (#104).
+ */
+export function lockedImageAt(items, point, cssWidth = 400, cssHeight = 600, pad = 0.01) {
+  const list = items || [];
+  for (let index = list.length - 1; index >= 0; index -= 1) {
+    const item = list[index];
+    if (item?.type !== "image" || !item.locked) {
+      continue;
+    }
+    const box = { x: item.x, y: item.y, w: item.w, h: item.h };
+    const rotate = Number(item.rotate) || 0;
+    const bounds = rotate
+      ? rotateRectAround(box, rotate, { x: item.x + item.w / 2, y: item.y + item.h / 2 }, cssWidth, cssHeight)
+      : box;
+    if (pointInBounds(point, bounds, pad)) {
+      return index;
+    }
+  }
+  return -1;
+}
+
 export function pickItemsAt(items, point, cssWidth, cssHeight, pad = 0.014) {
   const hits = [];
   (items || []).forEach((item, index) => {
