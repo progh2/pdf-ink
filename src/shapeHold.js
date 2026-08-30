@@ -1,6 +1,7 @@
 export const SHAPE_HOLD_MS = 400;
 export const SHAPE_HOLD_GHOST_ALPHA = 0.4;
 export const SHAPE_HOLD_CHIP_HEIGHT = 36;
+export const SHAPE_HOLD_CHIP_GAP_PX = 24;
 export const SHAPE_HOLD_MOVE_SLOP_PX = 16;
 export const SHAPE_HOLD_DISMISS_MS = 8000;
 export const SHAPE_HOLD_MIN_SPAN = 0.045;
@@ -275,6 +276,87 @@ export function isShapeHoldJitter(client, lastClient, slopPx = SHAPE_HOLD_MOVE_S
   return Math.hypot(dx, dy) <= slopPx;
 }
 
+function menuContainsPoint(left, top, width, height, x, y, pad = 0) {
+  return x >= left - pad && x <= left + width + pad && y >= top - pad && y <= top + height + pad;
+}
+
+function menuEdgeDistance(left, top, width, height, x, y) {
+  const nearestX = Math.max(left, Math.min(x, left + width));
+  const nearestY = Math.max(top, Math.min(y, top + height));
+  return Math.hypot(x - nearestX, y - nearestY);
+}
+
+export function clientHitsShapeChipMenu(client, menu, pad = 8) {
+  if (!client || !menu) {
+    return false;
+  }
+  const x = Number(client.x);
+  const y = Number(client.y);
+  const left = Number(menu.left);
+  const top = Number(menu.top);
+  const width = Number(menu.width);
+  const height = Number(menu.height);
+  if (![x, y, left, top, width, height].every(Number.isFinite)) {
+    return false;
+  }
+  return menuContainsPoint(left, top, width, height, x, y, pad);
+}
+
+export function placeShapeChipMenu({
+  tip,
+  menuWidth = 200,
+  menuHeight = SHAPE_HOLD_CHIP_HEIGHT + 8,
+  viewport = { width: 390, height: 844 },
+  gap = SHAPE_HOLD_CHIP_GAP_PX,
+  margin = 8,
+} = {}) {
+  const tx = Number(tip?.x);
+  const ty = Number(tip?.y);
+  const width = Number(menuWidth) || 200;
+  const height = Number(menuHeight) || SHAPE_HOLD_CHIP_HEIGHT + 8;
+  const vw = Number(viewport?.width) || width + margin * 2;
+  const vh = Number(viewport?.height) || height + margin * 2;
+  const candidates = [
+    { left: tx - width / 2, top: ty + gap },
+    { left: tx - width / 2, top: ty - gap - height },
+    { left: tx + gap, top: ty - height / 2 },
+    { left: tx - gap - width, top: ty - height / 2 },
+    { left: tx + gap, top: ty + gap },
+    { left: tx - gap - width, top: ty + gap },
+    { left: tx + gap, top: ty - gap - height },
+    { left: tx - gap - width, top: ty - gap - height },
+  ];
+  const fits = (pos) => {
+    if (!Number.isFinite(pos.left) || !Number.isFinite(pos.top)) {
+      return false;
+    }
+    if (pos.left < margin || pos.top < margin) {
+      return false;
+    }
+    if (pos.left + width > vw - margin || pos.top + height > vh - margin) {
+      return false;
+    }
+    if (menuContainsPoint(pos.left, pos.top, width, height, tx, ty)) {
+      return false;
+    }
+    return menuEdgeDistance(pos.left, pos.top, width, height, tx, ty) >= gap - 0.01;
+  };
+  for (const pos of candidates) {
+    if (fits(pos)) {
+      return { left: pos.left, top: pos.top, width, height };
+    }
+  }
+  let left = Math.min(vw - width - margin, Math.max(margin, tx + gap));
+  let top = Math.min(vh - height - margin, Math.max(margin, ty + gap));
+  if (menuContainsPoint(left, top, width, height, tx, ty)) {
+    top = Math.min(vh - height - margin, Math.max(margin, ty - gap - height));
+  }
+  if (menuContainsPoint(left, top, width, height, tx, ty)) {
+    left = Math.min(vw - width - margin, Math.max(margin, tx - gap - width));
+  }
+  return { left, top, width, height };
+}
+
 export function createShapeHold({
   holdMs = SHAPE_HOLD_MS,
   moveSlopPx = SHAPE_HOLD_MOVE_SLOP_PX,
@@ -368,10 +450,24 @@ export function createShapeHold({
       if (!armed || !canShapeHold(tool) || !client) {
         return true;
       }
-      if (fromChips || offer) {
+      if (fromChips) {
         if (!frozen?.length) {
           freezeFrom(lastGood || (typeof getPoints === "function" ? getPoints() : []));
         }
+        return false;
+      }
+      if (offer) {
+        if (isShapeHoldJitter(client, lastClient, moveSlopPx)) {
+          return false;
+        }
+        offer = null;
+        frozen = null;
+        lastClient = client;
+        lastSignificantAt = now();
+        drawn = true;
+        clearTimer();
+        timer = setTimeoutFn(() => fire(getPoints, onOffer), holdMs);
+        onOffer?.(null);
         return false;
       }
       const still = drawn && now() - lastSignificantAt >= Math.min(50, holdMs);
