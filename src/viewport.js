@@ -61,5 +61,5 @@ export function constrainPan(panX, panY, scale, pageW, pageH, viewW, viewH) {
   };
 }
 
-export const POSITIONS = ["top", "left", "right", "bottom"];
+export const POSITIONS = ["top", "bottom", "float"];
 export const VIEW_MODES = ["page", "scroll"];

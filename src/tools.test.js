@@ -86,14 +86,18 @@ describe("스탬프", () => {
 });
 
 describe("toolbar", () => {
-  it("has no color chips and no stamp circle beside the slots", () => {
+  it("has no color chips on the bar and keeps the 2×3 palette in the panel", () => {
     assert.equal(TOOLBAR_STAMP_CIRCLE, false);
     assert.deepEqual(TOOLBAR_COLOR_CHIPS, []);
     assert.doesNotMatch(toolbar, /slot-color|data-color=/);
-    assert.doesNotMatch(toolbar, /stamp-btn|stamp-mini|stamp-tool|stamp-preview/);
+    assert.doesNotMatch(toolbar, /stamp-mini|stamp-preview/);
     assert.doesNotMatch(toolbar, /#D64545|#2F6FED|#E6C200|#E03C31/i);
-    assert.equal((toolbar.match(/data-slot="/g) || []).length, 3);
+    assert.doesNotMatch(toolbar, /data-slot=/);
     assert.match(toolbar, /id="eraser-btn"/);
+    assert.match(toolbar, /id="pen-btn"/);
+    assert.match(toolbar, /id="select-btn"/);
+    assert.match(toolbar, /id="stamp-btn"/);
+    assert.match(toolbar, /id="redo-btn"/);
     assert.doesNotMatch(toolbar, /id="prev-btn"|id="next-btn"/);
     assert.match(html, /id="prev-btn"/);
     assert.match(html, /id="next-btn"/);
@@ -111,21 +115,20 @@ describe("toolbar", () => {
     assert.deepEqual(SLOT_KINDS, ["pen", "highlighter", "pencil", "stamp"]);
     assert.match(toolbar, /id="undo-btn"/);
     assert.match(toolbar, /id="more-btn"/);
-    assert.doesNotMatch(toolbar, /id="redo-btn"/);
     assert.doesNotMatch(html, /id="m4-bar"|id="m4-rail"/);
-    assert.doesNotMatch(toolbar, /id="select-btn"|data-tool="select"/);
     assert.match(more, /마스킹\(모자이크\)/);
     assert.match(more, /영역캡처/);
     assert.match(more, /전체화면/);
-    assert.match(more, /data-more="select">선택/);
+    assert.doesNotMatch(more, /data-more="select"/);
     assert.match(more, /이미지/);
     assert.match(more, /왼쪽/);
     assert.match(more, /오른쪽/);
     assert.match(more, /미리보기/);
+    assert.match(more, /data-more="save">저장/);
+    assert.match(more, /data-more="export">내보내기/);
     assert.doesNotMatch(more, /책갈피/);
     assert.doesNotMatch(toolbar, /책갈피|개요 페이지/);
     assert.match(html, /id="interact-btn"/);
-    assert.doesNotMatch(html, />저장</);
   });
 });
 

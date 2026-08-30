@@ -41,10 +41,10 @@ export const ERASER_MODE_LABELS = {
   stroke: "획 지우개",
 };
 
-/** Colors never appear as a toolbar row; they live in the slot panel only. */
+/** Full palette chips stay in the panel (2×3). The bar only shows an 8px mini dot. */
 export const TOOLBAR_COLOR_CHIPS = [];
 
-/** Stamp is the 4th slot-panel tab. A 36px circle beside slots is a spec fail. */
+/** Stamp is a 44px icon cell, not a 36px circle beside slots. */
 export const TOOLBAR_STAMP_CIRCLE = false;
 
 const OLD_PEN_COLOR = {

@@ -15,20 +15,28 @@ import {
 } from "./storage.js";
 import {
   loadEraser,
+  loadInkTools,
   loadInteractMode,
-  loadSlotIndex,
-  loadSlots,
+  loadToolbarFloat,
   loadToolbarPosition,
   loadViewMode,
   loadZoomLock,
   saveEraser,
+  saveInkTools,
   saveInteractMode,
-  saveSlotIndex,
-  saveSlots,
+  saveToolbarFloat,
   saveToolbarPosition,
   saveViewMode,
   saveZoomLock,
 } from "./prefs.js";
+import {
+  BAR_HEIGHT,
+  COLOR_DOT_TOOLS,
+  barNaturalWidth,
+  constrainFloat,
+  snapDockFromPoint,
+  useNarrowCells,
+} from "./toolbar.js";
 import {
   constrainPan,
   inkCanvasScale,
@@ -89,7 +97,6 @@ import {
   HIGHLIGHTER_PALETTE,
   PEN_PALETTE,
   PENCIL_COLOR,
-  STAMP_COLOR,
   STAMP_LABELS,
   clampOpacity,
   defaultColorForKind,
@@ -118,13 +125,18 @@ const els = {
   viewport: document.querySelector("#viewport"),
   pageStack: document.querySelector("#page-stack"),
   toolbar: document.querySelector("#toolbar"),
+  toolbarRail: document.querySelector("#toolbar-rail"),
+  toolbarGrip: document.querySelector("#toolbar-grip"),
   prevBtn: document.querySelector("#prev-btn"),
   nextBtn: document.querySelector("#next-btn"),
   pageLabel: document.querySelector("#page-label"),
   zoomLockBtn: document.querySelector("#zoom-lock-btn"),
   interactBtn: document.querySelector("#interact-btn"),
   undoBtn: document.querySelector("#undo-btn"),
+  redoBtn: document.querySelector("#redo-btn"),
   moreBtn: document.querySelector("#more-btn"),
+  selectBtn: document.querySelector("#select-btn"),
+  stampBtn: document.querySelector("#stamp-btn"),
   morePanel: document.querySelector("#more-panel"),
   imageInput: document.querySelector("#image-input"),
   previewDrawer: document.querySelector("#preview-drawer"),
@@ -176,11 +188,11 @@ const state = {
   drawPage: 1,
   drawCanvas: null,
   tool: "pen",
-  slots: loadSlots(),
-  slotIndex: loadSlotIndex(),
-  editingSlot: null,
+  inkTools: loadInkTools(),
+  editingKind: null,
   penOnly: loadPenOnly(),
   toolbarPos: loadToolbarPosition(window.innerWidth, window.innerHeight),
+  toolbarFloat: loadToolbarFloat(window.innerWidth, window.innerHeight),
   viewMode: loadViewMode(),
   interactMode: loadInteractMode(),
   zoomLock: loadZoomLock(),
@@ -249,11 +261,14 @@ function restoreHeldPaperScroll() {
 }
 
 function activeSlot() {
-  return state.slots[state.slotIndex] || state.slots[0];
+  if (state.tool === "highlighter" || state.tool === "pencil" || state.tool === "stamp") {
+    return state.inkTools[state.tool];
+  }
+  return state.inkTools.pen;
 }
 
 function usesStamp() {
-  return state.tool !== "eraser" && activeSlot().type === "stamp";
+  return state.tool === "stamp";
 }
 
 function showBanner(message) {
@@ -273,7 +288,8 @@ function persistStrokes() {
 }
 
 function syncHistoryButtons() {
-  els.undoBtn.disabled = !canUndo(state.history) && !canRedo(state.history);
+  els.undoBtn.disabled = !canUndo(state.history);
+  els.redoBtn.disabled = !canRedo(state.history);
 }
 
 function commitPageChange(pageNum, apply) {
@@ -1145,18 +1161,20 @@ function persistEraser() {
   saveEraser({ mode: state.eraseMode, width: state.eraserWidth });
 }
 
-function syncSlots() {
-  document.querySelectorAll("[data-slot]").forEach((btn) => {
-    const index = Number(btn.dataset.slot);
-    const slot = state.slots[index];
-    btn.classList.toggle("is-selected", state.tool !== "eraser" && index === state.slotIndex);
-    btn.dataset.kind = slot.type;
-    const mini =
-      slot.type === "pencil" ? PENCIL_COLOR : slot.type === "stamp" ? STAMP_COLOR : slot.color;
-    btn.style.setProperty("--slot-color", mini);
-    btn.style.setProperty("--slot-width", String(slot.width));
-    btn.setAttribute("aria-label", slotAriaLabel(slot));
-  });
+function syncInkTools() {
+  for (const kind of COLOR_DOT_TOOLS) {
+    const btn = document.querySelector(`[data-tool="${kind}"]`);
+    const tool = state.inkTools[kind];
+    if (!btn || !tool) {
+      continue;
+    }
+    const mini = kind === "pencil" ? PENCIL_COLOR : tool.color;
+    btn.style.setProperty("--tool-color", mini);
+    btn.setAttribute("aria-label", slotAriaLabel(tool));
+  }
+  if (els.stampBtn) {
+    els.stampBtn.setAttribute("aria-label", slotAriaLabel(state.inkTools.stamp));
+  }
 }
 
 function syncPenOnly() {
@@ -1184,12 +1202,9 @@ function syncInteract() {
 
 function syncRectTool() {
   els.writeScreen.dataset.rect = state.rectTool || "";
-  els.moreBtn.classList.toggle("is-selected", Boolean(state.rectTool) || !els.morePanel.hidden || state.tool === "select");
+  els.moreBtn.classList.toggle("is-selected", Boolean(state.rectTool) || !els.morePanel.hidden);
   document.querySelectorAll("#more-panel [data-more]").forEach((btn) => {
-    btn.classList.toggle(
-      "is-selected",
-      btn.dataset.more === state.rectTool || (btn.dataset.more === "select" && state.tool === "select"),
-    );
+    btn.classList.toggle("is-selected", btn.dataset.more === state.rectTool);
   });
 }
 
@@ -1201,7 +1216,7 @@ function syncToolSelection() {
   document.querySelectorAll("[data-tool]").forEach((btn) => {
     btn.classList.toggle("is-selected", btn.dataset.tool === state.tool);
   });
-  syncSlots();
+  syncInkTools();
   syncPenOnly();
   syncZoomLock();
 }
@@ -1217,8 +1232,30 @@ function isFullscreen() {
   return Boolean(document.fullscreenElement) || state.immersive;
 }
 
-function applyChrome() {
+function syncToolbarNarrow() {
+  const available = Math.min(window.innerWidth - 16, els.toolbarRail?.clientWidth || window.innerWidth);
+  els.toolbar.classList.toggle("is-narrow", useNarrowCells(available));
+}
+
+function applyToolbarPlacement() {
   els.writeScreen.dataset.toolbar = state.toolbarPos;
+  const barW = els.toolbar.offsetWidth || barNaturalWidth(useNarrowCells(window.innerWidth - 16));
+  const next = constrainFloat(
+    state.toolbarFloat.x,
+    state.toolbarFloat.y,
+    window.innerWidth,
+    window.innerHeight,
+    barW,
+    BAR_HEIGHT,
+  );
+  state.toolbarFloat = next;
+  els.toolbar.style.setProperty("--toolbar-x", `${next.x}px`);
+  els.toolbar.style.setProperty("--toolbar-y", `${next.y}px`);
+  syncToolbarNarrow();
+}
+
+function applyChrome() {
+  applyToolbarPlacement();
   els.writeScreen.dataset.view = state.viewMode;
   els.writeScreen.dataset.interact = state.interactMode;
   els.writeScreen.dataset.rect = state.rectTool || "";
@@ -1246,7 +1283,7 @@ function openSettings() {
 
 function closeSlotPanel() {
   els.slotPanel.hidden = true;
-  state.editingSlot = null;
+  state.editingKind = null;
 }
 
 function closeEraserPanel() {
@@ -1291,21 +1328,11 @@ function placePanel(panel, anchorBtn) {
   const width = 240;
   const height = panel.getBoundingClientRect().height || 88;
   const gap = 8;
-  let top = anchor.bottom + gap;
   let left = anchor.left + anchor.width / 2 - width / 2;
-
-  if (state.toolbarPos === "top") {
-    top = bar.bottom + gap;
-    left = anchor.left + anchor.width / 2 - width / 2;
-  } else if (state.toolbarPos === "bottom") {
+  let top = bar.bottom + gap;
+  const preferAbove = state.toolbarPos === "bottom" || (state.toolbarPos === "float" && bar.top > window.innerHeight / 2);
+  if (preferAbove) {
     top = bar.top - gap - height;
-    left = anchor.left + anchor.width / 2 - width / 2;
-  } else if (state.toolbarPos === "left") {
-    left = bar.right + gap;
-    top = anchor.top + anchor.height / 2 - height / 2;
-  } else {
-    left = bar.left - gap - width;
-    top = anchor.top + anchor.height / 2 - height / 2;
   }
 
   left = Math.min(window.innerWidth - width - 8, Math.max(8, left));
@@ -1342,10 +1369,10 @@ function renderPalette(slot) {
     btn.classList.toggle("is-selected", item.hex.toLowerCase() === slot.color.toLowerCase());
     if (slot.type !== "pencil") {
       btn.addEventListener("click", () => {
-        if (state.editingSlot == null) {
+        if (!state.editingKind) {
           return;
         }
-        state.slots[state.editingSlot].color = item.hex;
+        state.inkTools[state.editingKind].color = item.hex;
         persistSlotChange();
       });
     }
@@ -1374,7 +1401,7 @@ function paintStampPreview(label) {
 }
 
 function syncStampPicker() {
-  const slot = state.slots[state.editingSlot] || activeSlot();
+  const slot = state.inkTools[state.editingKind] || activeSlot();
   const label = normalizeStamp(slot.stamp);
   els.stampPhrases.querySelectorAll("button").forEach((btn) => {
     btn.classList.toggle("is-selected", btn.dataset.stamp === label);
@@ -1383,7 +1410,7 @@ function syncStampPicker() {
 }
 
 function syncSlotEditor() {
-  const slot = state.slots[state.editingSlot];
+  const slot = state.inkTools[state.editingKind];
   if (!slot) {
     return;
   }
@@ -1409,29 +1436,33 @@ function syncSlotEditor() {
   }
 }
 
-function openSlotEditor(index, slotBtn) {
+function openInkEditor(kind, toolBtn) {
   closeEraserPanel();
-  state.slotIndex = index;
-  state.editingSlot = index;
-  state.tool = "pen";
-  saveSlotIndex(index);
+  state.tool = kind;
+  state.editingKind = kind;
+  state.rectTool = null;
+  if (kind !== "select") {
+    hideMarquee();
+  }
   syncToolSelection();
+  syncRectTool();
   syncSlotEditor();
-  placePanel(els.slotPanel, slotBtn);
+  placePanel(els.slotPanel, toolBtn);
 }
 
 function persistSlotChange() {
-  saveSlots(state.slots);
-  syncSlots();
+  saveInkTools(state.inkTools);
+  syncInkTools();
   syncSlotEditor();
 }
 
 function setSlotKind(kind) {
-  if (state.editingSlot == null) {
+  if (!state.editingKind) {
     return;
   }
-  const slot = state.slots[state.editingSlot];
-  slot.type = kind;
+  state.tool = kind;
+  state.editingKind = kind;
+  const slot = state.inkTools[kind];
   slot.color = defaultColorForKind(kind, slot.color);
   if (kind === "highlighter" && !slot.opacity) {
     slot.opacity = HIGHLIGHTER_OPACITY_DEFAULT;
@@ -1460,13 +1491,16 @@ function selectSelectTool() {
   syncSelectHud();
 }
 
-function selectSlot(index) {
-  state.slotIndex = index;
-  state.tool = "pen";
+function selectInkTool(kind) {
+  const btn = document.querySelector(`[data-tool="${kind}"]`);
+  if (state.tool === kind && btn) {
+    openInkEditor(kind, btn);
+    return;
+  }
+  state.tool = kind;
   state.rectTool = null;
   clearSelection();
   hideMarquee();
-  saveSlotIndex(index);
   closeAllPanels();
   syncToolSelection();
   syncRectTool();
@@ -1499,12 +1533,24 @@ function syncEraserEditor() {
   els.eraserWidth.value = String(state.eraserWidth);
 }
 
-async function setToolbarPosition(position) {
-  state.toolbarPos = position;
-  saveToolbarPosition(position);
+async function setToolbarPosition(position, floatPoint) {
+  const prev = state.toolbarPos;
+  state.toolbarPos = position === "bottom" || position === "float" ? position : "top";
+  if (floatPoint) {
+    state.toolbarFloat = constrainFloat(
+      floatPoint.x,
+      floatPoint.y,
+      window.innerWidth,
+      window.innerHeight,
+      els.toolbar.offsetWidth || 0,
+      BAR_HEIGHT,
+    );
+    saveToolbarFloat(state.toolbarFloat);
+  }
+  saveToolbarPosition(state.toolbarPos);
   applyChrome();
   closeAllPanels();
-  if (state.pdf) {
+  if (state.pdf && prev !== state.toolbarPos) {
     await rebuildPages();
   }
 }
@@ -2275,13 +2321,11 @@ function overflowSide() {
   if (state.toolbarPos === "bottom") {
     return "above";
   }
-  if (state.toolbarPos === "top") {
-    return "below";
+  if (state.toolbarPos === "float") {
+    const bar = els.toolbar.getBoundingClientRect();
+    return bar.top > window.innerHeight / 2 ? "above" : "below";
   }
-  if (state.toolbarPos === "left") {
-    return "right";
-  }
-  return "left";
+  return "below";
 }
 
 function placeOverflowPanel() {
@@ -2324,6 +2368,26 @@ function toggleMorePanel() {
   }
 }
 
+function saveDocumentNow() {
+  persistStrokes();
+  persistSession();
+  showBanner("저장했습니다.");
+  window.setTimeout(() => {
+    if (els.banner.textContent === "저장했습니다.") {
+      showBanner("");
+    }
+  }, 1600);
+}
+
+function exportDocumentStub() {
+  showBanner("내보내기는 준비 중입니다.");
+  window.setTimeout(() => {
+    if (els.banner.textContent === "내보내기는 준비 중입니다.") {
+      showBanner("");
+    }
+  }, 1800);
+}
+
 function selectMoreAction(action) {
   if (action === "fullscreen") {
     closeMorePanel();
@@ -2347,6 +2411,24 @@ function selectMoreAction(action) {
     closeMorePanel();
     ignoreAfterPanel = true;
     openPreview();
+    return;
+  }
+  if (action === "save") {
+    closeMorePanel();
+    ignoreAfterPanel = true;
+    saveDocumentNow();
+    return;
+  }
+  if (action === "export") {
+    closeMorePanel();
+    ignoreAfterPanel = true;
+    exportDocumentStub();
+    return;
+  }
+  if (action === "settings") {
+    closeMorePanel();
+    ignoreAfterPanel = true;
+    openSettings();
     return;
   }
   if (action !== "mosaic" && action !== "capture") {
@@ -2597,106 +2679,6 @@ function onWorkspacePointerUp(event) {
   }
 }
 
-function bindSlot(btn) {
-  const index = Number(btn.dataset.slot);
-  let timer = 0;
-  let longPress = false;
-  let startX = 0;
-  let startY = 0;
-  let active = false;
-  let pointerId = null;
-
-  const clearTimer = () => {
-    window.clearTimeout(timer);
-    timer = 0;
-  };
-
-  const detachLift = () => {
-    window.removeEventListener("pointerup", onLift, true);
-    window.removeEventListener("pointercancel", onPointerCancel, true);
-    window.removeEventListener("touchend", onLift, true);
-  };
-
-  const stopPress = () => {
-    clearTimer();
-    active = false;
-    pointerId = null;
-    detachLift();
-  };
-
-  const samePointer = (event) =>
-    event.pointerId == null || pointerId == null || event.pointerId === pointerId;
-
-  const onLift = (event) => {
-    if (!active || !samePointer(event)) {
-      return;
-    }
-    const wasLong = longPress;
-    stopPress();
-    if (wasLong) {
-      return;
-    }
-    if (state.tool === "pen" && state.slotIndex === index) {
-      openSlotEditor(index, btn);
-      return;
-    }
-    selectSlot(index);
-  };
-
-  const onPointerCancel = (event) => {
-    if (!active || !samePointer(event)) {
-      return;
-    }
-    // Browser often cancels a touch pointer for the context menu while the
-    // finger is still down. Keep the long-press timer in that case.
-    if (event.buttons > 0 || event.pointerType !== "mouse") {
-      return;
-    }
-    stopPress();
-  };
-
-  btn.addEventListener("pointerdown", (event) => {
-    if (event.button !== undefined && event.button !== 0) {
-      return;
-    }
-    event.preventDefault();
-    try {
-      btn.setPointerCapture(event.pointerId);
-    } catch {
-      // Capture is optional; some synthetic pointers reject it.
-    }
-    active = true;
-    pointerId = event.pointerId;
-    longPress = false;
-    startX = event.clientX;
-    startY = event.clientY;
-    clearTimer();
-    detachLift();
-    window.addEventListener("pointerup", onLift, true);
-    window.addEventListener("pointercancel", onPointerCancel, true);
-    window.addEventListener("touchend", onLift, true);
-    timer = window.setTimeout(() => {
-      if (!active) {
-        return;
-      }
-      longPress = true;
-      openSlotEditor(index, btn);
-    }, LONG_PRESS_MS);
-  });
-  btn.addEventListener("pointermove", (event) => {
-    if (!active || !timer || !samePointer(event)) {
-      return;
-    }
-    if (Math.hypot(event.clientX - startX, event.clientY - startY) > SLOT_PRESS_SLOP) {
-      clearTimer();
-    }
-  });
-  btn.addEventListener("contextmenu", (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-  });
-}
-
 function bindHold(btn, { onShort, onLong }) {
   let timer = 0;
   let longPress = false;
@@ -2785,27 +2767,161 @@ function bindHold(btn, { onShort, onLong }) {
   });
 }
 
-document.querySelectorAll("[data-slot]").forEach(bindSlot);
+function bindToolbarGrip(grip) {
+  let pointerId = null;
+  let dragging = false;
+  let armed = false;
+  let startX = 0;
+  let startY = 0;
+  let grabX = 0;
+  let grabY = 0;
+  let timer = 0;
+
+  const clearTimer = () => {
+    window.clearTimeout(timer);
+    timer = 0;
+  };
+
+  const barSize = () => ({
+    w: els.toolbar.offsetWidth || barNaturalWidth(useNarrowCells(window.innerWidth - 16)),
+    h: els.toolbar.offsetHeight || BAR_HEIGHT,
+  });
+
+  const moveBar = (clientX, clientY) => {
+    const { w, h } = barSize();
+    const next = constrainFloat(clientX - grabX, clientY - grabY, window.innerWidth, window.innerHeight, w, h);
+    els.toolbar.style.setProperty("--toolbar-x", `${next.x}px`);
+    els.toolbar.style.setProperty("--toolbar-y", `${next.y}px`);
+    return next;
+  };
+
+  const beginDrag = (event) => {
+    if (dragging) {
+      return;
+    }
+    dragging = true;
+    closeAllPanels();
+    const rect = els.toolbar.getBoundingClientRect();
+    grabX = event.clientX - rect.left;
+    grabY = event.clientY - rect.top;
+    els.toolbar.classList.add("is-dragging");
+    moveBar(event.clientX, event.clientY);
+  };
+
+  const endDrag = async (event) => {
+    const wasDragging = dragging;
+    const id = pointerId;
+    pointerId = null;
+    armed = false;
+    dragging = false;
+    clearTimer();
+    if (id != null) {
+      try {
+        grip.releasePointerCapture?.(id);
+      } catch {
+        // optional
+      }
+    }
+    els.toolbar.classList.remove("is-dragging");
+    if (!wasDragging) {
+      return;
+    }
+    const { w, h } = barSize();
+    const snap = snapDockFromPoint(event.clientX, event.clientY, window.innerWidth, window.innerHeight, w, h, grabX, grabY);
+    await setToolbarPosition(snap.pos, snap.pos === "float" ? snap : undefined);
+  };
+
+  grip.addEventListener("pointerdown", (event) => {
+    if (event.button !== undefined && event.button !== 0) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    pointerId = event.pointerId;
+    armed = true;
+    dragging = false;
+    startX = event.clientX;
+    startY = event.clientY;
+    try {
+      grip.setPointerCapture(event.pointerId);
+    } catch {
+      // optional
+    }
+    clearTimer();
+    timer = window.setTimeout(() => {
+      if (armed && !dragging) {
+        beginDrag({ clientX: startX, clientY: startY });
+      }
+    }, LONG_PRESS_MS);
+  });
+  grip.addEventListener("pointermove", (event) => {
+    if (!armed || (event.pointerId != null && event.pointerId !== pointerId)) {
+      return;
+    }
+    if (!dragging) {
+      if (Math.hypot(event.clientX - startX, event.clientY - startY) > SLOT_PRESS_SLOP) {
+        beginDrag(event);
+      }
+      return;
+    }
+    event.preventDefault();
+    moveBar(event.clientX, event.clientY);
+  });
+  grip.addEventListener("pointerup", (event) => {
+    if (event.pointerId != null && pointerId != null && event.pointerId !== pointerId) {
+      return;
+    }
+    endDrag(event);
+  });
+  grip.addEventListener("pointercancel", (event) => {
+    if (event.buttons > 0 || event.pointerType !== "mouse") {
+      return;
+    }
+    endDrag(event);
+  });
+  grip.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+  });
+}
+
+for (const kind of ["pen", "highlighter", "pencil", "stamp"]) {
+  const btn = document.querySelector(`[data-tool="${kind}"]`);
+  if (!btn) {
+    continue;
+  }
+  bindHold(btn, {
+    onShort: () => selectInkTool(kind),
+    onLong: () => openInkEditor(kind, btn),
+  });
+}
 bindHold(els.eraserBtn, {
   onShort: selectEraserPixel,
   onLong: openEraserEditor,
 });
+els.selectBtn.addEventListener("click", () => {
+  if (state.tool === "select") {
+    return;
+  }
+  selectSelectTool();
+});
+bindToolbarGrip(els.toolbarGrip);
 
 document.querySelectorAll("#slot-kinds [data-kind]").forEach((btn) => {
   btn.addEventListener("click", () => setSlotKind(btn.dataset.kind));
 });
 els.slotOpacity.addEventListener("input", () => {
-  if (state.editingSlot == null) {
+  if (!state.editingKind) {
     return;
   }
-  state.slots[state.editingSlot].opacity = clampOpacity(els.slotOpacity.value);
+  state.inkTools[state.editingKind].opacity = clampOpacity(els.slotOpacity.value);
   persistSlotChange();
 });
 els.slotWidth.addEventListener("input", () => {
-  if (state.editingSlot == null) {
+  if (!state.editingKind) {
     return;
   }
-  state.slots[state.editingSlot].width = Number(els.slotWidth.value);
+  state.inkTools[state.editingKind].width = Number(els.slotWidth.value);
   persistSlotChange();
 });
 document.querySelectorAll("#eraser-mode-choices [data-erase-mode]").forEach((btn) => {
@@ -2828,11 +2944,10 @@ for (const label of STAMP_LABELS) {
   btn.dataset.stamp = label;
   btn.textContent = label;
   btn.addEventListener("click", () => {
-    if (state.editingSlot == null) {
+    if (state.editingKind !== "stamp") {
       return;
     }
-    state.slots[state.editingSlot].type = "stamp";
-    state.slots[state.editingSlot].stamp = label;
+    state.inkTools.stamp.stamp = label;
     persistSlotChange();
   });
   els.stampPhrases.append(btn);
@@ -2855,6 +2970,11 @@ els.interactBtn.addEventListener("click", () => {
   setInteractMode(state.interactMode === "view" ? "edit" : "view");
 });
 bindUndoHold(els.undoBtn, { onUndo: undoInk, onRedo: redoInk });
+els.redoBtn.addEventListener("click", (event) => {
+  event.preventDefault();
+  event.stopPropagation();
+  redoInk();
+});
 els.moreBtn.addEventListener("pointerdown", (event) => {
   event.stopPropagation();
   armStayOnWrite();
@@ -2934,13 +3054,6 @@ els.captureConfirm.addEventListener("click", (event) => {
   event.preventDefault();
   event.stopPropagation();
   confirmCapture();
-});
-els.settingsBtn.addEventListener("click", () => {
-  if (els.settingsSheet.hidden) {
-    openSettings();
-  } else {
-    closeSettings();
-  }
 });
 els.settingsBackdrop.addEventListener("click", closeSettings);
 els.settingsDone.addEventListener("click", closeSettings);
@@ -3027,7 +3140,7 @@ els.writeScreen.addEventListener("touchstart", preventWriteSurfaceTouch, { passi
 els.writeScreen.addEventListener("touchmove", preventWriteSurfaceTouch, { passive: false });
 
 document.addEventListener("pointerdown", (event) => {
-  if (event.target.closest(".slot-panel, [data-slot], #eraser-btn, #more-btn, .m4-bar, .marquee, .select-hud, .float-bar, #float-bar, .preview-drawer")) {
+  if (event.target.closest(".slot-panel, .toolbar, [data-tool], #eraser-btn, #more-btn, .m4-bar, .marquee, .select-hud, .float-bar, #float-bar, .preview-drawer")) {
     return;
   }
   closeAllPanels();
@@ -3073,8 +3186,9 @@ let resizeTimer = 0;
 window.addEventListener("resize", () => {
   window.clearTimeout(resizeTimer);
   resizeTimer = window.setTimeout(() => {
-    if (!els.slotPanel.hidden && state.editingSlot != null) {
-      const btn = document.querySelector(`[data-slot="${state.editingSlot}"]`);
+    applyToolbarPlacement();
+    if (!els.slotPanel.hidden && state.editingKind) {
+      const btn = document.querySelector(`[data-tool="${state.editingKind}"]`);
       if (btn) {
         placePanel(els.slotPanel, btn);
       }
