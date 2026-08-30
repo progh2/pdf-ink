@@ -104,6 +104,22 @@ import {
   toggleBookmark,
 } from "./preview.js";
 import {
+  PAGE_BITMAP_LIMIT,
+  PREVIEW_OVERSCAN,
+  SCROLL_STAGE_GAP,
+  SCROLL_STAGE_OVERSCAN,
+  THUMB_CACHE_LIMIT,
+  leafCacheKey,
+  lruMapGet,
+  lruMapSet,
+  pageFromScrollMid,
+  pageOffsetTop,
+  previewRowStride,
+  scrollStackHeight,
+  visibleIndexWindow,
+  visiblePageWindow,
+} from "./previewNav.js";
+import {
   addOutlineEntry,
   deleteOutlineEntry,
   normalizeOutline,
@@ -251,6 +267,8 @@ const state = {
   pageCssHeight: 0,
   stackBase: { width: 0, height: 0 },
   pageViews: [],
+  scrollPageWidth: 0,
+  scrollPageHeight: 0,
 };
 
 const pointers = new Map();
@@ -263,6 +281,11 @@ let shapeOfferDismissTimer = 0;
 let captureConfirmArmedAt = 0;
 let renderGen = 0;
 let paperScrollHold = null;
+const pageBitmapCache = new Map();
+const thumbCache = new Map();
+let previewLeaves = [];
+let previewScrollTick = 0;
+let scrollStageTick = 0;
 
 const WRITE_CHROME =
   ".sheet-card, .slot-panel, .toolbar, .write-top, .m4-bar, .more-panel, .marquee, .preview-drawer, .select-hud, .float-bar, #float-bar, .select-layer, #select-layer, .shape-chips";
@@ -639,30 +662,75 @@ async function renderPageView(view) {
     return;
   }
   view.rendered = true;
+  rememberPageBitmap(view, leaf);
   drawStrokesOn(view, state.drawing && state.drawPage === view.pageNum ? state.currentStroke : null);
 }
 
+function rememberPageBitmap(view, leaf) {
+  if (!view?.pdfCanvas?.width || !leaf || leaf.kind === "outline") {
+    return;
+  }
+  const copy = document.createElement("canvas");
+  copy.width = view.pdfCanvas.width;
+  copy.height = view.pdfCanvas.height;
+  copy.getContext("2d").drawImage(view.pdfCanvas, 0, 0);
+  lruMapSet(
+    pageBitmapCache,
+    leafCacheKey(leaf),
+    {
+      canvas: copy,
+      cssWidth: view.cssWidth,
+      cssHeight: view.cssHeight,
+    },
+    PAGE_BITMAP_LIMIT,
+  );
+}
+
+function applyCachedPage(view, cached) {
+  if (!view || !cached?.canvas) {
+    return false;
+  }
+  const sameSize =
+    view.pdfCanvas.width === cached.canvas.width &&
+    view.pdfCanvas.height === cached.canvas.height &&
+    view.cssWidth === cached.cssWidth &&
+    view.cssHeight === cached.cssHeight;
+  if (!sameSize) {
+    applyPageSize(view, cached.cssWidth, cached.cssHeight, cached.canvas.width, cached.canvas.height);
+  }
+  if (state.viewMode === "page" || view.pageNum === state.page) {
+    state.pageCssWidth = cached.cssWidth;
+    state.pageCssHeight = cached.cssHeight;
+  }
+  const ctx = canvas2d(view.pdfCanvas);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.drawImage(cached.canvas, 0, 0);
+  view.rendered = true;
+  drawStrokesOn(view, state.drawing && state.drawPage === view.pageNum ? state.currentStroke : null);
+  return true;
+}
+
+function clearPageBitmapCache() {
+  pageBitmapCache.clear();
+}
+
+function clearThumbCache() {
+  thumbCache.clear();
+}
+
 function visiblePageRange() {
-  if (state.viewMode !== "scroll" || !state.pageViews.length) {
+  if (state.viewMode !== "scroll") {
     return { from: state.page, to: state.page };
   }
-  const scale = state.userScale;
-  const viewTop = els.workspace.scrollTop;
-  const viewBottom = viewTop + els.workspace.clientHeight;
-  let from = state.pageCount;
-  let to = 1;
-  for (const view of state.pageViews) {
-    const top = view.stage.offsetTop * scale;
-    const bottom = top + view.stage.offsetHeight * scale;
-    if (bottom > viewTop - 240 && top < viewBottom + 240) {
-      from = Math.min(from, view.pageNum);
-      to = Math.max(to, view.pageNum);
-    }
-  }
-  if (from > to) {
-    return { from: state.page, to: state.page };
-  }
-  return { from, to };
+  return visiblePageWindow({
+    scrollTop: els.workspace.scrollTop,
+    clientHeight: els.workspace.clientHeight,
+    pageHeight: state.scrollPageHeight,
+    gap: SCROLL_STAGE_GAP,
+    count: state.pageCount,
+    scale: state.userScale,
+    overscan: SCROLL_STAGE_OVERSCAN,
+  });
 }
 
 async function renderVisiblePages() {
@@ -678,29 +746,35 @@ async function renderVisiblePages() {
 }
 
 function updateCurrentPageFromScroll() {
-  if (state.viewMode !== "scroll" || !state.pageViews.length) {
+  if (state.viewMode !== "scroll" || !state.pageCount) {
     return;
   }
-  const scale = state.userScale;
-  const mid = els.workspace.scrollTop + els.workspace.clientHeight / 2;
-  let best = state.page;
-  let bestDist = Infinity;
-  for (const view of state.pageViews) {
-    const center = (view.stage.offsetTop + view.stage.offsetHeight / 2) * scale;
-    const dist = Math.abs(center - mid);
-    if (dist < bestDist) {
-      bestDist = dist;
-      best = view.pageNum;
-    }
-  }
+  const best = pageFromScrollMid(
+    els.workspace.scrollTop,
+    els.workspace.clientHeight,
+    state.scrollPageHeight,
+    SCROLL_STAGE_GAP,
+    state.pageCount,
+    state.userScale,
+  );
   if (best !== state.page) {
     state.page = best;
     updatePager();
     persistSession();
+    if (!els.previewDrawer.hidden) {
+      markPreviewCurrent();
+    }
   }
 }
 
 function measureStackBase() {
+  if (state.viewMode === "scroll" && state.scrollPageHeight) {
+    state.stackBase = {
+      width: state.scrollPageWidth,
+      height: scrollStackHeight(state.pageCount, state.scrollPageHeight, SCROLL_STAGE_GAP),
+    };
+    return;
+  }
   const stages = state.pageViews;
   if (!stages.length) {
     state.stackBase = { width: 0, height: 0 };
@@ -744,24 +818,24 @@ function applyViewport() {
 
 async function rebuildPages() {
   const gen = ++renderGen;
+  clearPageBitmapCache();
   els.pageStack.replaceChildren();
   state.pageViews = [];
+  els.pageStack.style.height = "";
+  els.pageStack.style.width = "";
   if (!state.pdf && !state.leaves.length) {
     return;
   }
   state.pageCount = state.leaves.length;
 
   if (state.viewMode === "page") {
+    state.scrollPageWidth = 0;
+    state.scrollPageHeight = 0;
     const view = makeStage(state.page);
     state.pageViews = [view];
     els.pageStack.append(view.stage);
     await renderPageView(view);
   } else {
-    for (let index = 1; index <= state.leaves.length; index += 1) {
-      const view = makeStage(index);
-      state.pageViews.push(view);
-      els.pageStack.append(view.stage);
-    }
     const firstLeaf = state.leaves[0];
     let css;
     if (firstLeaf?.kind === "pdf" && state.pdf) {
@@ -778,11 +852,11 @@ async function rebuildPages() {
     if (gen !== renderGen) {
       return;
     }
-    for (const view of state.pageViews) {
-      view.stage.style.width = `${css.width}px`;
-      view.stage.style.height = `${css.height}px`;
-    }
-    await renderVisiblePages();
+    state.scrollPageWidth = css.width;
+    state.scrollPageHeight = css.height;
+    els.pageStack.style.width = `${css.width}px`;
+    els.pageStack.style.height = `${scrollStackHeight(state.pageCount, css.height, SCROLL_STAGE_GAP)}px`;
+    await syncScrollStages();
     scrollPageIntoView(state.page, false);
   }
   if (gen !== renderGen) {
@@ -792,7 +866,61 @@ async function rebuildPages() {
   updatePager();
 }
 
+function placeScrollStage(view) {
+  if (!view) {
+    return;
+  }
+  view.stage.style.position = "absolute";
+  view.stage.style.top = `${pageOffsetTop(view.pageNum, state.scrollPageHeight, SCROLL_STAGE_GAP)}px`;
+  view.stage.style.left = "0";
+  view.stage.style.width = `${state.scrollPageWidth}px`;
+  view.stage.style.height = `${state.scrollPageHeight}px`;
+}
+
+async function syncScrollStages() {
+  if (state.viewMode !== "scroll" || !state.pageCount || !state.scrollPageHeight) {
+    return;
+  }
+  const { from, to } = visiblePageRange();
+  const keep = new Set();
+  for (let page = from; page <= to; page += 1) {
+    keep.add(page);
+  }
+  if (state.drawing && state.drawPage) {
+    keep.add(state.drawPage);
+  }
+  if (state.selectIndices.length && state.selectPage) {
+    keep.add(state.selectPage);
+  }
+  const existing = new Map(state.pageViews.map((view) => [view.pageNum, view]));
+  const next = [];
+  for (const view of state.pageViews) {
+    if (!keep.has(view.pageNum)) {
+      view.stage.remove();
+    }
+  }
+  const ordered = [...keep].sort((a, b) => a - b);
+  for (const page of ordered) {
+    let view = existing.get(page);
+    if (!view || !view.stage.isConnected) {
+      view = makeStage(page);
+      placeScrollStage(view);
+      els.pageStack.append(view.stage);
+    } else {
+      placeScrollStage(view);
+    }
+    next.push(view);
+  }
+  state.pageViews = next;
+  await renderVisiblePages();
+}
+
 function scrollPageIntoView(pageNum, smooth) {
+  if (state.viewMode === "scroll" && state.scrollPageHeight) {
+    const top = pageOffsetTop(pageNum, state.scrollPageHeight, SCROLL_STAGE_GAP) * state.userScale - 12;
+    els.workspace.scrollTo({ top: Math.max(0, top), behavior: smooth ? "smooth" : "auto" });
+    return;
+  }
   const view = state.pageViews.find((item) => item.pageNum === pageNum);
   if (!view) {
     return;
@@ -944,6 +1072,8 @@ async function openPdfBuffer(buffer, { identity, name, page = 1 }) {
   state.pages = stored.pages;
   state.outline = normalizeOutline(stored.outline);
   state.baseCss = { width: 0, height: 0 };
+  clearPageBitmapCache();
+  clearThumbCache();
   resetEditorExtras();
   if (!state.zoomLock) {
     state.userScale = 1;
@@ -984,22 +1114,47 @@ async function openSelectedFile(file) {
   }
 }
 
+async function showPageInPlace(pageNum) {
+  let view = state.pageViews.find((item) => item.stage?.isConnected) || state.pageViews[0];
+  if (!view) {
+    view = makeStage(pageNum);
+    state.pageViews = [view];
+    els.pageStack.append(view.stage);
+  } else {
+    view.pageNum = pageNum;
+    view.stage.dataset.page = String(pageNum);
+    view.token += 1;
+    view.rendered = false;
+  }
+  const leaf = leafAt(state.leaves, pageNum);
+  const cached = leaf ? lruMapGet(pageBitmapCache, leafCacheKey(leaf)) : null;
+  if (cached && applyCachedPage(view, cached)) {
+    applyViewport();
+    updatePager();
+    return;
+  }
+  await renderPageView(view);
+  applyViewport();
+  updatePager();
+}
+
 async function goToPage(nextPage) {
   if (!state.pdf || nextPage < 1 || nextPage > state.pageCount || nextPage === state.page) {
     return;
   }
   state.page = nextPage;
   abortStroke();
+  clearSelection();
   if (state.viewMode === "page") {
-    await rebuildPages();
+    await showPageInPlace(nextPage);
   } else {
     scrollPageIntoView(nextPage, true);
     updatePager();
-    await renderVisiblePages();
+    await syncScrollStages();
   }
   await persistSession();
   if (!els.previewDrawer.hidden) {
-    renderPreview();
+    markPreviewCurrent();
   }
 }
 
@@ -2464,6 +2619,20 @@ function setPreviewTab(tab) {
   renderPreview();
 }
 
+function markPreviewCurrent() {
+  if (els.tocList) {
+    els.tocList.querySelectorAll(".preview-toc-row").forEach((row) => {
+      row.classList.toggle("is-current", Number(row.dataset.page) === state.page);
+    });
+  }
+  if (!els.previewList) {
+    return;
+  }
+  els.previewList.querySelectorAll(".preview-row").forEach((row) => {
+    row.classList.toggle("is-current", Number(row.dataset.page) === state.page);
+  });
+}
+
 function renderPreview() {
   const onToc = state.previewTab === "toc";
   document.querySelectorAll("#preview-tabs [data-preview-tab]").forEach((btn) => {
@@ -2536,6 +2705,7 @@ function renderTocList() {
     const dest = outlineDestPage(entry);
     const row = document.createElement("div");
     row.className = "preview-toc-row";
+    row.dataset.page = String(dest);
     if (dest === state.page) {
       row.classList.add("is-current");
     }
@@ -2580,45 +2750,126 @@ async function renderPreviewList() {
   document.querySelectorAll("#preview-filters [data-preview-filter]").forEach((btn) => {
     btn.classList.toggle("is-selected", btn.dataset.previewFilter === state.previewFilter);
   });
-  const shown = filterLeaves(state.leaves, state.previewFilter);
-  els.previewList.replaceChildren();
-  for (const leaf of shown) {
-    const pageNum = pageOfLeaf(state.leaves, leaf.id);
-    const row = document.createElement("div");
-    row.className = "preview-row";
-    if (pageNum === state.page) {
-      row.classList.add("is-current");
-    }
-    const thumb = document.createElement("canvas");
-    thumb.className = "preview-thumb";
-    const meta = document.createElement("div");
-    meta.className = "preview-meta";
-    const label = document.createElement("span");
-    label.textContent = leaf.kind === "outline" ? leaf.title : `${pageNum}`;
-    const star = document.createElement("button");
-    star.type = "button";
-    star.className = "preview-bookmark";
-    star.classList.toggle("is-on", leaf.bookmark);
-    star.textContent = leaf.bookmark ? "★" : "☆";
-    star.setAttribute("aria-label", "책갈피");
-    star.addEventListener("click", (event) => {
-      event.stopPropagation();
-      state.leaves = toggleBookmark(state.leaves, pageNum - 1);
-      persistStrokes();
-      renderPreviewList();
-    });
-    meta.append(label, star);
-    row.append(thumb, meta);
-    row.addEventListener("click", () => {
-      goToPage(pageNum);
-    });
-    els.previewList.append(row);
-    paintPreviewThumb(thumb, leaf);
+  previewLeaves = filterLeaves(state.leaves, state.previewFilter);
+  const stride = previewRowStride();
+  const track = document.createElement("div");
+  track.className = "preview-virtual";
+  track.style.height = `${Math.max(0, previewLeaves.length * stride)}px`;
+  els.previewList.replaceChildren(track);
+  syncPreviewWindow();
+  requestAnimationFrame(() => syncPreviewWindow());
+}
+
+function makePreviewRow(leaf, index, stride) {
+  const pageNum = pageOfLeaf(state.leaves, leaf.id);
+  const row = document.createElement("div");
+  row.className = "preview-row";
+  row.dataset.index = String(index);
+  row.dataset.page = String(pageNum);
+  row.dataset.leaf = leaf.id;
+  row.style.top = `${index * stride}px`;
+  if (pageNum === state.page) {
+    row.classList.add("is-current");
   }
+  const thumb = document.createElement("canvas");
+  thumb.className = "preview-thumb";
+  const meta = document.createElement("div");
+  meta.className = "preview-meta";
+  const label = document.createElement("span");
+  label.textContent = leaf.kind === "outline" ? leaf.title : `${pageNum}`;
+  const star = document.createElement("button");
+  star.type = "button";
+  star.className = "preview-bookmark";
+  star.classList.toggle("is-on", leaf.bookmark);
+  star.textContent = leaf.bookmark ? "★" : "☆";
+  star.setAttribute("aria-label", "책갈피");
+  star.addEventListener("click", (event) => {
+    event.stopPropagation();
+    state.leaves = toggleBookmark(state.leaves, pageNum - 1);
+    persistStrokes();
+    renderPreviewList();
+  });
+  meta.append(label, star);
+  row.append(thumb, meta);
+  row.addEventListener("click", () => {
+    goToPage(pageNum);
+  });
+  return row;
+}
+
+function syncPreviewWindow() {
+  if (!els.previewList) {
+    return;
+  }
+  const track = els.previewList.querySelector(".preview-virtual");
+  if (!track) {
+    return;
+  }
+  const stride = previewRowStride();
+  const { from, to } = visibleIndexWindow({
+    scrollTop: els.previewList.scrollTop,
+    clientHeight: els.previewList.clientHeight || 480,
+    itemStride: stride,
+    count: previewLeaves.length,
+    overscan: PREVIEW_OVERSCAN,
+  });
+  const needed = new Set();
+  for (let index = from; index <= to; index += 1) {
+    needed.add(index);
+  }
+  for (const row of [...track.querySelectorAll(".preview-row")]) {
+    if (!needed.has(Number(row.dataset.index))) {
+      row.remove();
+    }
+  }
+  const have = new Set(
+    [...track.querySelectorAll(".preview-row")].map((row) => Number(row.dataset.index)),
+  );
+  for (let index = from; index <= to; index += 1) {
+    if (have.has(index)) {
+      continue;
+    }
+    const leaf = previewLeaves[index];
+    if (!leaf) {
+      continue;
+    }
+    track.append(makePreviewRow(leaf, index, stride));
+  }
+  paintVisiblePreviewThumbs();
+}
+
+function paintVisiblePreviewThumbs() {
+  if (!els.previewList) {
+    return;
+  }
+  els.previewList.querySelectorAll(".preview-row").forEach((row) => {
+    const leaf = previewLeaves[Number(row.dataset.index)];
+    const canvas = row.querySelector("canvas.preview-thumb");
+    if (!leaf || !canvas) {
+      return;
+    }
+    const key = leafCacheKey(leaf);
+    if (canvas.dataset.painted === key) {
+      return;
+    }
+    paintPreviewThumb(canvas, leaf).then(() => {
+      if (previewLeaves[Number(row.dataset.index)] === leaf) {
+        canvas.dataset.painted = key;
+      }
+    });
+  });
 }
 
 async function paintPreviewThumb(canvas, leaf) {
+  const key = leafCacheKey(leaf);
+  const cached = lruMapGet(thumbCache, key);
   const ctx = canvas.getContext("2d");
+  if (cached) {
+    canvas.width = cached.width;
+    canvas.height = cached.height;
+    ctx.drawImage(cached, 0, 0);
+    return;
+  }
   canvas.width = 180;
   canvas.height = 240;
   ctx.fillStyle = "#F7F4EC";
@@ -2628,6 +2879,7 @@ async function paintPreviewThumb(canvas, leaf) {
     ctx.textAlign = "center";
     ctx.font = "600 16px sans-serif";
     ctx.fillText(leaf.title || "개요", 90, 40);
+    rememberThumb(key, canvas);
     return;
   }
   try {
@@ -2639,9 +2891,21 @@ async function paintPreviewThumb(canvas, leaf) {
     canvas.width = viewport.width;
     canvas.height = viewport.height;
     await page.render({ canvasContext: ctx, viewport }).promise;
+    rememberThumb(key, canvas);
   } catch {
     // cream placeholder
   }
+}
+
+function rememberThumb(key, canvas) {
+  if (!key || !canvas?.width) {
+    return;
+  }
+  const copy = document.createElement("canvas");
+  copy.width = canvas.width;
+  copy.height = canvas.height;
+  copy.getContext("2d").drawImage(canvas, 0, 0);
+  lruMapSet(thumbCache, key, copy, THUMB_CACHE_LIMIT);
 }
 
 function insertOutlinePage() {
@@ -3639,8 +3903,29 @@ els.workspace.addEventListener("scroll", () => {
     return;
   }
   updateCurrentPageFromScroll();
-  renderVisiblePages();
+  if (scrollStageTick) {
+    return;
+  }
+  scrollStageTick = requestAnimationFrame(() => {
+    scrollStageTick = 0;
+    syncScrollStages();
+  });
 });
+if (els.previewList) {
+  els.previewList.addEventListener(
+    "scroll",
+    () => {
+      if (previewScrollTick) {
+        return;
+      }
+      previewScrollTick = requestAnimationFrame(() => {
+        previewScrollTick = 0;
+        syncPreviewWindow();
+      });
+    },
+    { passive: true },
+  );
+}
 
 function preventWriteSurfaceTouch(event) {
   if (isWriteChrome(event.target)) {

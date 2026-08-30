@@ -1016,7 +1016,16 @@ body {
   gap: 8px;
 }
 
+.preview-virtual {
+  position: relative;
+  width: 100%;
+  flex: 0 0 auto;
+}
+
 .preview-row {
+  position: absolute;
+  left: 0;
+  right: 0;
   display: flex;
   flex-direction: column;
   gap: 6px;
