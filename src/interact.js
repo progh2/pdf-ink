@@ -27,6 +27,30 @@ export function canCreateInk({ interactMode, penOnly, pointerType, rectTool, too
   return true;
 }
 
+/** One line, no bar cell: why the stroke did not appear (#86). */
+export const VIEW_NOTICE_TEXT = "보기 중";
+export const VIEW_NOTICE_MS = 1400;
+export const VIEW_NOTICE_COOLDOWN_MS = 2000;
+
+const DRAW_TOOLS = ["pen", "highlighter", "pencil", "eraser", "stamp"];
+
+/**
+ * Drawing while locked is ignored, but not silently: say "보기 중" once per
+ * cooldown so a tap that leaves no ink is explained (#86).
+ */
+export function shouldNoticeViewMode({ interactMode, tool, rectTool, now = 0, lastAt = null, cooldownMs = VIEW_NOTICE_COOLDOWN_MS } = {}) {
+  if (normalizeInteractMode(interactMode) !== "view") {
+    return false;
+  }
+  if (rectTool || !DRAW_TOOLS.includes(tool)) {
+    return false;
+  }
+  if (lastAt == null) {
+    return true;
+  }
+  return Number(now) - Number(lastAt) >= cooldownMs;
+}
+
 /** Pixel slop for "this pointerdown reused the last pointerup coordinate". */
 export const REUSED_INK_START_SLOP_PX = 2;
 
