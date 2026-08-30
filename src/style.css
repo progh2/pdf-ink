@@ -228,36 +228,27 @@ body {
   min-height: 0;
   min-width: 0;
   display: flex;
-}
-
-.write-screen[data-toolbar="top"] .write-body,
-.write-screen[data-toolbar="bottom"] .write-body,
-.write-screen[data-toolbar="float"] .write-body {
   flex-direction: column;
   align-items: stretch;
 }
 
-.write-screen[data-toolbar="bottom"] .toolbar-rail {
-  order: 2;
-}
-
-.write-screen[data-toolbar="bottom"] .workspace {
-  order: 1;
-}
-
+/* Overlay like #30: rail never carves workspace, so paper size/aspect stay put. */
 .toolbar-rail {
-  flex: 0 0 auto;
+  position: absolute;
+  inset: 0;
   display: flex;
   justify-content: center;
-  align-items: center;
+  align-items: flex-start;
   padding: 8px;
   z-index: 4;
   pointer-events: none;
 }
 
+.write-screen[data-toolbar="bottom"] .toolbar-rail {
+  align-items: flex-end;
+}
+
 .write-screen[data-toolbar="float"] .toolbar-rail {
-  position: absolute;
-  inset: 0;
   padding: 0;
   justify-content: flex-start;
   align-items: flex-start;
@@ -296,7 +287,8 @@ body {
 }
 
 .write-screen[data-toolbar="float"] .toolbar {
-  position: absolute;
+  position: fixed;
+  z-index: 12;
   left: var(--toolbar-x, 16px);
   top: var(--toolbar-y, 72px);
 }

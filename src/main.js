@@ -1534,7 +1534,6 @@ function syncEraserEditor() {
 }
 
 async function setToolbarPosition(position, floatPoint) {
-  const prev = state.toolbarPos;
   state.toolbarPos = position === "bottom" || position === "float" ? position : "top";
   if (floatPoint) {
     state.toolbarFloat = constrainFloat(
@@ -1550,9 +1549,6 @@ async function setToolbarPosition(position, floatPoint) {
   saveToolbarPosition(state.toolbarPos);
   applyChrome();
   closeAllPanels();
-  if (state.pdf && prev !== state.toolbarPos) {
-    await rebuildPages();
-  }
 }
 
 async function setViewMode(mode) {
@@ -2380,9 +2376,9 @@ function saveDocumentNow() {
 }
 
 function exportDocumentStub() {
-  showBanner("내보내기는 준비 중입니다.");
+  showBanner("내보내기는 다음입니다.");
   window.setTimeout(() => {
-    if (els.banner.textContent === "내보내기는 준비 중입니다.") {
+    if (els.banner.textContent === "내보내기는 다음입니다.") {
       showBanner("");
     }
   }, 1800);

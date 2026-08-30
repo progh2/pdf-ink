@@ -148,6 +148,14 @@ describe("#56 GoodNotes 4 utility bar", () => {
     assert.match(more, /data-more="save">저장/);
     assert.match(more, /data-more="export">내보내기/);
     assert.doesNotMatch(more, /data-more="select"/);
+    const saveFn = main.slice(main.indexOf("function saveDocumentNow"), main.indexOf("function exportDocumentStub"));
+    const exportFn = main.slice(main.indexOf("function exportDocumentStub"), main.indexOf("function selectMoreAction"));
+    assert.match(saveFn, /persistStrokes/);
+    assert.match(saveFn, /저장했습니다/);
+    assert.doesNotMatch(saveFn, /navigator\.share|createObjectURL|download|pdf-lib|jsPDF/);
+    assert.match(exportFn, /내보내기는 다음입니다/);
+    assert.doesNotMatch(exportFn, /navigator\.share|createObjectURL|download|pdf-lib|jsPDF/);
+    assert.doesNotMatch(main, /navigator\.share/);
     assert.equal(UNDO_HOLD_MS, 400);
     assert.match(main, /bindUndoHold\(els\.undoBtn,\s*\{\s*onUndo:\s*undoInk,\s*onRedo:\s*redoInk/);
     assert.match(main, /els\.redoBtn\.disabled = !canRedo/);
@@ -167,9 +175,16 @@ describe("#56 GoodNotes 4 utility bar", () => {
     assert.ok(DOCK_BAND_PX > 0);
     assert.match(main, /bindToolbarGrip/);
     assert.match(main, /snapDockFromPoint/);
-    assert.match(css, /\[data-toolbar="float"\] \.toolbar-rail \{[\s\S]*position: absolute/);
+    const railCss = css.slice(css.indexOf(".toolbar-rail {"), css.indexOf(".write-screen[data-toolbar=\"bottom\"] .toolbar-rail"));
+    assert.match(railCss, /position: absolute/);
+    assert.match(railCss, /inset: 0/);
+    assert.doesNotMatch(railCss, /flex: 0 0 auto/);
+    assert.match(css, /\[data-toolbar="bottom"\] \.toolbar-rail \{[\s\S]*align-items: flex-end/);
+    assert.match(css, /\[data-toolbar="float"\] \.toolbar \{[\s\S]*position: fixed/);
     assert.doesNotMatch(html, /data-pos="left"|data-pos="right"/);
     assert.match(html, /data-pos="float">떠 있게/);
+    const dockFn = main.slice(main.indexOf("async function setToolbarPosition"), main.indexOf("async function setViewMode"));
+    assert.doesNotMatch(dockFn, /rebuildPages/);
   });
 
   it("does not wrap or add a second bar/pill", () => {
