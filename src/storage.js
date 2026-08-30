@@ -9,22 +9,27 @@ export function fileIdentity(file) {
   return `${file.name}::${file.size}::${file.lastModified}`;
 }
 
+export function emptyStrokeRecord() {
+  return { pages: {}, leaves: null, outline: [] };
+}
+
 export function loadStrokes(identity) {
   try {
     const raw = localStorage.getItem(STROKE_PREFIX + identity);
     if (!raw) {
-      return { pages: {}, leaves: null };
+      return emptyStrokeRecord();
     }
     const data = JSON.parse(raw);
     if (!data || typeof data !== "object" || !data.pages || typeof data.pages !== "object") {
-      return { pages: {}, leaves: null };
+      return emptyStrokeRecord();
     }
     return {
       pages: data.pages,
       leaves: Array.isArray(data.leaves) ? data.leaves : null,
+      outline: Array.isArray(data.outline) ? data.outline : [],
     };
   } catch {
-    return { pages: {}, leaves: null };
+    return emptyStrokeRecord();
   }
 }
 
@@ -44,12 +49,14 @@ export function savePenOnly(on) {
   }
 }
 
-export function saveStrokes(identity, pages, leaves = null) {
+export function saveStrokes(identity, pages, leaves = null, outline = null) {
+  const hasOutline = Array.isArray(outline);
   const payload = JSON.stringify({
-    version: leaves ? 2 : 1,
+    version: hasOutline ? 3 : leaves ? 2 : 1,
     identity,
     pages,
     ...(leaves ? { leaves } : {}),
+    ...(hasOutline ? { outline } : {}),
     savedAt: Date.now(),
   });
   localStorage.setItem(STROKE_PREFIX + identity, payload);
