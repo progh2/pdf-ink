@@ -69,6 +69,7 @@ import { MOSAIC_CELL_CSS, mosaicBoxesPx, mosaicItem } from "./mosaic.js";
 import { captureRegionPng, composePageRgba, cropRgba, writePngClipboard } from "./capture.js";
 import {
   copyItems,
+  deleteSelectedItems,
   itemBounds,
   offsetItems,
   pickItemsAt,
@@ -88,7 +89,7 @@ import {
   lockImage,
   resizeImage,
 } from "./image.js";
-import { addRotation, rotateItems } from "./rotate.js";
+import { addRotation, imagePaintDest, rotateItems, rotateSelectedItems } from "./rotate.js";
 import {
   filterLeaves,
   inkKey,
@@ -165,6 +166,9 @@ const els = {
   selectHud: document.querySelector("#float-bar"),
   copyBtn: document.querySelector("#copy-btn"),
   pasteBtn: document.querySelector("#paste-btn"),
+  selLeftBtn: document.querySelector("#sel-left-btn"),
+  selRightBtn: document.querySelector("#sel-right-btn"),
+  deleteBtn: document.querySelector("#delete-btn"),
   cropBtn: document.querySelector("#crop-btn"),
   lockBtn: document.querySelector("#lock-btn"),
   cropConfirm: document.querySelector("#crop-confirm"),
@@ -458,17 +462,20 @@ function paintImageLayer(canvas, items, locked, onReady) {
       continue;
     }
     const crop = item.crop || { x: 0, y: 0, w: 1, h: 1 };
-    ctx.drawImage(
-      entry.img,
-      crop.x * entry.img.width,
-      crop.y * entry.img.height,
-      Math.max(1, entry.img.width * crop.w),
-      Math.max(1, entry.img.height * crop.h),
-      item.x * canvas.width,
-      item.y * canvas.height,
-      item.w * canvas.width,
-      item.h * canvas.height,
-    );
+    const dest = imagePaintDest(item, canvas.width, canvas.height);
+    const sx = crop.x * entry.img.width;
+    const sy = crop.y * entry.img.height;
+    const sw = Math.max(1, entry.img.width * crop.w);
+    const sh = Math.max(1, entry.img.height * crop.h);
+    if (!dest.rotate) {
+      ctx.drawImage(entry.img, sx, sy, sw, sh, item.x * canvas.width, item.y * canvas.height, dest.destW, dest.destH);
+      continue;
+    }
+    ctx.save();
+    ctx.translate((item.x + item.w / 2) * canvas.width, (item.y + item.h / 2) * canvas.height);
+    ctx.rotate((dest.rotate * Math.PI) / 180);
+    ctx.drawImage(entry.img, sx, sy, sw, sh, -dest.destW / 2, -dest.destH / 2, dest.destW, dest.destH);
+    ctx.restore();
   }
 }
 
@@ -1854,6 +1861,15 @@ function syncSelectHud() {
   els.cropConfirm.hidden = !cropping;
   els.copyBtn.hidden = cropping;
   els.pasteBtn.hidden = cropping;
+  if (els.selLeftBtn) {
+    els.selLeftBtn.hidden = cropping;
+  }
+  if (els.selRightBtn) {
+    els.selRightBtn.hidden = cropping;
+  }
+  if (els.deleteBtn) {
+    els.deleteBtn.hidden = cropping;
+  }
   const stamp = selectedStampItem();
   els.selectLayer.classList.toggle("is-image", Boolean(image) && !cropping);
   els.selectLayer.classList.toggle("is-stamp", Boolean(stamp) && !cropping);
@@ -2146,6 +2162,53 @@ function copySelection() {
     return;
   }
   state.inkClipboard = copyItems(items, state.selectIndices, 0, 0);
+}
+
+function rotateSelection(delta) {
+  if (state.interactMode === "view" || state.cropping || !state.selectIndices.length) {
+    return;
+  }
+  const pageNum = state.selectPage || state.page;
+  const view = state.pageViews.find((item) => item.pageNum === pageNum);
+  const cssW = view?.cssWidth || 400;
+  const cssH = view?.cssHeight || 600;
+  const items = pageStrokes(pageNum);
+  const bounds = selectedBounds(items, state.selectIndices, cssW, cssH);
+  if (!bounds) {
+    return;
+  }
+  const center = { x: bounds.x + bounds.w / 2, y: bounds.y + bounds.h / 2 };
+  const next = rotateSelectedItems(items, state.selectIndices, delta, center, cssW, cssH);
+  if (JSON.stringify(next) === JSON.stringify(items)) {
+    return;
+  }
+  commitPageChange(pageNum, () => {
+    state.pages[inkKey(leafAt(state.leaves, pageNum))] = next;
+  });
+  if (view) {
+    drawStrokesOn(view);
+  }
+  syncSelectHud();
+}
+
+function deleteSelection() {
+  if (state.interactMode === "view" || state.cropping || !state.selectIndices.length) {
+    return;
+  }
+  const pageNum = state.selectPage || state.page;
+  const items = pageStrokes(pageNum);
+  const next = deleteSelectedItems(items, state.selectIndices);
+  if (JSON.stringify(next) === JSON.stringify(items)) {
+    return;
+  }
+  commitPageChange(pageNum, () => {
+    state.pages[inkKey(leafAt(state.leaves, pageNum))] = next;
+  });
+  clearSelection();
+  const view = state.pageViews.find((item) => item.pageNum === pageNum);
+  if (view) {
+    drawStrokesOn(view);
+  }
 }
 
 function pasteClipboard() {
@@ -3272,6 +3335,21 @@ els.pasteBtn.addEventListener("click", (event) => {
   event.stopPropagation();
   pasteClipboard();
 });
+els.selLeftBtn.addEventListener("click", (event) => {
+  event.preventDefault();
+  event.stopPropagation();
+  rotateSelection(-90);
+});
+els.selRightBtn.addEventListener("click", (event) => {
+  event.preventDefault();
+  event.stopPropagation();
+  rotateSelection(90);
+});
+els.deleteBtn.addEventListener("click", (event) => {
+  event.preventDefault();
+  event.stopPropagation();
+  deleteSelection();
+});
 els.cropBtn.addEventListener("click", (event) => {
   event.preventDefault();
   event.stopPropagation();
@@ -3384,6 +3462,14 @@ document.addEventListener("pointerdown", (event) => {
 });
 
 document.addEventListener("keydown", (event) => {
+  const typing = event.target.closest?.("input, textarea, [contenteditable='true']");
+  if ((event.key === "Delete" || event.key === "Backspace") && !typing) {
+    if (!els.writeScreen.hidden && state.interactMode !== "view") {
+      event.preventDefault();
+      deleteSelection();
+    }
+    return;
+  }
   if (!(event.ctrlKey || event.metaKey)) {
     return;
   }

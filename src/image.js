@@ -25,6 +25,7 @@ export function imageItem({
   src = "",
   locked = false,
   crop = null,
+  rotate = 0,
   id,
 } = {}) {
   return {
@@ -36,6 +37,7 @@ export function imageItem({
     h: Math.max(0.04, Number(h) || 0.3),
     src: typeof src === "string" ? src : "",
     locked: Boolean(locked),
+    rotate: Number.isFinite(Number(rotate)) ? Number(rotate) : 0,
     crop: normalizeCrop(crop),
   };
 }

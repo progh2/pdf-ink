@@ -18,6 +18,7 @@ describe("이미지", () => {
     const item = imageItem({ src: "data:image/png;base64,xx", x: 0.2, y: 0.2, w: 0.4, h: 0.3 });
     assert.equal(item.type, "image");
     assert.equal(item.locked, false);
+    assert.equal(item.rotate, 0);
     assert.deepEqual(item.crop, { x: 0, y: 0, w: 1, h: 1 });
     const locked = lockImage(item, true);
     assert.equal(locked.locked, true);
