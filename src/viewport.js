@@ -1,5 +1,10 @@
 export const MIN_SCALE = 1;
-export const MAX_SCALE = 5;
+export const MAX_SCALE = 8;
+
+/** Bitmap budget per page. A phone cannot hold a 3x poster (#96). */
+export const MAX_PAGE_PIXELS = 6_000_000;
+/** Re-render steps. Between them the CSS transform stretches, as before. */
+export const RENDER_STEPS = [1, 1.5, 2, 3];
 
 export function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
@@ -59,6 +64,23 @@ export const PAN_MARGIN_PX = 64;
  * scale too, so a page that ends at the screen edge can still be nudged in.
  * The paper itself is never resized (#30).
  */
+/**
+ * How much sharper to render the page for the current zoom: the largest step
+ * at or below the zoom that still fits the pixel budget (#96).
+ */
+export function renderZoomFactor(userScale, pixelWidth, pixelHeight, maxPixels = MAX_PAGE_PIXELS) {
+  const base = Math.max(1, Number(pixelWidth) || 1) * Math.max(1, Number(pixelHeight) || 1);
+  const budget = Math.sqrt(Math.max(1, Number(maxPixels) || 1) / base);
+  const want = Math.max(1, Number(userScale) || 1);
+  let best = 1;
+  for (const step of RENDER_STEPS) {
+    if (step <= want + 1e-9 && step <= budget + 1e-9) {
+      best = step;
+    }
+  }
+  return best;
+}
+
 export function constrainPan(panX, panY, scale, pageW, pageH, viewW, viewH, margin = PAN_MARGIN_PX) {
   const room = Math.max(0, Number(margin) || 0);
   const extraX = Math.max(0, (pageW * scale - viewW) / 2) + room;

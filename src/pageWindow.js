@@ -194,7 +194,9 @@ export function pageBitmapKey(leaf, extras = {}) {
   const w = Math.round(Number(extras.cssWidth) || 0);
   const h = Math.round(Number(extras.cssHeight) || 0);
   const mode = extras.viewMode || "page";
-  return `${id}:${rotate}:${mode}:${w}x${h}`;
+  // The zoom render step is part of the key, or a blurry bitmap comes back (#96).
+  const factor = Number(extras.factor) > 0 ? Number(extras.factor) : 1;
+  return `${id}:${rotate}:${mode}:${w}x${h}@${factor}`;
 }
 
 /**
