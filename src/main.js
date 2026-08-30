@@ -55,6 +55,9 @@ import {
   rectBigEnough,
   rectFromPoints,
   shouldPanPointer,
+  shouldNoticeViewMode,
+  VIEW_NOTICE_MS,
+  VIEW_NOTICE_TEXT,
 } from "./interact.js";
 import { canRedo, canUndo, cloneItems, createHistory, recordChange, redoChange, undoChange } from "./history.js";
 import { bindUndoHold } from "./undoHold.js";
@@ -88,6 +91,7 @@ import {
   placeShapeChipMenu,
 } from "./shapeHold.js";
 import { MOSAIC_CELL_CSS, mosaicBoxesPx, mosaicItem } from "./mosaic.js";
+import { recentCardEntries } from "./recent.js";
 import { captureRegionPng, composePageRgba, cropRgba, writePngClipboard } from "./capture.js";
 import {
   copyItems,
@@ -101,6 +105,7 @@ import {
   pickItemsInRect,
   rotateHandleAt,
   selectedBounds,
+  selectHudTop,
   translateItems,
 } from "./select.js";
 import {
@@ -450,6 +455,28 @@ function refreshStampGhostPhrase() {
 function showBanner(message) {
   els.banner.hidden = !message;
   els.banner.textContent = message || "";
+}
+
+let viewNoticeAt = null;
+
+function noticeViewMode() {
+  const now = performance.now();
+  if (!shouldNoticeViewMode({
+    interactMode: state.interactMode,
+    tool: state.tool,
+    rectTool: state.rectTool,
+    now,
+    lastAt: viewNoticeAt,
+  })) {
+    return;
+  }
+  viewNoticeAt = now;
+  showBanner(VIEW_NOTICE_TEXT);
+  window.setTimeout(() => {
+    if (els.banner.textContent === VIEW_NOTICE_TEXT) {
+      showBanner("");
+    }
+  }, VIEW_NOTICE_MS);
 }
 
 function persistStrokes() {
@@ -1208,13 +1235,22 @@ async function renderRecents() {
     els.recents.hidden = true;
     return;
   }
-  for (const row of rows) {
+  for (const entry of recentCardEntries(rows)) {
     const item = document.createElement("li");
     const button = document.createElement("button");
     button.type = "button";
     button.className = "recent-card";
-    button.textContent = displayName(row.name);
-    button.addEventListener("click", () => openStoredDocument(row.identity));
+    const title = document.createElement("span");
+    title.className = "recent-card-name";
+    title.textContent = entry.title;
+    button.append(title);
+    if (entry.note) {
+      const note = document.createElement("span");
+      note.className = "recent-card-note";
+      note.textContent = entry.note;
+      button.append(note);
+    }
+    button.addEventListener("click", () => openStoredDocument(entry.identity));
     item.append(button);
     els.recents.append(item);
   }
@@ -1614,6 +1650,7 @@ function startStroke(event, stage) {
     return;
   }
   if (state.interactMode === "view") {
+    noticeViewMode();
     return;
   }
   if (!state.pdf || (event.button !== undefined && event.button !== 0)) {
@@ -2265,6 +2302,10 @@ function setZoomLock(on) {
 function setInteractMode(mode) {
   state.interactMode = mode === "view" ? "view" : "edit";
   saveInteractMode(state.interactMode);
+  viewNoticeAt = null;
+  if (state.interactMode === "edit" && els.banner.textContent === VIEW_NOTICE_TEXT) {
+    showBanner("");
+  }
   if (state.interactMode === "view") {
     abortStroke();
     state.rectTool = null;
@@ -2311,17 +2352,21 @@ function placeSelectHud(view, rect) {
     return;
   }
   els.floatBar.hidden = false;
+  const width = els.floatBar.offsetWidth || 220;
+  const height = els.floatBar.offsetHeight || 56;
   let left = 12;
-  let top = 56;
+  let selection = { top: 56 - height - 8, bottom: 56 - 8 };
   if (view && rect) {
     const box = view.stage.getBoundingClientRect();
     left = box.left + rect.x * box.width;
-    top = box.top + (rect.y + rect.h) * box.height + 8;
+    selection = {
+      top: box.top + rect.y * box.height,
+      bottom: box.top + (rect.y + rect.h) * box.height,
+    };
   }
-  const width = els.floatBar.offsetWidth || 220;
-  const height = els.floatBar.offsetHeight || 56;
+  const spot = selectHudTop(selection, height, window.innerHeight);
   els.floatBar.style.left = `${Math.min(window.innerWidth - width - 8, Math.max(8, left))}px`;
-  els.floatBar.style.top = `${Math.min(window.innerHeight - height - 8, Math.max(8, top))}px`;
+  els.floatBar.style.top = `${Math.round(spot.top)}px`;
 }
 
 function syncSelectHud() {

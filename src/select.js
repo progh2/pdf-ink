@@ -1,7 +1,12 @@
+import { distPointToSegment } from "./ink.js";
 import { rotateRectAround } from "./rotate.js";
 import { stampItemSize } from "./tools.js";
 
 export const PASTE_NUDGE = 0.04;
+/** Extra CSS px around a stroke so a tap on thin ink still grabs it (#86). */
+export const STROKE_HIT_PAD_CSS = 6;
+/** Gap between the selection box and the float bar (#86). */
+export const HUD_GAP_PX = 8;
 export const ROTATE_HANDLE_SIZE_CSS = 16;
 export const ROTATE_HANDLE_STROKE_CSS = 1.6;
 export const ROTATE_HANDLE_GAP_CSS = 20;
@@ -39,6 +44,39 @@ function strokeBounds(item) {
     maxY = Math.max(maxY, point.y);
   }
   return { x: minX, y: minY, w: Math.max(0.004, maxX - minX), h: Math.max(0.004, maxY - minY) };
+}
+
+/** Boxless ink: pen/highlighter/pencil strokes and hold shapes (#51). */
+export function isStrokeItem(item) {
+  if (!item || typeof item !== "object" || !Array.isArray(item.points)) {
+    return false;
+  }
+  return !["stamp", "mosaic", "image", "area"].includes(item.type);
+}
+
+/**
+ * A stroke is grabbed by its ink, not by its bounding box: distance to the
+ * polyline within half the stroke width plus a finger-sized pad (#86).
+ */
+export function strokeHitsPoint(item, point, cssWidth = 400, cssHeight = 600, padCss = STROKE_HIT_PAD_CSS) {
+  const points = item?.points || [];
+  if (!points.length || !point) {
+    return false;
+  }
+  const pageW = Math.max(1, Number(cssWidth) || 1);
+  const pageH = Math.max(1, Number(cssHeight) || 1);
+  const target = { x: point.x * pageW, y: point.y * pageH };
+  const pts = points.map((entry) => ({ x: entry.x * pageW, y: entry.y * pageH }));
+  const threshold = (Number(item.width) || 2) / 2 + Math.max(0, Number(padCss) || 0);
+  if (pts.length === 1) {
+    return Math.hypot(target.x - pts[0].x, target.y - pts[0].y) <= threshold;
+  }
+  for (let index = 0; index < pts.length - 1; index += 1) {
+    if (distPointToSegment(target, pts[index], pts[index + 1]) <= threshold) {
+      return true;
+    }
+  }
+  return false;
 }
 
 export function itemBounds(item, cssWidth = 400, cssHeight = 600) {
@@ -132,12 +170,44 @@ export function boundsIntersect(a, b) {
 export function pickItemsAt(items, point, cssWidth, cssHeight, pad = 0.014) {
   const hits = [];
   (items || []).forEach((item, index) => {
+    if (!isSelectable(item)) {
+      return;
+    }
+    if (isStrokeItem(item)) {
+      if (strokeHitsPoint(item, point, cssWidth, cssHeight)) {
+        hits.push(index);
+      }
+      return;
+    }
     const bounds = itemBounds(item, cssWidth, cssHeight);
     if (bounds && pointInBounds(point, bounds, pad)) {
       hits.push(index);
     }
   });
   return hits;
+}
+
+/**
+ * The float bar sits under the selection, but never on top of it: if it would
+ * not fit below it flips above, and only clamps when neither side fits (#86).
+ */
+export function selectHudTop(rect, barHeight, viewHeight, gap = HUD_GAP_PX) {
+  const height = Math.max(0, Number(barHeight) || 0);
+  const view = Math.max(1, Number(viewHeight) || 1);
+  const top = Number(rect?.top) || 0;
+  const bottom = Number(rect?.bottom) || 0;
+  const below = bottom + gap;
+  if (below + height <= view - gap) {
+    return { top: below, placement: "below" };
+  }
+  const above = top - gap - height;
+  if (above >= gap) {
+    return { top: above, placement: "above" };
+  }
+  return {
+    top: Math.min(view - height - gap, Math.max(gap, below)),
+    placement: "clamped",
+  };
 }
 
 export function pickItemsInRect(items, rect, cssWidth, cssHeight) {
