@@ -839,8 +839,19 @@ body {
   gap: 4px;
 }
 
+.preview-outline-tab {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.preview-outline-tab [data-preview-filter] {
+  flex: 1;
+}
+
 .preview-filters button,
-.preview-insert {
+.preview-insert,
+.preview-add {
   height: 32px;
   border: 0;
   border-radius: 8px;
@@ -851,8 +862,15 @@ body {
   cursor: pointer;
 }
 
+.preview-add {
+  width: 32px;
+  flex: 0 0 32px;
+  padding: 0;
+}
+
 .preview-filters button.is-selected,
-.preview-insert {
+.preview-insert,
+.preview-add {
   background: var(--selected);
 }
 
@@ -914,6 +932,66 @@ body {
 
 .preview-bookmark.is-on {
   color: #c4a574;
+}
+
+.preview-outline-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 44px;
+  padding: 0 2px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.preview-outline-item.is-current {
+  background: var(--selected);
+}
+
+.preview-outline-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  height: 32px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--title);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: text;
+}
+
+.preview-outline-input {
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+  height: 32px;
+  padding: 0 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--title);
+  font: inherit;
+  font-size: 13px;
+}
+
+.preview-outline-delete {
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
 }
 
 .slot-opacity-row input[type="range"],

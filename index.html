@@ -191,7 +191,10 @@
         <div class="preview-filters" id="preview-filters">
           <button type="button" data-preview-filter="all">전체</button>
           <button type="button" data-preview-filter="bookmarks">책갈피</button>
-          <button type="button" data-preview-filter="outline">개요</button>
+          <div class="preview-outline-tab">
+            <button type="button" data-preview-filter="outline">개요</button>
+            <button type="button" class="preview-add" id="outline-add" hidden aria-label="개요 추가">+</button>
+          </div>
         </div>
         <div class="preview-list" id="preview-list"></div>
         <button type="button" class="preview-insert" id="outline-insert">개요 페이지 넣기</button>

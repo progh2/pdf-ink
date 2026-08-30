@@ -126,3 +126,64 @@ export function outlineViewport(baseWidth, baseHeight, rotate) {
   }
   return { width: baseWidth, height: baseHeight };
 }
+
+export function outlineTitleForPage(page) {
+  return `페이지 ${Math.max(1, Math.round(Number(page) || 1))}`;
+}
+
+export function makeOutlineItem(id, extras = {}) {
+  const page = Math.max(1, Math.round(Number(extras.page) || 1));
+  const key = String(id || `ol-${Date.now()}`);
+  const title = typeof extras.title === "string" ? extras.title.trim() : "";
+  return {
+    id: key.startsWith("ol:") ? key : `ol:${key}`,
+    title: title || outlineTitleForPage(page),
+    page,
+  };
+}
+
+export function normalizeOutline(items, pageCount) {
+  const n = Math.max(0, Math.round(Number(pageCount) || 0));
+  if (!Array.isArray(items) || !n) {
+    return [];
+  }
+  const out = [];
+  const seen = new Set();
+  for (const raw of items) {
+    if (!raw || typeof raw !== "object") {
+      continue;
+    }
+    const page = Math.round(Number(raw.page) || 0);
+    if (page < 1 || page > n) {
+      continue;
+    }
+    const item = makeOutlineItem(raw.id || `ol:${out.length + 1}`, {
+      title: raw.title,
+      page,
+    });
+    if (seen.has(item.id)) {
+      continue;
+    }
+    seen.add(item.id);
+    out.push(item);
+  }
+  return out;
+}
+
+export function addOutlineItem(items, page, id) {
+  return [...(items || []), makeOutlineItem(id, { page, title: outlineTitleForPage(page) })];
+}
+
+export function renameOutlineItem(items, id, title) {
+  const next = String(title ?? "").trim();
+  return (items || []).map((item) => {
+    if (item.id !== id) {
+      return item;
+    }
+    return { ...item, title: next || outlineTitleForPage(item.page) };
+  });
+}
+
+export function deleteOutlineItem(items, id) {
+  return (items || []).filter((item) => item.id !== id);
+}

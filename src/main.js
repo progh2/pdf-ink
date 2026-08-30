@@ -90,14 +90,18 @@ import {
 } from "./image.js";
 import { addRotation, rotateItems } from "./rotate.js";
 import {
+  addOutlineItem,
+  deleteOutlineItem,
   filterLeaves,
   inkKey,
   insertOutlineAfter,
   leafAt,
   normalizeLeaves,
+  normalizeOutline,
   outlineViewport,
   pageOfInkKey,
   pageOfLeaf,
+  renameOutlineItem,
   setLeafRotate,
   toggleBookmark,
 } from "./preview.js";
@@ -155,6 +159,7 @@ const els = {
   previewClose: document.querySelector("#preview-close"),
   previewList: document.querySelector("#preview-list"),
   outlineInsert: document.querySelector("#outline-insert"),
+  outlineAdd: document.querySelector("#outline-add"),
   fullscreenItem: document.querySelector("#fullscreen-item"),
   marquee: document.querySelector("#marquee"),
   marqueeBox: document.querySelector("#marquee-box"),
@@ -214,6 +219,7 @@ const state = {
   pendingCapture: null,
   immersive: false,
   leaves: [],
+  outline: [],
   previewFilter: "all",
   selectIndices: [],
   selectPage: 1,
@@ -296,7 +302,7 @@ function persistStrokes() {
     return;
   }
   try {
-    saveStrokes(state.identity, state.pages, state.leaves);
+    saveStrokes(state.identity, state.pages, state.leaves, state.outline);
   } catch {
     showBanner("필기를 저장하지 못했습니다. 브라우저 저장 공간이 부족할 수 있습니다.");
   }
@@ -918,6 +924,7 @@ async function openPdfBuffer(buffer, { identity, name, page = 1 }) {
   const stored = loadStrokes(identity);
   state.leaves = normalizeLeaves(stored.leaves, pdf.numPages);
   state.pageCount = state.leaves.length;
+  state.outline = normalizeOutline(stored.outline, state.pageCount);
   state.page = Math.min(Math.max(1, page), state.pageCount);
   state.pages = stored.pages;
   state.baseCss = { width: 0, height: 0 };
@@ -2316,6 +2323,89 @@ function openPreview() {
   renderPreviewList();
 }
 
+function syncPreviewChrome() {
+  const onOutline = state.previewFilter === "outline";
+  if (els.outlineAdd) {
+    els.outlineAdd.hidden = !onOutline;
+  }
+  if (els.outlineInsert) {
+    els.outlineInsert.hidden = onOutline;
+  }
+}
+
+function addCurrentOutlineItem() {
+  if (!state.identity || state.page < 1) {
+    return;
+  }
+  const id = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+  state.outline = addOutlineItem(state.outline, state.page, id);
+  persistStrokes();
+  renderPreviewList();
+}
+
+function beginOutlineRename(item, titleEl) {
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "preview-outline-input";
+  input.value = item.title;
+  input.setAttribute("aria-label", "개요 제목");
+  titleEl.replaceWith(input);
+  input.focus();
+  input.select();
+  const commit = () => {
+    if (input.dataset.done) {
+      return;
+    }
+    input.dataset.done = "1";
+    state.outline = renameOutlineItem(state.outline, item.id, input.value);
+    persistStrokes();
+    renderPreviewList();
+  };
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      input.blur();
+    }
+  });
+  input.addEventListener("blur", commit);
+  input.addEventListener("click", (event) => event.stopPropagation());
+  input.addEventListener("pointerdown", (event) => event.stopPropagation());
+}
+
+function renderOutlineItems() {
+  for (const item of state.outline) {
+    const row = document.createElement("div");
+    row.className = "preview-outline-item";
+    if (item.page === state.page) {
+      row.classList.add("is-current");
+    }
+    const title = document.createElement("button");
+    title.type = "button";
+    title.className = "preview-outline-title";
+    title.textContent = item.title;
+    title.addEventListener("click", (event) => {
+      event.stopPropagation();
+      beginOutlineRename(item, title);
+    });
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "preview-outline-delete";
+    del.textContent = "x";
+    del.setAttribute("aria-label", "개요 삭제");
+    del.addEventListener("click", (event) => {
+      event.stopPropagation();
+      state.outline = deleteOutlineItem(state.outline, item.id);
+      persistStrokes();
+      renderPreviewList();
+    });
+    row.append(title, del);
+    row.addEventListener("click", () => {
+      goToPage(item.page);
+    });
+    els.previewList.append(row);
+  }
+}
+
 async function renderPreviewList() {
   if (!els.previewList) {
     return;
@@ -2323,8 +2413,13 @@ async function renderPreviewList() {
   document.querySelectorAll("#preview-filters [data-preview-filter]").forEach((btn) => {
     btn.classList.toggle("is-selected", btn.dataset.previewFilter === state.previewFilter);
   });
-  const shown = filterLeaves(state.leaves, state.previewFilter);
+  syncPreviewChrome();
   els.previewList.replaceChildren();
+  if (state.previewFilter === "outline") {
+    renderOutlineItems();
+    return;
+  }
+  const shown = filterLeaves(state.leaves, state.previewFilter);
   for (const leaf of shown) {
     const pageNum = pageOfLeaf(state.leaves, leaf.id);
     const row = document.createElement("div");
@@ -3245,6 +3340,11 @@ document.querySelectorAll("#preview-filters [data-preview-filter]").forEach((btn
     state.previewFilter = btn.dataset.previewFilter;
     renderPreviewList();
   });
+});
+els.outlineAdd.addEventListener("click", (event) => {
+  event.preventDefault();
+  event.stopPropagation();
+  addCurrentOutlineItem();
 });
 els.outlineInsert.addEventListener("click", insertOutlinePage);
 els.copyBtn.addEventListener("click", (event) => {
