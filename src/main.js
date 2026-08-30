@@ -7,10 +7,14 @@ import {
   loadDocument,
   loadLastSession,
   loadPenOnly,
+  loadStickerFolders,
+  loadStickers,
   loadStrokes,
   migrateLastIntoFiles,
   saveDocument,
   savePenOnly,
+  saveStickerFolders,
+  saveStickers,
   saveStrokes,
 } from "./storage.js";
 import {
@@ -110,6 +114,31 @@ import {
 } from "./shapeHold.js";
 import { MOSAIC_CELL_CSS, mosaicBoxesPx, mosaicItem } from "./mosaic.js";
 import { recentCardEntries } from "./recent.js";
+import {
+  CHROMA_TOLERANCE,
+  DEFAULT_FOLDER_ID,
+  ERASER_RADIUS_CSS,
+  addFolder,
+  applyChroma,
+  deleteFolder,
+  deleteSticker,
+  eraseCircle,
+  makeSticker,
+  moveSticker,
+  normalizeAngle,
+  normalizeFolders,
+  normalizeStickers,
+  cornerScale,
+  pixelAt,
+  regionPixelRect,
+  renameFolder,
+  rotatedSize,
+  scaledSize,
+  stickerFitSize,
+  stickerSizeOnPage,
+  stickersInFolder,
+  wholeImageRect,
+} from "./stickers.js";
 import { captureRegionPng, composePageRgba, cropRgba, encodePngRgba, writePngClipboard } from "./capture.js";
 import {
   copyItems,
@@ -239,6 +268,27 @@ const els = {
   imageInput: document.querySelector("#image-input"),
   previewDrawer: document.querySelector("#preview-drawer"),
   pageMenu: document.querySelector("#page-menu"),
+  stickerSheet: document.querySelector("#sticker-sheet"),
+  stickerBackdrop: document.querySelector("#sticker-backdrop"),
+  stickerClose: document.querySelector("#sticker-close"),
+  stickerDrop: document.querySelector("#sticker-drop"),
+  stickerDropLabel: document.querySelector("#sticker-drop-label"),
+  stickerFile: document.querySelector("#sticker-file"),
+  stickerSource: document.querySelector("#sticker-source"),
+  stickerCanvas: document.querySelector("#sticker-canvas"),
+  stickerRegions: document.querySelector("#sticker-regions"),
+  stickerMakeActions: document.querySelector("#sticker-make-actions"),
+  stickerWhole: document.querySelector("#sticker-whole"),
+  stickerCut: document.querySelector("#sticker-cut"),
+  stickerFolders: document.querySelector("#sticker-folders"),
+  stickerGrid: document.querySelector("#sticker-grid"),
+  stickerStudio: document.querySelector("#sticker-studio"),
+  stickerStudioCanvas: document.querySelector("#sticker-studio-canvas"),
+  stickerStudioBox: document.querySelector("#sticker-studio-box"),
+  stickerTools: document.querySelector("#sticker-tools"),
+  stickerAngle: document.querySelector("#sticker-angle"),
+  stickerSave: document.querySelector("#sticker-save"),
+  stickerDelete: document.querySelector("#sticker-delete"),
   previewDrop: document.querySelector("#preview-drop"),
   previewBackdrop: document.querySelector("#preview-backdrop"),
   previewClose: document.querySelector("#preview-close"),
@@ -312,6 +362,12 @@ const state = {
   previewFilter: "all",
   previewTab: "pages",
   pageClip: null,
+  stickers: [],
+  stickerFolders: [],
+  stickerFolder: DEFAULT_FOLDER_ID,
+  stickerPick: null,
+  studioTool: "chroma",
+  studioScale: 1,
   pageMenuAt: 0,
   selectIndices: [],
   selectPage: 1,
@@ -354,7 +410,7 @@ const thumbCache = createPaintCache(THUMB_BITMAP_LIMIT);
 const stagePool = [];
 
 const WRITE_CHROME =
-  ".sheet-card, .slot-panel, .toolbar, .write-top, .m4-bar, .more-panel, .marquee, .preview-drawer, .page-menu, .select-hud, .float-bar, #float-bar, .select-layer, #select-layer, .shape-chips, #area-link-panel, #split-tabs, #split-pane, #area-layer";
+  ".sheet-card, .slot-panel, .toolbar, .write-top, .m4-bar, .more-panel, .marquee, .preview-drawer, .page-menu, .sticker-sheet, .select-hud, .float-bar, #float-bar, .select-layer, #select-layer, .shape-chips, #area-link-panel, #split-tabs, #split-pane, #area-layer";
 
 function isWriteChrome(target) {
   return Boolean(target?.closest?.(WRITE_CHROME));
@@ -1510,7 +1566,8 @@ function overlayOpen() {
     !els.slotPanel.hidden ||
     !els.eraserPanel.hidden ||
     !els.morePanel.hidden ||
-    !els.previewDrawer.hidden
+    !els.previewDrawer.hidden ||
+    !els.stickerSheet.hidden
   );
 }
 
@@ -4419,6 +4476,540 @@ async function exportDocument() {
   }, "내보내지 못했습니다.");
 }
 
+/* ---- 스티커 (#79) : 이 브라우저에만, 서버에 안 올림 ---- */
+
+let stickerSource = null;
+let stickerRegions = [];
+let studioPixels = null;
+
+function stickerCtx(canvas) {
+  return canvas.getContext("2d", { willReadFrequently: true });
+}
+
+async function loadStickerLibrary() {
+  try {
+    const [folders, stickers] = await Promise.all([loadStickerFolders(), loadStickers()]);
+    state.stickerFolders = normalizeFolders(folders);
+    state.stickers = normalizeStickers(stickers, state.stickerFolders);
+  } catch {
+    state.stickerFolders = normalizeFolders([]);
+    state.stickers = [];
+  }
+}
+
+async function persistStickers() {
+  try {
+    await Promise.all([saveStickerFolders(state.stickerFolders), saveStickers(state.stickers)]);
+  } catch {
+    flashBanner("스티커를 저장하지 못했습니다.");
+  }
+}
+
+async function openStickerSheet() {
+  if (!els.stickerSheet) {
+    return;
+  }
+  await loadStickerLibrary();
+  closeStudio();
+  clearStickerSource();
+  els.stickerSheet.hidden = false;
+  els.stickerBackdrop.hidden = false;
+  renderStickerFolders();
+  renderStickerGrid();
+}
+
+function closeStickerSheet() {
+  if (!els.stickerSheet) {
+    return;
+  }
+  els.stickerSheet.hidden = true;
+  els.stickerBackdrop.hidden = true;
+  closeStudio();
+  clearStickerSource();
+}
+
+function clearStickerSource() {
+  stickerSource = null;
+  stickerRegions = [];
+  if (els.stickerSource) {
+    els.stickerSource.hidden = true;
+  }
+  if (els.stickerMakeActions) {
+    els.stickerMakeActions.hidden = true;
+  }
+  if (els.stickerRegions) {
+    els.stickerRegions.replaceChildren();
+  }
+  if (els.stickerDropLabel) {
+    els.stickerDropLabel.textContent = "그림을 골라 영역을 잘라요";
+  }
+}
+
+async function loadStickerFile(file) {
+  const check = acceptImageFile(file);
+  if (!check.ok) {
+    flashBanner(check.message);
+    return;
+  }
+  try {
+    const raw = await readFileDataUrl(file);
+    if (!acceptImageSrc(raw)) {
+      flashBanner("PNG, JPEG, WebP만 넣을 수 있습니다.");
+      return;
+    }
+    const img = await loadHtmlImage(raw);
+    const box = els.stickerSheet.clientWidth - 32 || 280;
+    const scale = Math.min(1, box / img.width, 220 / img.height);
+    const canvas = els.stickerCanvas;
+    canvas.width = Math.max(1, Math.round(img.width * scale));
+    canvas.height = Math.max(1, Math.round(img.height * scale));
+    stickerCtx(canvas).drawImage(img, 0, 0, canvas.width, canvas.height);
+    stickerSource = { img, width: img.width, height: img.height };
+    stickerRegions = [];
+    renderStickerRegions();
+    els.stickerSource.hidden = false;
+    els.stickerMakeActions.hidden = false;
+    els.stickerDropLabel.textContent = "영역을 끌어 잘라요";
+  } catch {
+    flashBanner("그림을 열지 못했습니다.");
+  }
+}
+
+function renderStickerRegions(live = null) {
+  if (!els.stickerRegions) {
+    return;
+  }
+  const boxes = live ? [...stickerRegions, live] : stickerRegions;
+  els.stickerRegions.replaceChildren(
+    ...boxes.map((rect) => {
+      const div = document.createElement("div");
+      div.className = "sticker-region";
+      div.style.left = `${Math.min(rect.x1, rect.x2)}px`;
+      div.style.top = `${Math.min(rect.y1, rect.y2)}px`;
+      div.style.width = `${Math.abs(rect.x2 - rect.x1)}px`;
+      div.style.height = `${Math.abs(rect.y2 - rect.y1)}px`;
+      return div;
+    }),
+  );
+}
+
+/** Each rect becomes its own sticker: a drag list never merges into one. */
+function cutSticker(rect) {
+  const fit = stickerFitSize(rect.w, rect.h);
+  const canvas = document.createElement("canvas");
+  canvas.width = fit.width;
+  canvas.height = fit.height;
+  stickerCtx(canvas).drawImage(stickerSource.img, rect.x, rect.y, rect.w, rect.h, 0, 0, fit.width, fit.height);
+  return makeSticker({
+    src: canvas.toDataURL("image/png"),
+    width: fit.width,
+    height: fit.height,
+    folderId: state.stickerFolder,
+  });
+}
+
+async function addStickersFromRegions(whole = false) {
+  if (!stickerSource) {
+    return;
+  }
+  const rects = whole
+    ? [wholeImageRect(stickerSource.width, stickerSource.height)]
+    : stickerRegions
+        .map((rect) =>
+          regionPixelRect(
+            rect,
+            els.stickerCanvas.width,
+            els.stickerCanvas.height,
+            stickerSource.width,
+            stickerSource.height,
+          ),
+        )
+        .filter(Boolean);
+  if (!rects.length) {
+    flashBanner("자를 영역을 먼저 끌어 주세요.");
+    return;
+  }
+  state.stickers = [...state.stickers, ...rects.map((rect) => cutSticker(rect))];
+  await persistStickers();
+  clearStickerSource();
+  renderStickerGrid();
+  flashBanner(`스티커 ${rects.length}장을 만들었습니다.`);
+}
+
+function renderStickerFolders() {
+  if (!els.stickerFolders) {
+    return;
+  }
+  const rows = state.stickerFolders.map((folder) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "sticker-folder";
+    btn.dataset.folder = folder.id;
+    btn.textContent = folder.name;
+    btn.classList.toggle("is-selected", folder.id === state.stickerFolder);
+    btn.addEventListener("click", () => {
+      state.stickerFolder = folder.id;
+      closeStudio();
+      renderStickerFolders();
+      renderStickerGrid();
+    });
+    btn.addEventListener("dblclick", () => renameStickerFolder(folder.id));
+    btn.addEventListener("contextmenu", (event) => {
+      event.preventDefault();
+      removeStickerFolder(folder.id);
+    });
+    return btn;
+  });
+  const add = document.createElement("button");
+  add.type = "button";
+  add.className = "sticker-folder-add";
+  add.textContent = "+";
+  add.setAttribute("aria-label", "폴더 추가");
+  add.addEventListener("click", () => {
+    const name = window.prompt("폴더 이름");
+    if (!name) {
+      return;
+    }
+    state.stickerFolders = addFolder(state.stickerFolders, name);
+    state.stickerFolder = state.stickerFolders.at(-1).id;
+    persistStickers();
+    renderStickerFolders();
+    renderStickerGrid();
+  });
+  els.stickerFolders.replaceChildren(...rows, add);
+}
+
+function renameStickerFolder(id) {
+  if (id === DEFAULT_FOLDER_ID) {
+    return;
+  }
+  const now = state.stickerFolders.find((folder) => folder.id === id);
+  const name = window.prompt("폴더 이름", now?.name || "");
+  if (!name) {
+    return;
+  }
+  state.stickerFolders = renameFolder(state.stickerFolders, id, name);
+  persistStickers();
+  renderStickerFolders();
+}
+
+function removeStickerFolder(id) {
+  if (id === DEFAULT_FOLDER_ID) {
+    return;
+  }
+  const out = deleteFolder(state.stickerFolders, state.stickers, id);
+  state.stickerFolders = out.folders;
+  state.stickers = out.stickers;
+  state.stickerFolder = DEFAULT_FOLDER_ID;
+  persistStickers();
+  renderStickerFolders();
+  renderStickerGrid();
+}
+
+function renderStickerGrid() {
+  if (!els.stickerGrid) {
+    return;
+  }
+  const mine = stickersInFolder(state.stickers, state.stickerFolder);
+  if (!mine.length) {
+    const empty = document.createElement("p");
+    empty.className = "sticker-empty";
+    empty.textContent = "이 폴더는 비었습니다.";
+    els.stickerGrid.replaceChildren(empty);
+    return;
+  }
+  els.stickerGrid.replaceChildren(
+    ...mine.map((sticker) => {
+      const cell = document.createElement("button");
+      cell.type = "button";
+      cell.className = "sticker-cell";
+      cell.dataset.sticker = sticker.id;
+      cell.classList.toggle("is-selected", state.stickerPick === sticker.id);
+      const img = document.createElement("img");
+      img.src = sticker.src;
+      img.alt = sticker.name || "스티커";
+      cell.append(img);
+      bindStickerCell(cell, sticker);
+      return cell;
+    }),
+  );
+}
+
+/** Tap puts it on the paper, hold opens the studio, drag files it away. */
+function bindStickerCell(cell, sticker) {
+  let dragging = false;
+  let start = null;
+  let held = false;
+  let timer = 0;
+
+  cell.addEventListener("pointerdown", (event) => {
+    start = { x: event.clientX, y: event.clientY, id: event.pointerId };
+    dragging = false;
+    held = false;
+    timer = window.setTimeout(() => {
+      timer = 0;
+      held = true;
+      openStudio(sticker.id);
+    }, PAGE_HOLD_MS);
+  });
+
+  cell.addEventListener("pointermove", (event) => {
+    if (!start || start.id !== event.pointerId || held) {
+      return;
+    }
+    if (!dragging && Math.hypot(event.clientX - start.x, event.clientY - start.y) > 8) {
+      window.clearTimeout(timer);
+      dragging = true;
+      try {
+        cell.setPointerCapture(event.pointerId);
+      } catch {
+        // optional
+      }
+    }
+    if (dragging) {
+      event.preventDefault();
+      markFolderDrop(event);
+    }
+  });
+
+  const finish = (event) => {
+    if (!start || start.id !== event.pointerId) {
+      return;
+    }
+    window.clearTimeout(timer);
+    const wasDragging = dragging;
+    const wasHeld = held;
+    start = null;
+    dragging = false;
+    const target = folderAtPoint(event);
+    clearFolderDrop();
+    if (wasDragging) {
+      if (target && target !== sticker.folderId) {
+        state.stickers = moveSticker(state.stickers, sticker.id, target);
+        persistStickers();
+        renderStickerGrid();
+      }
+      return;
+    }
+    if (!wasHeld) {
+      placeSticker(sticker);
+    }
+  };
+
+  cell.addEventListener("pointerup", finish);
+  cell.addEventListener("pointercancel", () => {
+    window.clearTimeout(timer);
+    start = null;
+    dragging = false;
+    held = false;
+    clearFolderDrop();
+  });
+  cell.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+    window.clearTimeout(timer);
+    held = true;
+    openStudio(sticker.id);
+  });
+}
+
+function folderAtPoint(event) {
+  const node = document.elementFromPoint(event.clientX, event.clientY);
+  return node?.closest?.(".sticker-folder")?.dataset.folder || null;
+}
+
+function markFolderDrop(event) {
+  const id = folderAtPoint(event);
+  els.stickerFolders.querySelectorAll(".sticker-folder").forEach((btn) => {
+    btn.classList.toggle("is-drop", btn.dataset.folder === id);
+  });
+}
+
+function clearFolderDrop() {
+  els.stickerFolders?.querySelectorAll(".sticker-folder").forEach((btn) => {
+    btn.classList.remove("is-drop");
+  });
+}
+
+/* ---- 스튜디오: 투명 · 지우개 · 회전 · 코너 크기 ---- */
+
+function closeStudio() {
+  state.stickerPick = null;
+  studioPixels = null;
+  if (els.stickerStudio) {
+    els.stickerStudio.hidden = true;
+  }
+  if (els.stickerAngle) {
+    els.stickerAngle.hidden = true;
+    els.stickerAngle.value = "0";
+  }
+  if (els.stickerStudioCanvas) {
+    els.stickerStudioCanvas.style.transform = "";
+  }
+  state.studioScale = 1;
+}
+
+async function openStudio(id) {
+  const sticker = state.stickers.find((item) => item.id === id);
+  if (!sticker || !els.stickerStudio) {
+    return;
+  }
+  state.stickerPick = id;
+  state.studioTool = "chroma";
+  const img = await loadHtmlImage(sticker.src);
+  const canvas = els.stickerStudioCanvas;
+  canvas.width = sticker.width;
+  canvas.height = sticker.height;
+  const ctx = stickerCtx(canvas);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  studioPixels = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  els.stickerStudio.hidden = false;
+  els.stickerAngle.hidden = true;
+  els.stickerAngle.value = "0";
+  state.studioScale = 1;
+  canvas.style.transform = "";
+  syncStudioTools();
+  renderStickerGrid();
+}
+
+function syncStudioPreview() {
+  const angle = normalizeAngle(Number(els.stickerAngle?.value) || 0);
+  els.stickerStudioCanvas.style.transform = `scale(${state.studioScale}) rotate(${angle}deg)`;
+}
+
+function syncStudioTools() {
+  els.stickerTools?.querySelectorAll("[data-studio]").forEach((btn) => {
+    btn.classList.toggle("is-selected", btn.dataset.studio === state.studioTool);
+  });
+  if (els.stickerAngle) {
+    els.stickerAngle.hidden = state.studioTool !== "rotate";
+  }
+}
+
+function studioPoint(event) {
+  const canvas = els.stickerStudioCanvas;
+  const box = canvas.getBoundingClientRect();
+  return {
+    x: ((event.clientX - box.left) / Math.max(1, box.width)) * canvas.width,
+    y: ((event.clientY - box.top) / Math.max(1, box.height)) * canvas.height,
+  };
+}
+
+function putStudioPixels(data) {
+  const canvas = els.stickerStudioCanvas;
+  studioPixels = new ImageData(data, canvas.width, canvas.height);
+  stickerCtx(canvas).putImageData(studioPixels, 0, 0);
+}
+
+function studioTap(event) {
+  if (!studioPixels || state.studioTool !== "chroma") {
+    return;
+  }
+  const point = studioPoint(event);
+  const color = pixelAt(studioPixels.data, els.stickerStudioCanvas.width, point.x, point.y);
+  if (!color) {
+    return;
+  }
+  putStudioPixels(applyChroma(studioPixels.data, color, CHROMA_TOLERANCE));
+}
+
+function studioErase(event) {
+  if (!studioPixels || state.studioTool !== "eraser") {
+    return;
+  }
+  const canvas = els.stickerStudioCanvas;
+  const point = studioPoint(event);
+  putStudioPixels(
+    eraseCircle(studioPixels.data, canvas.width, canvas.height, point.x, point.y, ERASER_RADIUS_CSS),
+  );
+}
+
+/** Free angle, no 90 snap: the turned picture is baked on save. */
+function studioScaledCanvas(scale) {
+  const source = els.stickerStudioCanvas;
+  if (Math.abs(Number(scale) - 1) < 1e-6) {
+    return source;
+  }
+  const size = scaledSize(source.width, source.height, scale);
+  const out = document.createElement("canvas");
+  out.width = size.width;
+  out.height = size.height;
+  out.getContext("2d").drawImage(source, 0, 0, size.width, size.height);
+  return out;
+}
+
+function studioRotatedCanvas(angle, source = els.stickerStudioCanvas) {
+  const canvas = source;
+  const size = rotatedSize(canvas.width, canvas.height, angle);
+  const out = document.createElement("canvas");
+  out.width = size.width;
+  out.height = size.height;
+  const ctx = out.getContext("2d");
+  ctx.translate(size.width / 2, size.height / 2);
+  ctx.rotate((normalizeAngle(angle) * Math.PI) / 180);
+  ctx.drawImage(canvas, -canvas.width / 2, -canvas.height / 2);
+  return out;
+}
+
+async function saveStudio() {
+  const sticker = state.stickers.find((item) => item.id === state.stickerPick);
+  if (!sticker) {
+    return;
+  }
+  const angle = normalizeAngle(Number(els.stickerAngle?.value) || 0);
+  const sized = studioScaledCanvas(state.studioScale);
+  const canvas = angle ? studioRotatedCanvas(angle, sized) : sized;
+  state.stickers = state.stickers.map((item) =>
+    item.id === sticker.id
+      ? { ...item, src: canvas.toDataURL("image/png"), width: canvas.width, height: canvas.height }
+      : item,
+  );
+  await persistStickers();
+  closeStudio();
+  renderStickerGrid();
+  flashBanner("스티커를 고쳤습니다.");
+}
+
+async function deleteStudioSticker() {
+  if (!state.stickerPick) {
+    return;
+  }
+  state.stickers = deleteSticker(state.stickers, state.stickerPick);
+  await persistStickers();
+  closeStudio();
+  renderStickerGrid();
+}
+
+/** On the paper a sticker is an image item: same select, #68 handle, lock. */
+function placeSticker(sticker) {
+  if (!state.pdf) {
+    flashBanner("먼저 PDF를 여세요.");
+    return;
+  }
+  const view = state.pageViews.find((item) => item.pageNum === state.page);
+  const size = stickerSizeOnPage(
+    sticker.width,
+    sticker.height,
+    view?.cssWidth || 400,
+    view?.cssHeight || 600,
+  );
+  const item = imageItem({ src: sticker.src, x: 0.3, y: 0.28, w: size.w, h: size.h });
+  commitPageChange(state.page, () => {
+    pageStrokes(state.page).push(item);
+    state.selectIndices = [pageStrokes(state.page).length - 1];
+    state.selectPage = state.page;
+  });
+  state.tool = "select";
+  state.rectTool = null;
+  closeStickerSheet();
+  if (view) {
+    drawStrokesOn(view);
+  }
+  syncToolSelection();
+  syncRectTool();
+  syncSelectHud();
+}
+
 function selectMoreAction(action) {
   if (action === "fullscreen") {
     closeMorePanel();
@@ -4442,6 +5033,12 @@ function selectMoreAction(action) {
     closeMorePanel();
     ignoreAfterPanel = true;
     openPreview();
+    return;
+  }
+  if (action === "sticker") {
+    closeMorePanel();
+    ignoreAfterPanel = true;
+    openStickerSheet();
     return;
   }
   if (action === "save") {
@@ -5006,6 +5603,147 @@ for (const label of STAMP_LABELS) {
   els.stampPhrases.append(btn);
 }
 
+els.stickerClose?.addEventListener("click", closeStickerSheet);
+els.stickerBackdrop?.addEventListener("click", closeStickerSheet);
+els.stickerDrop?.addEventListener("click", () => els.stickerFile.click());
+els.stickerFile?.addEventListener("change", async (event) => {
+  const file = event.target.files?.[0];
+  event.target.value = "";
+  if (file) {
+    await loadStickerFile(file);
+  }
+});
+els.stickerWhole?.addEventListener("click", () => addStickersFromRegions(true));
+els.stickerCut?.addEventListener("click", () => addStickersFromRegions(false));
+els.stickerTools?.querySelectorAll("[data-studio]").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    state.studioTool = btn.dataset.studio;
+    syncStudioTools();
+  });
+});
+els.stickerSave?.addEventListener("click", saveStudio);
+els.stickerDelete?.addEventListener("click", deleteStudioSticker);
+els.stickerAngle?.addEventListener("input", () => {
+  // Preview only turns the view; the pixels are baked once, on save.
+  syncStudioPreview();
+});
+
+// 코너 크기: 모서리를 끌면 비율을 지킨 채 커지고 작아진다.
+els.stickerStudioBox?.querySelectorAll("[data-handle]").forEach((handle) => {
+  let drag = null;
+  handle.addEventListener("pointerdown", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    drag = { x: event.clientX, y: event.clientY, id: event.pointerId, scale: state.studioScale };
+    try {
+      handle.setPointerCapture(event.pointerId);
+    } catch {
+      // optional
+    }
+  });
+  handle.addEventListener("pointermove", (event) => {
+    if (!drag || drag.id !== event.pointerId) {
+      return;
+    }
+    event.preventDefault();
+    state.studioScale = cornerScale(
+      els.stickerStudioCanvas.width,
+      els.stickerStudioCanvas.height,
+      handle.dataset.handle,
+      event.clientX - drag.x,
+      event.clientY - drag.y,
+      drag.scale,
+    );
+    syncStudioPreview();
+  });
+  const stop = () => {
+    drag = null;
+  };
+  handle.addEventListener("pointerup", stop);
+  handle.addEventListener("pointercancel", stop);
+});
+
+// 자르기: 미리보기 위 드래그 하나가 스티커 한 장.
+if (els.stickerSource) {
+  let drag = null;
+  const localPoint = (event) => {
+    const box = els.stickerCanvas.getBoundingClientRect();
+    const scaleX = els.stickerCanvas.width / Math.max(1, box.width);
+    const scaleY = els.stickerCanvas.height / Math.max(1, box.height);
+    return { x: (event.clientX - box.left) * scaleX, y: (event.clientY - box.top) * scaleY };
+  };
+  els.stickerSource.addEventListener("pointerdown", (event) => {
+    if (!stickerSource) {
+      return;
+    }
+    const point = localPoint(event);
+    drag = { x1: point.x, y1: point.y, x2: point.x, y2: point.y, id: event.pointerId };
+    try {
+      els.stickerSource.setPointerCapture(event.pointerId);
+    } catch {
+      // optional
+    }
+  });
+  els.stickerSource.addEventListener("pointermove", (event) => {
+    if (!drag || drag.id !== event.pointerId) {
+      return;
+    }
+    event.preventDefault();
+    const point = localPoint(event);
+    drag.x2 = point.x;
+    drag.y2 = point.y;
+    renderStickerRegions(drag);
+  });
+  const endRegion = (event) => {
+    if (!drag || drag.id !== event.pointerId) {
+      return;
+    }
+    const rect = { x1: drag.x1, y1: drag.y1, x2: drag.x2, y2: drag.y2 };
+    drag = null;
+    if (
+      regionPixelRect(rect, els.stickerCanvas.width, els.stickerCanvas.height, stickerSource.width, stickerSource.height)
+    ) {
+      stickerRegions = [...stickerRegions, rect];
+    }
+    renderStickerRegions();
+  };
+  els.stickerSource.addEventListener("pointerup", endRegion);
+  els.stickerSource.addEventListener("pointercancel", () => {
+    drag = null;
+    renderStickerRegions();
+  });
+}
+
+// 스튜디오: 투명은 탭, 지우개는 드래그.
+if (els.stickerStudioCanvas) {
+  let erasing = false;
+  els.stickerStudioCanvas.addEventListener("pointerdown", (event) => {
+    if (state.studioTool === "eraser") {
+      erasing = true;
+      try {
+        els.stickerStudioCanvas.setPointerCapture(event.pointerId);
+      } catch {
+        // optional
+      }
+      studioErase(event);
+      return;
+    }
+    studioTap(event);
+  });
+  els.stickerStudioCanvas.addEventListener("pointermove", (event) => {
+    if (erasing) {
+      event.preventDefault();
+      studioErase(event);
+    }
+  });
+  els.stickerStudioCanvas.addEventListener("pointerup", () => {
+    erasing = false;
+  });
+  els.stickerStudioCanvas.addEventListener("pointercancel", () => {
+    erasing = false;
+  });
+}
+
 document.querySelectorAll("#page-menu [data-page-menu]").forEach((btn) => {
   btn.addEventListener("click", () => runPageMenu(btn.dataset.pageMenu));
 });
@@ -5327,6 +6065,11 @@ document.addEventListener("pointerdown", (event) => {
 
 document.addEventListener("keydown", (event) => {
   const typing = event.target.closest?.("input, textarea, [contenteditable='true']");
+  if (event.key === "Escape" && els.stickerSheet && !els.stickerSheet.hidden && !typing) {
+    event.preventDefault();
+    closeStickerSheet();
+    return;
+  }
   if (event.key === "Escape" && els.pageMenu && !els.pageMenu.hidden && !typing) {
     event.preventDefault();
     hidePageMenu();

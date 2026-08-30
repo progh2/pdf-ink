@@ -1,9 +1,12 @@
 const STROKE_PREFIX = "pdf-ink:strokes:";
 const PEN_ONLY_KEY = "pdf-ink:pen-only";
 const DB_NAME = "pdf-ink";
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const SESSION_STORE = "session";
 const FILES_STORE = "files";
+/** Stickers live in this browser only, never on a server (#79). */
+const STICKER_STORE = "stickers";
+const STICKER_FOLDER_STORE = "sticker-folders";
 
 export function fileIdentity(file) {
   return `${file.name}::${file.size}::${file.lastModified}`;
@@ -73,6 +76,12 @@ function openDb() {
       }
       if (!db.objectStoreNames.contains(FILES_STORE)) {
         db.createObjectStore(FILES_STORE, { keyPath: "identity" });
+      }
+      if (!db.objectStoreNames.contains(STICKER_STORE)) {
+        db.createObjectStore(STICKER_STORE, { keyPath: "id" });
+      }
+      if (!db.objectStoreNames.contains(STICKER_FOLDER_STORE)) {
+        db.createObjectStore(STICKER_FOLDER_STORE, { keyPath: "id" });
       }
     };
     request.onsuccess = () => resolve(request.result);
@@ -154,4 +163,53 @@ export async function migrateLastIntoFiles() {
     return;
   }
   await saveDocument(last);
+}
+
+function readAll(store) {
+  return openDb().then(
+    (db) =>
+      new Promise((resolve, reject) => {
+        const tx = db.transaction(store, "readonly");
+        const request = tx.objectStore(store).getAll();
+        request.onsuccess = () => {
+          resolve(request.result || []);
+          db.close();
+        };
+        request.onerror = () => {
+          reject(request.error);
+          db.close();
+        };
+      }),
+  );
+}
+
+async function writeAll(store, rows) {
+  const db = await openDb();
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction(store, "readwrite");
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    const objects = tx.objectStore(store);
+    objects.clear();
+    for (const row of rows || []) {
+      objects.put(row);
+    }
+  });
+  db.close();
+}
+
+export function loadStickers() {
+  return readAll(STICKER_STORE);
+}
+
+export function saveStickers(rows) {
+  return writeAll(STICKER_STORE, rows);
+}
+
+export function loadStickerFolders() {
+  return readAll(STICKER_FOLDER_STORE);
+}
+
+export function saveStickerFolders(rows) {
+  return writeAll(STICKER_FOLDER_STORE, rows);
 }

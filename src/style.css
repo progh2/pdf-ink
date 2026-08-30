@@ -1567,3 +1567,276 @@ body {
     padding-bottom: 20px;
   }
 }
+
+/* #79 sticker studio. One sheet, never a second bar on the paper. */
+.sticker-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 12;
+  border: 0;
+  padding: 0;
+  background: rgba(40, 32, 22, 0.18);
+}
+
+.sticker-sheet {
+  position: fixed;
+  z-index: 13;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(360px, calc(100vw - 24px));
+  max-height: min(640px, calc(100dvh - 48px));
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: #f3f0e8;
+  box-shadow: 0 12px 28px rgba(40, 32, 22, 0.16);
+  overflow: hidden;
+}
+
+.sticker-head {
+  flex: 0 0 auto;
+  height: 44px;
+  padding: 0 8px 0 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.sticker-title {
+  margin: 0;
+  color: #5c574e;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.sticker-close {
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: #5c574e;
+  font: inherit;
+  cursor: pointer;
+}
+
+.sticker-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 0 16px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.sticker-drop {
+  width: 280px;
+  max-width: 100%;
+  height: 160px;
+  border: 1px dashed #d4cfc4;
+  border-radius: 16px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.sticker-source {
+  position: relative;
+  align-self: flex-start;
+  touch-action: none;
+}
+
+.sticker-canvas {
+  display: block;
+  max-width: 100%;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.sticker-regions {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.sticker-region {
+  position: absolute;
+  border: 1.5px solid #c4a574;
+  border-radius: 8px;
+}
+
+.sticker-make-actions,
+.sticker-studio-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.sticker-flat {
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  color: #8a8478;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.sticker-folders {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.sticker-folder {
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  color: var(--title);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.sticker-folder.is-selected {
+  background: var(--selected);
+}
+
+.sticker-folder.is-drop {
+  border-color: #c4a574;
+}
+
+.sticker-folder-add {
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.sticker-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-height: 64px;
+}
+
+.sticker-cell {
+  width: 64px;
+  height: 64px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  cursor: pointer;
+  touch-action: none;
+  overflow: hidden;
+}
+
+.sticker-cell img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+}
+
+.sticker-cell.is-selected {
+  box-shadow: 0 0 0 2px #c4a574;
+}
+
+.sticker-empty {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.sticker-studio-stage {
+  display: flex;
+  justify-content: center;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+}
+
+.sticker-studio-box {
+  position: relative;
+  display: inline-block;
+  line-height: 0;
+}
+
+.sticker-studio-canvas {
+  max-width: 100%;
+  touch-action: none;
+  transform-origin: center center;
+}
+
+.sticker-handle {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border: 1px solid #2c2a26;
+  border-radius: 2px;
+  background: #fff;
+  touch-action: none;
+  cursor: nwse-resize;
+}
+
+.sticker-handle[data-handle="nw"] {
+  left: -4px;
+  top: -4px;
+}
+
+.sticker-handle[data-handle="ne"] {
+  right: -4px;
+  top: -4px;
+}
+
+.sticker-handle[data-handle="se"] {
+  right: -4px;
+  bottom: -4px;
+}
+
+.sticker-handle[data-handle="sw"] {
+  left: -4px;
+  bottom: -4px;
+}
+
+.sticker-tools {
+  height: 56px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.sticker-tools button {
+  height: 44px;
+  min-width: 44px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  color: var(--title);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.sticker-tools button.is-selected {
+  background: var(--selected);
+}
+
+.sticker-angle {
+  width: 100%;
+}

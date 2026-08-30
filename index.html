@@ -176,6 +176,7 @@
         <button type="button" data-more="capture">영역캡처</button>
         <button type="button" data-more="fullscreen" id="fullscreen-item">전체화면</button>
         <button type="button" data-more="image">이미지</button>
+        <button type="button" data-more="sticker">스티커</button>
         <div class="more-rotate">
           <button type="button" data-rotate="-90">왼쪽</button>
           <button type="button" data-rotate="90">오른쪽</button>
@@ -214,6 +215,55 @@
         </div>
       </aside>
       <button type="button" class="preview-backdrop" id="preview-backdrop" hidden aria-label="미리보기 닫기"></button>
+
+      <div class="sticker-sheet" id="sticker-sheet" hidden>
+        <div class="sticker-head">
+          <p class="sticker-title">스티커</p>
+          <button type="button" class="sticker-close" id="sticker-close" aria-label="닫기">✕</button>
+        </div>
+        <div class="sticker-body">
+          <div class="sticker-make" id="sticker-make">
+            <button type="button" class="sticker-drop" id="sticker-drop">
+              <span id="sticker-drop-label">그림을 골라 영역을 잘라요</span>
+            </button>
+            <div class="sticker-source" id="sticker-source" hidden>
+              <canvas class="sticker-canvas" id="sticker-canvas"></canvas>
+              <div class="sticker-regions" id="sticker-regions"></div>
+            </div>
+            <div class="sticker-make-actions" id="sticker-make-actions" hidden>
+              <button type="button" class="sticker-flat" id="sticker-whole">전체 넣기</button>
+              <button type="button" class="sticker-flat" id="sticker-cut">영역 넣기</button>
+            </div>
+          </div>
+
+          <div class="sticker-folders" id="sticker-folders"></div>
+          <div class="sticker-grid" id="sticker-grid"></div>
+
+          <div class="sticker-studio" id="sticker-studio" hidden>
+            <div class="sticker-studio-stage">
+              <div class="sticker-studio-box" id="sticker-studio-box">
+                <canvas class="sticker-studio-canvas" id="sticker-studio-canvas"></canvas>
+                <span class="sticker-handle" data-handle="nw"></span>
+                <span class="sticker-handle" data-handle="ne"></span>
+                <span class="sticker-handle" data-handle="se"></span>
+                <span class="sticker-handle" data-handle="sw"></span>
+              </div>
+            </div>
+            <div class="sticker-tools" id="sticker-tools">
+              <button type="button" data-studio="chroma" aria-label="투명">투명</button>
+              <button type="button" data-studio="eraser" aria-label="지우개">지우개</button>
+              <button type="button" data-studio="rotate" aria-label="회전">회전</button>
+            </div>
+            <input type="range" class="sticker-angle" id="sticker-angle" min="0" max="359" value="0" hidden />
+            <div class="sticker-studio-actions">
+              <button type="button" class="sticker-flat" id="sticker-save">저장</button>
+              <button type="button" class="sticker-flat" id="sticker-delete">삭제</button>
+            </div>
+          </div>
+        </div>
+        <input type="file" id="sticker-file" accept="image/png,image/jpeg,image/webp" hidden />
+      </div>
+      <button type="button" class="sticker-backdrop" id="sticker-backdrop" hidden aria-label="스티커 닫기"></button>
 
       <div class="page-menu" id="page-menu" hidden>
         <button type="button" data-page-menu="copy">복사</button>
