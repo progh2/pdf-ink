@@ -109,6 +109,7 @@ import {
   outlineTitleForPage,
   renameOutlineEntry,
   setOutlineTitleText,
+  tocRowAction,
 } from "./outline.js";
 import {
   HIGHLIGHTER_OPACITY_DEFAULT,
@@ -2418,8 +2419,13 @@ function renderTocList() {
     setOutlineTitleText(title, entry.title || outlineTitleForPage(dest));
     title.addEventListener("click", (event) => {
       event.stopPropagation();
-      beginTocTitleEdit(title, entry);
+      if (tocRowAction(title.className) === "edit") {
+        beginTocTitleEdit(title, entry);
+      }
     });
+    const jump = document.createElement("span");
+    jump.className = "preview-toc-jump";
+    jump.setAttribute("aria-hidden", "true");
     const del = document.createElement("button");
     del.type = "button";
     del.className = "preview-toc-delete";
@@ -2427,11 +2433,15 @@ function renderTocList() {
     del.setAttribute("aria-label", "개요 삭제");
     del.addEventListener("click", (event) => {
       event.stopPropagation();
-      removeTocEntry(entry.id);
+      if (tocRowAction(del.className) === "delete") {
+        removeTocEntry(entry.id);
+      }
     });
-    row.append(title, del);
-    row.addEventListener("click", () => {
-      goToPage(dest);
+    row.append(title, jump, del);
+    row.addEventListener("click", (event) => {
+      if (tocRowAction(event.target?.className) === "jump") {
+        goToPage(dest);
+      }
     });
     els.tocList.append(row);
   }

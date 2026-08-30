@@ -80,3 +80,15 @@ export function setOutlineTitleText(node, title) {
   }
   node.textContent = String(title ?? "");
 }
+
+/** Title text edits. x deletes. Anything else on the row jumps. */
+export function tocRowAction(className) {
+  const cls = String(className || "");
+  if (cls.includes("preview-toc-title") || cls.includes("preview-toc-edit")) {
+    return "edit";
+  }
+  if (cls.includes("preview-toc-delete")) {
+    return "delete";
+  }
+  return "jump";
+}

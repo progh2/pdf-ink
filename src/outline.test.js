@@ -14,6 +14,7 @@ import {
   PREVIEW_TABS,
   renameOutlineEntry,
   setOutlineTitleText,
+  tocRowAction,
 } from "./outline.js";
 import { BAR_TOOLS } from "./toolbar.js";
 import { loadStrokes, saveStrokes } from "./storage.js";
@@ -127,6 +128,7 @@ describe("#53 개요 추가·수정·삭제", () => {
     assert.match(css, /\.preview-toc-add \{[\s\S]*height: 32px/);
     assert.match(css, /\.preview-toc-row \{[\s\S]*height: 36px/);
     assert.match(css, /\.preview-toc-list \{[\s\S]*gap: 4px/);
+    assert.match(css, /\.preview-toc-delete \{[\s\S]*width: 32px;[\s\S]*height: 32px/);
     assert.equal(BAR_TOOLS.length, 9);
     const cells = toolbar.slice(toolbar.indexOf("toolbar-cells"));
     assert.equal((cells.match(/<button/g) || []).length, 9);
@@ -156,5 +158,28 @@ describe("#53 개요 추가·수정·삭제", () => {
     assert.doesNotMatch(tocUi, /innerHTML|insertAdjacentHTML|DOMParser|outerHTML/);
     assert.match(main, /from "\.\/outline\.js"/);
     assert.match(main, /setOutlineTitleText/);
+  });
+
+  it("title tap edits, remaining row jumps, x deletes", () => {
+    assert.equal(tocRowAction("preview-toc-title"), "edit");
+    assert.equal(tocRowAction("preview-toc-edit"), "edit");
+    assert.equal(tocRowAction("preview-toc-jump"), "jump");
+    assert.equal(tocRowAction("preview-toc-row"), "jump");
+    assert.equal(tocRowAction("preview-toc-delete"), "delete");
+    const tocUi = main.slice(main.indexOf("function renderTocList"), main.indexOf("async function renderPreviewList"));
+    assert.match(tocUi, /preview-toc-title/);
+    assert.match(tocUi, /preview-toc-jump/);
+    assert.match(tocUi, /beginTocTitleEdit/);
+    assert.match(tocUi, /goToPage\(dest\)/);
+    assert.match(tocUi, /removeTocEntry/);
+    assert.match(tocUi, /tocRowAction\(title\.className\) === "edit"/);
+    assert.match(tocUi, /tocRowAction\(event\.target\?\.className\) === "jump"/);
+    assert.match(tocUi, /tocRowAction\(del\.className\) === "delete"/);
+    const titleCss = css.slice(css.indexOf(".preview-toc-title {"), css.indexOf(".preview-toc-jump {"));
+    assert.match(titleCss, /flex: 0 1 auto/);
+    assert.doesNotMatch(titleCss, /flex: 1;/);
+    assert.match(css, /\.preview-toc-jump \{[\s\S]*flex: 1 1 auto/);
+    assert.match(css, /\.preview-toc-delete \{[\s\S]*width: 32px;[\s\S]*height: 32px/);
+    assert.doesNotMatch(main, /long-press delete|tocHold|holdDelete/);
   });
 });

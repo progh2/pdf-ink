@@ -905,7 +905,8 @@ body {
 }
 
 .preview-toc-title {
-  flex: 1;
+  flex: 0 1 auto;
+  max-width: calc(100% - 40px);
   min-width: 0;
   height: 36px;
   padding: 0 4px;
@@ -922,9 +923,17 @@ body {
   cursor: text;
 }
 
+.preview-toc-jump {
+  flex: 1 1 auto;
+  min-width: 8px;
+  height: 36px;
+  align-self: stretch;
+}
+
 .preview-toc-edit {
-  flex: 1;
+  flex: 0 1 auto;
   min-width: 0;
+  max-width: calc(100% - 40px);
   height: 28px;
   padding: 0 4px;
   border: 1px solid var(--line);
@@ -936,9 +945,9 @@ body {
 }
 
 .preview-toc-delete {
-  flex: 0 0 24px;
-  width: 24px;
-  height: 24px;
+  flex: 0 0 32px;
+  width: 32px;
+  height: 32px;
   padding: 0;
   border: 0;
   border-radius: 6px;
