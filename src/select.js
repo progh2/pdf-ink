@@ -1,6 +1,11 @@
+import { rotateRectAround } from "./rotate.js";
 import { stampItemSize } from "./tools.js";
 
 export const PASTE_NUDGE = 0.04;
+export const ROTATE_HANDLE_SIZE_CSS = 16;
+export const ROTATE_HANDLE_STROKE_CSS = 1.6;
+export const ROTATE_HANDLE_GAP_CSS = 20;
+export const ROTATE_HANDLE_COLOR = "#2C2A26";
 
 export function isSelectable(item) {
   if (!item || typeof item !== "object") {
@@ -48,10 +53,40 @@ export function itemBounds(item, cssWidth = 400, cssHeight = 600) {
       h,
     };
   }
-  if (item.type === "image" || item.type === "mosaic") {
+  if (item.type === "mosaic") {
     return { x: item.x, y: item.y, w: item.w, h: item.h };
   }
+  if (item.type === "image") {
+    const box = { x: item.x, y: item.y, w: item.w, h: item.h };
+    const rotate = Number(item.rotate) || 0;
+    if (!rotate) {
+      return box;
+    }
+    return rotateRectAround(box, rotate, { x: item.x + item.w / 2, y: item.y + item.h / 2 }, cssWidth, cssHeight);
+  }
   return strokeBounds(item);
+}
+
+export function rotateHandleCenter(bounds, cssHeight = 600) {
+  if (!bounds) {
+    return null;
+  }
+  return {
+    x: bounds.x + bounds.w / 2,
+    y: bounds.y - ROTATE_HANDLE_GAP_CSS / Math.max(1, Number(cssHeight) || 1),
+  };
+}
+
+export function rotateHandleAt(bounds, point, cssWidth = 400, cssHeight = 600, hitCss = ROTATE_HANDLE_SIZE_CSS) {
+  const handle = rotateHandleCenter(bounds, cssHeight);
+  if (!handle || !point) {
+    return null;
+  }
+  const pageW = Math.max(1, Number(cssWidth) || 1);
+  const pageH = Math.max(1, Number(cssHeight) || 1);
+  const dx = (point.x - handle.x) * pageW;
+  const dy = (point.y - handle.y) * pageH;
+  return Math.hypot(dx, dy) <= hitCss ? "rotate" : null;
 }
 
 export function boundsUnion(rects) {

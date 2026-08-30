@@ -68,29 +68,39 @@ export function rotateItems(items, delta) {
   return (items || []).map((item) => rotateItem(item, delta));
 }
 
-function quarterTurns(delta) {
-  return ((Math.round(Number(delta) / 90) % 4) + 4) % 4;
+/** Free angle in [0, 360). Page rotate still uses normalizeRotation (90° snap). */
+export function wrapRotation(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) {
+    return 0;
+  }
+  return ((n % 360) + 360) % 360;
 }
 
-/** Clockwise 90° in y-down pixel space: (x, y) → (−y, x). */
-function rotatePxCw90(x, y) {
-  return { x: -y, y: x };
+export function angleDegFromCenter(center, point, cssWidth = 1, cssHeight = 1) {
+  const pageW = Math.max(1e-9, Number(cssWidth) || 1);
+  const pageH = Math.max(1e-9, Number(cssHeight) || 1);
+  const dx = ((Number(point?.x) || 0) - (Number(center?.x) || 0)) * pageW;
+  const dy = ((Number(point?.y) || 0) - (Number(center?.y) || 0)) * pageH;
+  return (Math.atan2(dy, dx) * 180) / Math.PI;
 }
 
+/** Clockwise in y-down CSS pixels around a page-normalized center. */
 export function rotatePointAround(point, delta, center, cssWidth = 1, cssHeight = 1) {
-  const turns = quarterTurns(delta);
+  const angle = Number(delta) || 0;
   const cx = Number(center?.x) || 0;
   const cy = Number(center?.y) || 0;
   const pageW = Math.max(1e-9, Number(cssWidth) || 1);
   const pageH = Math.max(1e-9, Number(cssHeight) || 1);
-  let px = ((Number(point?.x) || 0) - cx) * pageW;
-  let py = ((Number(point?.y) || 0) - cy) * pageH;
-  for (let step = 0; step < turns; step += 1) {
-    const next = rotatePxCw90(px, py);
-    px = next.x;
-    py = next.y;
+  const px = ((Number(point?.x) || 0) - cx) * pageW;
+  const py = ((Number(point?.y) || 0) - cy) * pageH;
+  if (!angle) {
+    return { x: cx + px / pageW, y: cy + py / pageH };
   }
-  return { x: cx + px / pageW, y: cy + py / pageH };
+  const rad = (angle * Math.PI) / 180;
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
+  return { x: cx + (px * cos - py * sin) / pageW, y: cy + (px * sin + py * cos) / pageH };
 }
 
 export function rotateRectAround(rect, delta, center, cssWidth = 1, cssHeight = 1) {
@@ -130,15 +140,20 @@ export function rotateItemAround(item, delta, center, cssWidth = 1, cssHeight = 
     next.tilt = (Number.isFinite(item.tilt) ? item.tilt : 0) + (delta * Math.PI) / 180;
     return next;
   }
-  if (item.type === "mosaic" || item.type === "image") {
+  if (item.type === "image") {
+    const mid = { x: item.x + item.w / 2, y: item.y + item.h / 2 };
+    const nextMid = rotatePointAround(mid, delta, center, cssWidth, cssHeight);
+    next.x = nextMid.x - item.w / 2;
+    next.y = nextMid.y - item.h / 2;
+    next.rotate = wrapRotation((Number(item.rotate) || 0) + delta);
+    return next;
+  }
+  if (item.type === "mosaic") {
     const box = rotateRectAround({ x: item.x, y: item.y, w: item.w, h: item.h }, delta, center, cssWidth, cssHeight);
     next.x = box.x;
     next.y = box.y;
     next.w = box.w;
     next.h = box.h;
-    if (item.type === "image") {
-      next.rotate = addRotation(item.rotate || 0, delta);
-    }
   }
   return next;
 }
@@ -150,13 +165,11 @@ export function rotateSelectedItems(items, indices, delta, center, cssWidth = 1,
   );
 }
 
-/** Destination size for an AABB-stored image so a 90/270 turn fills the box. */
+/** Draw the stored (unrotated) box, then rotate around its center. */
 export function imagePaintDest(item, canvasWidth, canvasHeight) {
-  const rotate = normalizeRotation(item?.rotate);
-  const destW = (Number(item?.w) || 0) * canvasWidth;
-  const destH = (Number(item?.h) || 0) * canvasHeight;
-  if (rotate === 90 || rotate === 270) {
-    return { destW: destH, destH: destW, rotate };
-  }
-  return { destW, destH, rotate };
+  return {
+    destW: (Number(item?.w) || 0) * canvasWidth,
+    destH: (Number(item?.h) || 0) * canvasHeight,
+    rotate: wrapRotation(item?.rotate),
+  };
 }

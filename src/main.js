@@ -74,6 +74,7 @@ import {
   offsetItems,
   pickItemsAt,
   pickItemsInRect,
+  rotateHandleAt,
   selectedBounds,
   translateItems,
 } from "./select.js";
@@ -89,7 +90,7 @@ import {
   lockImage,
   resizeImage,
 } from "./image.js";
-import { addRotation, imagePaintDest, rotateItems, rotateSelectedItems } from "./rotate.js";
+import { addRotation, angleDegFromCenter, imagePaintDest, rotateItems, rotateSelectedItems } from "./rotate.js";
 import {
   filterLeaves,
   inkKey,
@@ -180,8 +181,6 @@ const els = {
   selectHud: document.querySelector("#float-bar"),
   copyBtn: document.querySelector("#copy-btn"),
   pasteBtn: document.querySelector("#paste-btn"),
-  selLeftBtn: document.querySelector("#sel-left-btn"),
-  selRightBtn: document.querySelector("#sel-right-btn"),
   deleteBtn: document.querySelector("#delete-btn"),
   cropBtn: document.querySelector("#crop-btn"),
   lockBtn: document.querySelector("#lock-btn"),
@@ -266,7 +265,7 @@ let renderGen = 0;
 let paperScrollHold = null;
 
 const WRITE_CHROME =
-  ".sheet-card, .slot-panel, .toolbar, .write-top, .m4-bar, .more-panel, .marquee, .preview-drawer, .select-hud, .float-bar, #float-bar, .shape-chips";
+  ".sheet-card, .slot-panel, .toolbar, .write-top, .m4-bar, .more-panel, .marquee, .preview-drawer, .select-hud, .float-bar, #float-bar, .select-layer, #select-layer, .shape-chips";
 
 function isWriteChrome(target) {
   return Boolean(target?.closest?.(WRITE_CHROME));
@@ -1527,6 +1526,10 @@ function hideSelectUi() {
     return;
   }
   els.selectLayer.hidden = true;
+  els.selectLayer.classList.remove("is-rotating", "is-cropping");
+  if (els.selectBox) {
+    els.selectBox.style.transform = "none";
+  }
   if (els.floatBar) {
     els.floatBar.hidden = true;
   }
@@ -1821,7 +1824,7 @@ function selectedStampItem() {
   return item?.type === "stamp" ? item : null;
 }
 
-function placeSelectBox(view, rect) {
+function placeSelectBox(view, rect, angle = 0) {
   if (!view || !rect) {
     els.selectLayer.hidden = true;
     return;
@@ -1832,6 +1835,8 @@ function placeSelectBox(view, rect) {
   els.selectBox.style.top = `${box.top + rect.y * box.height}px`;
   els.selectBox.style.width = `${Math.max(1, rect.w * box.width)}px`;
   els.selectBox.style.height = `${Math.max(1, rect.h * box.height)}px`;
+  els.selectBox.style.transformOrigin = "50% 50%";
+  els.selectBox.style.transform = angle ? `rotate(${angle}deg)` : "none";
 }
 
 function placeSelectHud(view, rect) {
@@ -1878,25 +1883,26 @@ function syncSelectHud() {
   els.cropConfirm.hidden = !cropping;
   els.copyBtn.hidden = cropping;
   els.pasteBtn.hidden = cropping;
-  if (els.selLeftBtn) {
-    els.selLeftBtn.hidden = cropping;
-  }
-  if (els.selRightBtn) {
-    els.selRightBtn.hidden = cropping;
-  }
   if (els.deleteBtn) {
     els.deleteBtn.hidden = cropping;
   }
   const stamp = selectedStampItem();
+  const rotating = state.selectDrag?.mode === "rotate";
   els.selectLayer.classList.toggle("is-image", Boolean(image) && !cropping);
   els.selectLayer.classList.toggle("is-stamp", Boolean(stamp) && !cropping);
+  els.selectLayer.classList.toggle("is-cropping", cropping);
+  els.selectLayer.classList.toggle("is-rotating", rotating);
   if (cropping) {
     const rect = rectFromPoints(state.cropping.a, state.cropping.b);
     placeSelectBox(view, rect);
     placeSelectHud(view, rect);
     return;
   }
-  const bounds = selectedBounds(items, state.selectIndices, view?.cssWidth || 400, view?.cssHeight || 600);
+  const cssW = view?.cssWidth || 400;
+  const cssH = view?.cssHeight || 600;
+  const bounds = rotating
+    ? state.selectDrag.originBounds
+    : selectedBounds(items, state.selectIndices, cssW, cssH);
   if (!bounds) {
     hideSelectUi();
     return;
@@ -1904,7 +1910,7 @@ function syncSelectHud() {
   els.selectLayer.hidden = false;
   els.floatBar.hidden = false;
   if (view) {
-    placeSelectBox(view, bounds);
+    placeSelectBox(view, bounds, rotating ? state.selectDrag.angle : 0);
   }
   placeSelectHud(view, bounds);
 }
@@ -2044,6 +2050,15 @@ function startSelect(event, stage) {
     return;
   }
 
+  if (!state.cropping && state.selectIndices.length && state.selectPage === state.drawPage) {
+    const bounds = selectedBounds(items, state.selectIndices, cssW, cssH);
+    if (bounds && rotateHandleAt(bounds, point, cssW, cssH)) {
+      state.selectDrag = makeRotateDrag(point, items, bounds, cssW, cssH, state.drawPage);
+      syncSelectHud();
+      return;
+    }
+  }
+
   const image = selectedImageItem();
   const stamp = selectedStampItem();
   const resizable = image || stamp;
@@ -2116,6 +2131,13 @@ function moveSelect(event) {
         ? resizeStamp(origin, drag.handle, point, cssW, cssH)
         : resizeImage(origin, drag.handle, point);
     state.pages[key] = next;
+  } else if (drag.mode === "rotate") {
+    const viewNow = state.pageViews.find((item) => item.pageNum === drag.page);
+    const cssW = viewNow?.cssWidth || 400;
+    const cssH = viewNow?.cssHeight || 600;
+    const delta = angleDegFromCenter(drag.center, point, cssW, cssH) - drag.startAngle;
+    drag.angle = delta;
+    state.pages[key] = rotateSelectedItems(drag.origin, drag.indices, delta, drag.center, cssW, cssH);
   }
   const view = state.pageViews.find((item) => item.pageNum === drag.page);
   if (view) {
@@ -2181,31 +2203,72 @@ function copySelection() {
   state.inkClipboard = copyItems(items, state.selectIndices, 0, 0);
 }
 
-function rotateSelection(delta) {
+function makeRotateDrag(point, items, bounds, cssW, cssH, pageNum) {
+  const center = { x: bounds.x + bounds.w / 2, y: bounds.y + bounds.h / 2 };
+  return {
+    mode: "rotate",
+    page: pageNum,
+    start: point,
+    origin: cloneItems(items),
+    indices: [...state.selectIndices],
+    center,
+    originBounds: bounds,
+    startAngle: angleDegFromCenter(center, point, cssW, cssH),
+    angle: 0,
+  };
+}
+
+function beginRotateFromHandle(event) {
   if (state.interactMode === "view" || state.cropping || !state.selectIndices.length) {
-    return;
+    return false;
   }
   const pageNum = state.selectPage || state.page;
   const view = state.pageViews.find((item) => item.pageNum === pageNum);
-  const cssW = view?.cssWidth || 400;
-  const cssH = view?.cssHeight || 600;
+  const ink = view?.inkCanvas || view?.stage?.querySelector(".ink-canvas");
+  if (!ink || !view) {
+    return false;
+  }
   const items = pageStrokes(pageNum);
+  const cssW = view.cssWidth || 400;
+  const cssH = view.cssHeight || 600;
   const bounds = selectedBounds(items, state.selectIndices, cssW, cssH);
   if (!bounds) {
-    return;
+    return false;
   }
-  const center = { x: bounds.x + bounds.w / 2, y: bounds.y + bounds.h / 2 };
-  const next = rotateSelectedItems(items, state.selectIndices, delta, center, cssW, cssH);
-  if (JSON.stringify(next) === JSON.stringify(items)) {
-    return;
+  event.preventDefault();
+  event.stopPropagation();
+  try {
+    ink.setPointerCapture(event.pointerId);
+  } catch {
+    try {
+      els.workspace.setPointerCapture(event.pointerId);
+    } catch {
+      // optional
+    }
   }
-  commitPageChange(pageNum, () => {
-    state.pages[inkKey(leafAt(state.leaves, pageNum))] = next;
-  });
-  if (view) {
-    drawStrokesOn(view);
-  }
+  const point = eventToNorm(event, ink);
+  state.drawPage = pageNum;
+  state.drawCanvas = ink;
+  state.selectPage = pageNum;
+  state.selectDrag = makeRotateDrag(point, items, bounds, cssW, cssH, pageNum);
+  const onRotateDocMove = (moveEvent) => {
+    if (state.selectDrag?.mode === "rotate") {
+      moveSelect(moveEvent);
+    }
+  };
+  const onRotateDocUp = (upEvent) => {
+    document.removeEventListener("pointermove", onRotateDocMove);
+    document.removeEventListener("pointerup", onRotateDocUp);
+    document.removeEventListener("pointercancel", onRotateDocUp);
+    if (state.selectDrag?.mode === "rotate") {
+      endSelect(upEvent);
+    }
+  };
+  document.addEventListener("pointermove", onRotateDocMove);
+  document.addEventListener("pointerup", onRotateDocUp);
+  document.addEventListener("pointercancel", onRotateDocUp);
   syncSelectHud();
+  return true;
 }
 
 function deleteSelection() {
@@ -2957,13 +3020,13 @@ function onWorkspacePointerDown(event) {
     return;
   }
   if (overlayOpen()) {
-    if (!event.target.closest(".slot-panel, .sheet-card, .toolbar, .write-top, .m4-bar, .more-panel, .preview-drawer, .select-hud, .float-bar, #float-bar, .shape-chips")) {
+    if (!event.target.closest(".slot-panel, .sheet-card, .toolbar, .write-top, .m4-bar, .more-panel, .preview-drawer, .select-hud, .float-bar, #float-bar, .select-layer, #select-layer, .shape-chips")) {
       closeAllPanels();
       ignoreAfterPanel = true;
     }
     return;
   }
-  if (event.target.closest(".toolbar, .write-top, .sheet, .slot-panel, .m4-bar, .more-panel, .marquee, .preview-drawer, .select-hud, .float-bar, #float-bar, .shape-chips")) {
+  if (event.target.closest(".toolbar, .write-top, .sheet, .slot-panel, .m4-bar, .more-panel, .marquee, .preview-drawer, .select-hud, .float-bar, #float-bar, .select-layer, #select-layer, .shape-chips")) {
     return;
   }
 
@@ -3472,16 +3535,14 @@ els.pasteBtn.addEventListener("click", (event) => {
   event.stopPropagation();
   pasteClipboard();
 });
-els.selLeftBtn.addEventListener("click", (event) => {
-  event.preventDefault();
-  event.stopPropagation();
-  rotateSelection(-90);
-});
-els.selRightBtn.addEventListener("click", (event) => {
-  event.preventDefault();
-  event.stopPropagation();
-  rotateSelection(90);
-});
+if (els.selectLayer) {
+  els.selectLayer.addEventListener("pointerdown", (event) => {
+    if (!event.target.closest("[data-handle=\"rotate\"]")) {
+      return;
+    }
+    beginRotateFromHandle(event);
+  });
+}
 els.deleteBtn.addEventListener("click", (event) => {
   event.preventDefault();
   event.stopPropagation();
@@ -3592,7 +3653,7 @@ els.writeScreen.addEventListener("touchstart", preventWriteSurfaceTouch, { passi
 els.writeScreen.addEventListener("touchmove", preventWriteSurfaceTouch, { passive: false });
 
 document.addEventListener("pointerdown", (event) => {
-  if (event.target.closest(".slot-panel, .toolbar, [data-tool], #eraser-btn, #more-btn, .m4-bar, .marquee, .select-hud, .float-bar, #float-bar, .preview-drawer, .shape-chips")) {
+  if (event.target.closest(".slot-panel, .toolbar, [data-tool], #eraser-btn, #more-btn, .m4-bar, .marquee, .select-hud, .float-bar, #float-bar, .select-layer, #select-layer, .preview-drawer, .shape-chips")) {
     return;
   }
   closeAllPanels();
