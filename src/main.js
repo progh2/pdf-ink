@@ -44,7 +44,7 @@ import {
   pointerMidpoint,
   scaleFromPinch,
 } from "./viewport.js";
-import { applyEraserToInk, isPixelErase, isStrokeErase, paintItem, paintStamp, removeHitItems, removeHitStamps, stampInkItem, stampTilt } from "./ink.js";
+import { applyEraserToInk, isPixelErase, isStrokeErase, paintGhost, paintItem, paintStamp, removeHitItems, removeHitStamps, stampInkItem, stampTilt } from "./ink.js";
 import {
   appendInkPoint,
   beginInkPoints,
@@ -56,7 +56,7 @@ import {
 } from "./interact.js";
 import { canRedo, canUndo, cloneItems, createHistory, recordChange, redoChange, undoChange } from "./history.js";
 import { bindUndoHold } from "./undoHold.js";
-import { SHAPE_HOLD_MS, canShapeHold, createShapeHold } from "./shapeHold.js";
+import { SHAPE_HOLD_CHIP_HEIGHT, SHAPE_HOLD_GHOST_ALPHA, SHAPE_HOLD_MS, canShapeHold, createShapeHold } from "./shapeHold.js";
 import { MOSAIC_CELL_CSS, mosaicBoxesPx, mosaicItem } from "./mosaic.js";
 import { captureRegionPng, composePageRgba, cropRgba, writePngClipboard } from "./capture.js";
 import {
@@ -101,6 +101,7 @@ import {
   STAMP_LABELS,
   clampOpacity,
   defaultColorForKind,
+  hexToRgba,
   normalizeStamp,
   slotAriaLabel,
   resizeStamp,
@@ -159,6 +160,7 @@ const els = {
   cropBtn: document.querySelector("#crop-btn"),
   lockBtn: document.querySelector("#lock-btn"),
   cropConfirm: document.querySelector("#crop-confirm"),
+  shapeChips: document.querySelector("#shape-chips"),
   settingsBtn: document.querySelector("#settings-btn"),
   settingsSheet: document.querySelector("#settings-sheet"),
   settingsBackdrop: document.querySelector("#settings-backdrop"),
@@ -214,6 +216,7 @@ const state = {
   eraseMode: loadEraser().mode,
   eraserWidth: loadEraser().width,
   pendingStamp: null,
+  shapeOffer: null,
   userScale: 1,
   panX: 0,
   panY: 0,
@@ -234,7 +237,7 @@ let renderGen = 0;
 let paperScrollHold = null;
 
 const WRITE_CHROME =
-  ".sheet-card, .slot-panel, .toolbar, .write-top, .m4-bar, .more-panel, .marquee, .preview-drawer, .select-hud, .float-bar, #float-bar";
+  ".sheet-card, .slot-panel, .toolbar, .write-top, .m4-bar, .more-panel, .marquee, .preview-drawer, .select-hud, .float-bar, #float-bar, .shape-chips";
 
 function isWriteChrome(target) {
   return Boolean(target?.closest?.(WRITE_CHROME));
@@ -393,6 +396,18 @@ function drawStrokesOn(view, liveStroke = null) {
   }
   if (liveStroke && (liveStroke.points?.length || liveStroke.type === "stamp")) {
     paintItem(ctx, liveStroke, scale, canvas);
+  }
+  if (state.shapeOffer && view.pageNum === state.shapeOffer.page && state.shapeOffer.ghostPoints?.length) {
+    paintGhost(
+      ctx,
+      {
+        points: state.shapeOffer.ghostPoints,
+        color: hexToRgba(state.shapeOffer.color || "#1A1A1A", SHAPE_HOLD_GHOST_ALPHA),
+        width: state.shapeOffer.width || 2,
+      },
+      scale,
+      canvas,
+    );
   }
   paintImageLayer(view.underCanvas, items, true, () => drawStrokesOn(view));
   paintImageLayer(view.overCanvas, items, false, () => drawStrokesOn(view));
@@ -999,14 +1014,90 @@ function overlayOpen() {
   );
 }
 
+function hideShapeChips() {
+  if (els.shapeChips) {
+    els.shapeChips.hidden = true;
+  }
+}
+
+function showShapeChips(offer, view) {
+  if (!els.shapeChips || !offer) {
+    hideShapeChips();
+    return;
+  }
+  els.shapeChips.hidden = false;
+  for (const btn of els.shapeChips.querySelectorAll("[data-shape]")) {
+    btn.classList.toggle("is-candidate", btn.dataset.shape === offer.kind);
+  }
+  const box = view?.stage?.getBoundingClientRect();
+  const anchor = offer.ghostPoints?.at(-1) || offer.ghostPoints?.[0];
+  let left = 12;
+  let top = 80;
+  if (box && anchor) {
+    left = box.left + anchor.x * box.width - 12;
+    top = box.top + anchor.y * box.height + 16;
+  } else if (box && offer.box) {
+    left = box.left + offer.box.minX * box.width;
+    top = box.top + offer.box.maxY * box.height + 8;
+  }
+  const width = els.shapeChips.offsetWidth || 200;
+  const height = SHAPE_HOLD_CHIP_HEIGHT + 8;
+  els.shapeChips.style.left = `${Math.min(window.innerWidth - width - 8, Math.max(8, left))}px`;
+  els.shapeChips.style.top = `${Math.min(window.innerHeight - height - 8, Math.max(8, top))}px`;
+}
+
+function dismissShapeChips() {
+  state.shapeOffer = null;
+  hideShapeChips();
+}
+
+function applyPickedShapeChip(chip) {
+  const offer = state.shapeOffer;
+  if (!offer || !offer.chips?.[chip] || !Number.isInteger(offer.index)) {
+    return;
+  }
+  const items = pageStrokes(offer.page);
+  const item = items[offer.index];
+  if (!item || !canShapeHold(item.type)) {
+    dismissShapeChips();
+    return;
+  }
+  commitPageChange(offer.page, () => {
+    items[offer.index] = { ...item, points: offer.chips[chip] };
+  });
+  dismissShapeChips();
+  const view = state.pageViews.find((row) => row.pageNum === offer.page);
+  if (view) {
+    drawStrokesOn(view);
+  }
+}
+
 function shapeHoldCallbacks() {
   return {
     getPoints: () => state.currentStroke?.points || [],
-    onSnap: (result) => {
-      if (!state.drawing || !state.currentStroke || !canShapeHold(state.currentStroke.type) || !result?.points) {
+    onOffer: (offer) => {
+      if (!state.drawing || !state.currentStroke || !canShapeHold(state.currentStroke.type)) {
         return;
       }
-      state.currentStroke.points = result.points;
+      if (!offer) {
+        if (state.shapeOffer && state.shapeOffer.index == null) {
+          dismissShapeChips();
+          drawLive();
+        }
+        return;
+      }
+      state.shapeOffer = {
+        page: state.drawPage,
+        index: null,
+        kind: offer.kind,
+        chips: offer.chips,
+        ghostPoints: offer.ghostPoints,
+        box: offer.box,
+        color: state.currentStroke.color || "#1A1A1A",
+        width: state.currentStroke.width || 2,
+      };
+      const view = state.pageViews.find((item) => item.pageNum === state.drawPage);
+      showShapeChips(offer, view);
       drawLive();
     },
   };
@@ -1016,6 +1107,7 @@ function abortStroke() {
   state.pendingStamp = null;
   releasePaperScroll();
   shapeHold.reset();
+  dismissShapeChips();
   if (state.currentRect) {
     hideMarquee();
   }
@@ -1061,6 +1153,7 @@ function startStroke(event, stage) {
   state.drawCanvas = ink;
   if (usesStamp()) {
     shapeHold.reset();
+    dismissShapeChips();
     state.pendingStamp = {
       view,
       point,
@@ -1073,6 +1166,7 @@ function startStroke(event, stage) {
   }
   state.pendingStamp = null;
   shapeHold.reset();
+  dismissShapeChips();
   state.drawing = true;
   state.currentStroke = newStroke(point);
   state.currentStroke.points = beginInkPoints(point, client, lastInkUpClient);
@@ -1096,9 +1190,6 @@ function moveStroke(event) {
     return;
   }
   event.preventDefault();
-  if (shapeHold.isSnapped()) {
-    return;
-  }
   const client = { x: event.clientX, y: event.clientY };
   state.currentStroke.points = appendInkPoint(
     state.currentStroke.points,
@@ -1161,6 +1252,7 @@ function endStroke(event) {
     state.drawing = false;
     releasePaperScroll();
     shapeHold.reset();
+    dismissShapeChips();
     drawLive();
     return;
   }
@@ -1183,10 +1275,26 @@ function endStroke(event) {
       pageStrokes(state.drawPage).push(live);
     }
   });
+  const offer = held.offer && canShapeHold(live.type) ? held.offer : null;
   state.currentStroke = null;
   state.drawing = false;
   releasePaperScroll();
-  shapeHold.reset();
+  if (offer) {
+    const items = pageStrokes(state.drawPage);
+    state.shapeOffer = {
+      page: state.drawPage,
+      index: items.length - 1,
+      kind: offer.kind,
+      chips: offer.chips,
+      ghostPoints: offer.ghostPoints,
+      box: offer.box,
+      color: live.color || "#1A1A1A",
+      width: live.width || 2,
+    };
+    showShapeChips(offer, view);
+  } else {
+    dismissShapeChips();
+  }
   drawLive();
 }
 
@@ -2611,13 +2719,13 @@ function onWorkspacePointerDown(event) {
     return;
   }
   if (overlayOpen()) {
-    if (!event.target.closest(".slot-panel, .sheet-card, .toolbar, .write-top, .m4-bar, .more-panel, .preview-drawer, .select-hud, .float-bar, #float-bar")) {
+    if (!event.target.closest(".slot-panel, .sheet-card, .toolbar, .write-top, .m4-bar, .more-panel, .preview-drawer, .select-hud, .float-bar, #float-bar, .shape-chips")) {
       closeAllPanels();
       ignoreAfterPanel = true;
     }
     return;
   }
-  if (event.target.closest(".toolbar, .write-top, .sheet, .slot-panel, .m4-bar, .more-panel, .marquee, .preview-drawer, .select-hud, .float-bar, #float-bar")) {
+  if (event.target.closest(".toolbar, .write-top, .sheet, .slot-panel, .m4-bar, .more-panel, .marquee, .preview-drawer, .select-hud, .float-bar, #float-bar, .shape-chips")) {
     return;
   }
 
@@ -3086,6 +3194,21 @@ els.copyBtn.addEventListener("click", (event) => {
   event.stopPropagation();
   copySelection();
 });
+if (els.shapeChips) {
+  els.shapeChips.addEventListener("pointerdown", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+  });
+  els.shapeChips.addEventListener("click", (event) => {
+    const btn = event.target.closest("[data-shape]");
+    if (!btn) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    applyPickedShapeChip(btn.dataset.shape);
+  });
+}
 els.pasteBtn.addEventListener("click", (event) => {
   event.preventDefault();
   event.stopPropagation();
@@ -3196,7 +3319,7 @@ els.writeScreen.addEventListener("touchstart", preventWriteSurfaceTouch, { passi
 els.writeScreen.addEventListener("touchmove", preventWriteSurfaceTouch, { passive: false });
 
 document.addEventListener("pointerdown", (event) => {
-  if (event.target.closest(".slot-panel, .toolbar, [data-tool], #eraser-btn, #more-btn, .m4-bar, .marquee, .select-hud, .float-bar, #float-bar, .preview-drawer")) {
+  if (event.target.closest(".slot-panel, .toolbar, [data-tool], #eraser-btn, #more-btn, .m4-bar, .marquee, .select-hud, .float-bar, #float-bar, .preview-drawer, .shape-chips")) {
     return;
   }
   closeAllPanels();

@@ -1,9 +1,12 @@
 export const SHAPE_HOLD_MS = 400;
+export const SHAPE_HOLD_GHOST_ALPHA = 0.4;
+export const SHAPE_HOLD_CHIP_HEIGHT = 36;
 export const SHAPE_HOLD_MOVE_SLOP_PX = 6;
 export const SHAPE_HOLD_MIN_SPAN = 0.045;
 export const SHAPE_HOLD_CIRCLE_ASPECT = 1.14;
 export const SHAPE_HOLD_ELLIPSE_POINTS = 48;
 export const SHAPE_HOLD_TOOLS = ["pen", "highlighter", "pencil"];
+export const SHAPE_HOLD_CHIPS = ["line", "rect", "circle"];
 
 export function canShapeHold(tool) {
   return SHAPE_HOLD_TOOLS.includes(tool);
@@ -216,6 +219,40 @@ export function snapStrokePoints(points) {
   return classified.kind ? classified.points : points;
 }
 
+export function shapeOfferFromStroke(points) {
+  const classified = classifyStrokeShape(points);
+  const usable = Array.isArray(points)
+    ? points.filter((point) => point && Number.isFinite(point.x) && Number.isFinite(point.y))
+    : [];
+  if (usable.length < 2) {
+    return null;
+  }
+  const box = boundingBox(usable);
+  if (Math.hypot(box.w, box.h) < SHAPE_HOLD_MIN_SPAN) {
+    return null;
+  }
+  const chips = {
+    line: pointsForLine(usable),
+    rect: pointsForRect(box),
+    circle: pointsForCircle(box),
+  };
+  const chipKind = classified.kind === "ellipse" ? "circle" : classified.kind || "line";
+  return {
+    kind: chipKind,
+    ghostPoints: chips[chipKind] || chips.line,
+    chips,
+    box,
+  };
+}
+
+export function applyShapeChip(chip, points) {
+  const offer = shapeOfferFromStroke(points);
+  if (!offer || !SHAPE_HOLD_CHIPS.includes(chip)) {
+    return points;
+  }
+  return offer.chips[chip] || points;
+}
+
 export function createShapeHold({
   holdMs = SHAPE_HOLD_MS,
   moveSlopPx = SHAPE_HOLD_MOVE_SLOP_PX,
@@ -225,7 +262,7 @@ export function createShapeHold({
   let timer = 0;
   let lastClient = null;
   let tool = "pen";
-  let snapped = null;
+  let offer = null;
 
   const clearTimer = () => {
     if (timer) {
@@ -234,17 +271,17 @@ export function createShapeHold({
     }
   };
 
-  const fire = (getPoints, onSnap) => {
+  const fire = (getPoints, onOffer) => {
     timer = 0;
-    if (snapped || !canShapeHold(tool)) {
+    if (offer || !canShapeHold(tool)) {
       return;
     }
-    const next = classifyStrokeShape(typeof getPoints === "function" ? getPoints() : []);
-    if (!next.kind) {
+    const next = shapeOfferFromStroke(typeof getPoints === "function" ? getPoints() : []);
+    if (!next) {
       return;
     }
-    snapped = next;
-    onSnap?.(next);
+    offer = next;
+    onOffer?.(next);
   };
 
   return {
@@ -252,21 +289,18 @@ export function createShapeHold({
       clearTimer();
       lastClient = null;
       tool = "pen";
-      snapped = null;
+      offer = null;
     },
-    begin({ tool: nextTool, client, getPoints, onSnap } = {}) {
+    begin({ tool: nextTool, client, getPoints, onOffer } = {}) {
       this.reset();
       tool = nextTool || "pen";
       lastClient = client || null;
       if (!canShapeHold(tool)) {
         return;
       }
-      timer = setTimeoutFn(() => fire(getPoints, onSnap), holdMs);
+      timer = setTimeoutFn(() => fire(getPoints, onOffer), holdMs);
     },
-    noteMove({ client, getPoints, onSnap } = {}) {
-      if (snapped) {
-        return true;
-      }
+    noteMove({ client, getPoints, onOffer } = {}) {
       if (!canShapeHold(tool) || !client) {
         return false;
       }
@@ -276,21 +310,25 @@ export function createShapeHold({
         return false;
       }
       lastClient = client;
+      if (offer) {
+        offer = null;
+        onOffer?.(null);
+      }
       clearTimer();
-      timer = setTimeoutFn(() => fire(getPoints, onSnap), holdMs);
+      timer = setTimeoutFn(() => fire(getPoints, onOffer), holdMs);
       return false;
     },
     finish(freehandPoints) {
       clearTimer();
-      const kept = snapped;
+      const kept = offer;
       lastClient = null;
       return {
-        points: kept?.points || freehandPoints,
-        kind: kept?.kind || null,
-        snapped: Boolean(kept?.kind),
+        points: freehandPoints,
+        offer: kept,
+        snapped: false,
       };
     },
-    isSnapped: () => Boolean(snapped),
-    snappedKind: () => snapped?.kind || null,
+    isOffering: () => Boolean(offer),
+    currentOffer: () => offer,
   };
 }

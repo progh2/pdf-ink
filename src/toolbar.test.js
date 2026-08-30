@@ -125,7 +125,7 @@ describe("#56 GoodNotes 4 utility bar", () => {
     assert.match(main, /selectInkTool/);
     assert.match(main, /createShapeHold\(/);
     assert.match(main, /from "\.\/shapeHold\.js"/);
-    assert.doesNotMatch(html, /id="shape-chips"|data-shape=/);
+    assert.match(html, /id="shape-chips"/);
     assert.doesNotMatch(toolbar, /shape-chips|data-shape=/);
   });
 

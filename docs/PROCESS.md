@@ -39,4 +39,4 @@
 - #11: 펜만 끄면 손가락(`touch`)도 획. 종이에 `touch-action: none`·`overscroll-behavior: none`, touchstart에서 preventDefault, 그리는 중 워크스페이스 스크롤 고정. 펜만 켜면 손가락은 팬만(#20 #24). 캡슐 칸 없음.
 - #47: 펜 두 탭이 직선이 되던 누수. 직전 pointerup 좌표를 다음 pointerdown 시작점으로 쓰지 않음. 끌 때만 잇는 획. 홀드 도형(#51)과는 다른 켜. 캡슐·`bindUndoHold`/`UNDO_HOLD_MS=400` 그대로.
 - #50: 스탬프를 시중 고무도장형으로. 가로 타원 이중 테두리 안에 문구(원 아래 라벨 없음). 선택 후 모서리 8 핸들·비율 유지. 바는 #56 한 줄 그대로.
-- #51: 펜/형광/색연필로 한 섭을 긋고 끝에서 400ms 홀드하면 직선·사각·원으로 스냅. 홀드 없이 떼면 손 획. 칩/자동 제안 UI 없음. `beginInkPoints`/`lastInkUpClient` 유지(#47). 바와 `bindUndoHold`는 그대로.
+- #51: 펜/형광/색연필로 한 섭을 긋고 끝에서 400ms 홀드하면 손 획은 그대로 두고 고스트(40%)+종이 칩(직선·사각·원, 36)만. 칩을 눌러야 변환. 홀드 없이 떼면 손 획. 자동 스냅 없음. `beginInkPoints`/`lastInkUpClient` 유지(#47). 바와 `bindUndoHold`는 그대로.
