@@ -1,11 +1,15 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
+import { fileURLToPath } from "node:url";
 import { resizeStamp, STAMP_ASPECT, STAMP_HEIGHT_CSS, STAMP_WIDTH_CSS } from "./tools.js";
 import {
   copyItems,
   deleteSelectedItems,
   isSelectable,
   itemBounds,
+  lockedImageAt,
   offsetItems,
   pasteItems,
   pickItemsAt,
@@ -186,5 +190,54 @@ describe("첫 사용 선택 (#86)", () => {
     const spot = selectHudTop({ top: 0, bottom: 800 }, 56, 800);
     assert.equal(spot.placement, "clamped");
     assert.ok(spot.top >= 8 && spot.top + 56 <= 800);
+  });
+});
+
+describe("#104 고정한 이미지 집기", () => {
+  const locked = { type: "image", locked: true, x: 0.2, y: 0.2, w: 0.4, h: 0.3, src: "x" };
+  const free = { type: "image", locked: false, x: 0.6, y: 0.6, w: 0.2, h: 0.2, src: "y" };
+
+  it("finds a locked image under the finger, but only a locked one", () => {
+    const items = [locked, free, stroke];
+    assert.equal(lockedImageAt(items, { x: 0.3, y: 0.3 }, 400, 600), 0);
+    assert.equal(lockedImageAt(items, { x: 0.65, y: 0.65 }, 400, 600), -1, "a free image is not this menu's job");
+    assert.equal(lockedImageAt(items, { x: 0.95, y: 0.05 }, 400, 600), -1);
+  });
+
+  it("still refuses to select it, so the lock keeps holding", () => {
+    assert.equal(isSelectable(locked), false);
+    assert.deepEqual(pickItemsAt([locked], { x: 0.3, y: 0.3 }, 400, 600), []);
+  });
+
+  it("takes the topmost when locked images overlap", () => {
+    const under = { ...locked, src: "under" };
+    const over = { ...locked, src: "over" };
+    assert.equal(lockedImageAt([under, over], { x: 0.3, y: 0.3 }, 400, 600), 1);
+  });
+});
+
+describe("#104 배선", () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const main = readFileSync(join(here, "main.js"), "utf8");
+  const html = readFileSync(join(here, "..", "index.html"), "utf8");
+
+  it("arms the hold only for the select tool in edit mode", () => {
+    assert.match(main, /function armLockHold[\s\S]*state\.tool !== "select" \|\| state\.interactMode === "view"/);
+    assert.match(main, /lockedImageAt\(items, point, cssW, cssH\)/);
+    assert.match(main, /PAGE_HOLD_MS/);
+  });
+
+  it("unlocks through the menu and records it for undo", () => {
+    assert.match(html, /data-lock-menu="unlock">고정 해제/);
+    assert.match(main, /function unlockFromMenu[\s\S]*commitPageChange/);
+    assert.match(main, /lockImage\(item, false\)/);
+    // The freed image is selected right away, ready for the #68 handle.
+    assert.match(main, /state\.selectIndices = \[spot\.index\]/);
+  });
+
+  it("drops the hold as soon as the finger moves or lifts", () => {
+    assert.match(main, /function moveSelect\(event\) \{\s*cancelLockHold\(\)/);
+    assert.match(main, /function endSelect\(event\) \{\s*cancelLockHold\(\)/);
+    assert.match(main, /function movePan\(event\) \{\s*cancelLockHold\(\)/);
   });
 });

@@ -1756,25 +1756,12 @@ body {
   box-shadow: 0 0 0 2px #c4a574;
 }
 
-.sticker-cell-wrap {
-  position: relative;
-  line-height: 0;
+.sticker-cell.is-grabbed {
+  box-shadow: 0 0 0 2px #c4a574;
 }
 
-.sticker-cell-close {
-  position: absolute;
-  right: -6px;
-  top: -6px;
-  width: 20px;
-  height: 20px;
-  padding: 0;
-  border: 1px solid var(--line);
-  border-radius: 50%;
-  background: #fff;
-  color: var(--muted);
-  font-size: 11px;
-  line-height: 1;
-  cursor: pointer;
+.sticker-cell.is-dragging {
+  opacity: 0.5;
 }
 
 .sticker-region.is-selected {
