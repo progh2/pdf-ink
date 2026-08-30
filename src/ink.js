@@ -7,6 +7,7 @@ import {
   stampItemSize,
   stampPaintLayout,
 } from "./tools.js";
+import { STAMP_GHOST_ALPHA } from "./stampGhost.js";
 
 export function distPointToSegment(point, start, end) {
   const dx = end.x - start.x;
@@ -112,6 +113,9 @@ function stampHitsEraser(item, eraserPts, eraserHalf, cssWidth, cssHeight) {
 export function itemHitsEraser(item, eraser, cssWidth, cssHeight) {
   const eraserPts = toCssPoints(eraser.points, cssWidth, cssHeight);
   const eraserHalf = (eraser.width || 2) / 2;
+  if (item.type === "area") {
+    return false;
+  }
   if (item.type === "mosaic" || item.type === "image") {
     if (item.type === "image" && item.locked) {
       return false;
@@ -290,12 +294,13 @@ export function paintStamp(ctx, item, scale, canvas) {
   const cy = item.y * canvas.height;
   const tilt = Number.isFinite(item.tilt) ? item.tilt : stampTilt(item.x, item.y);
   const layout = stampPaintLayout(item.stamp, scale, item);
+  const fade = item.ghost ? (item.alpha ?? STAMP_GHOST_ALPHA) : 1;
 
   ctx.save();
   ctx.translate(cx, cy);
   ctx.rotate(tilt);
   ctx.strokeStyle = layout.inkColor;
-  ctx.globalAlpha = 0.9;
+  ctx.globalAlpha = 0.9 * fade;
   ctx.lineWidth = layout.outerWidth;
   ctx.beginPath();
   ctx.ellipse(0, 0, layout.rx, layout.ry, 0, 0, Math.PI * 2);
@@ -306,7 +311,7 @@ export function paintStamp(ctx, item, scale, canvas) {
   ctx.ellipse(0, 0, layout.innerRx, layout.innerRy, 0, 0, Math.PI * 2);
   ctx.stroke();
 
-  ctx.globalAlpha = 0.96;
+  ctx.globalAlpha = 0.96 * fade;
   ctx.fillStyle = layout.inkColor;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
@@ -338,7 +343,7 @@ export function paintErase(ctx, stroke, scale, canvas) {
 }
 
 export function paintItem(ctx, item, scale, canvas) {
-  if (item.type === "mosaic" || item.type === "image") {
+  if (item.type === "mosaic" || item.type === "image" || item.type === "area") {
     return;
   }
   if (item.type === "stamp") {

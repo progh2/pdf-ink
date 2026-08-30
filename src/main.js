@@ -45,6 +45,7 @@ import {
   scaleFromPinch,
 } from "./viewport.js";
 import { applyEraserToInk, isPixelErase, isStrokeErase, paintGhost, paintItem, paintStamp, removeHitItems, removeHitStamps, stampInkItem, stampTilt } from "./ink.js";
+import { followStampGhost, stampGhostItem, stampPlaceFromGhost } from "./stampGhost.js";
 import {
   appendInkPoint,
   beginInkPoints,
@@ -57,6 +58,24 @@ import {
 } from "./interact.js";
 import { canRedo, canUndo, cloneItems, createHistory, recordChange, redoChange, undoChange } from "./history.js";
 import { bindUndoHold } from "./undoHold.js";
+import { bindMarqueeHold, placeMarqueeMenu } from "./marqueeHold.js";
+import {
+  acceptAreaUrl,
+  areaItem,
+  areaLinkOf,
+  clampPageTarget,
+  hasAreaLink,
+  pickAreaAt,
+  recentDocsForLink,
+} from "./areaLink.js";
+import {
+  activateSplitTab,
+  closeSplitTab,
+  emptySplit,
+  openSplitTab,
+  splitAxis,
+  splitTabFromLink,
+} from "./split.js";
 import {
   SHAPE_HOLD_CHIP_GAP_PX,
   SHAPE_HOLD_CHIP_HEIGHT,
@@ -72,11 +91,15 @@ import { MOSAIC_CELL_CSS, mosaicBoxesPx, mosaicItem } from "./mosaic.js";
 import { captureRegionPng, composePageRgba, cropRgba, writePngClipboard } from "./capture.js";
 import {
   copyItems,
+  copyItemsInRect,
+  deleteItemsInRect,
   deleteSelectedItems,
+  duplicateItemsInRect,
   itemBounds,
   offsetItems,
   pickItemsAt,
   pickItemsInRect,
+  rotateHandleAt,
   selectedBounds,
   translateItems,
 } from "./select.js";
@@ -92,7 +115,7 @@ import {
   lockImage,
   resizeImage,
 } from "./image.js";
-import { addRotation, imagePaintDest, rotateItems, rotateSelectedItems } from "./rotate.js";
+import { addRotation, angleDegFromCenter, imagePaintDest, rotateItems, rotateSelectedItems } from "./rotate.js";
 import {
   filterLeaves,
   inkKey,
@@ -105,6 +128,23 @@ import {
   setLeafRotate,
   toggleBookmark,
 } from "./preview.js";
+import {
+  PAGE_BITMAP_LIMIT,
+  PAGE_STACK_GAP,
+  THUMB_BITMAP_LIMIT,
+  createPaintCache,
+  pageAtScrollMid,
+  pageBitmapKey,
+  pageStackOffset,
+  previewListHeight,
+  previewRowBody,
+  previewRowStride,
+  previewUpdateOnPageChange,
+  scrollStackMetrics,
+  thumbCacheKey,
+  visiblePreviewRows,
+  visibleScrollPages,
+} from "./pageWindow.js";
 import {
   addOutlineEntry,
   deleteOutlineEntry,
@@ -134,7 +174,6 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
 
 const LONG_PRESS_MS = 450;
 const SLOT_PRESS_SLOP = 24;
-const STAMP_TAP_SLOP = 16;
 
 const els = {
   fileInput: document.querySelector("#file-input"),
@@ -147,6 +186,17 @@ const els = {
   penOnlyBtn: document.querySelector("#pen-only-btn"),
   docTitle: document.querySelector("#doc-title"),
   workspace: document.querySelector("#workspace"),
+  writeSplit: document.querySelector("#write-split"),
+  splitPane: document.querySelector("#split-pane"),
+  splitTabs: document.querySelector("#split-tabs"),
+  splitStage: document.querySelector("#split-stage"),
+  areaLayer: document.querySelector("#area-layer"),
+  areaLinkPanel: document.querySelector("#area-link-panel"),
+  areaLinkPage: document.querySelector("#area-link-page"),
+  areaLinkPageGo: document.querySelector("#area-link-page-go"),
+  areaLinkDocs: document.querySelector("#area-link-docs"),
+  areaLinkUrl: document.querySelector("#area-link-url"),
+  areaLinkUrlGo: document.querySelector("#area-link-url-go"),
   viewport: document.querySelector("#viewport"),
   pageStack: document.querySelector("#page-stack"),
   toolbar: document.querySelector("#toolbar"),
@@ -176,15 +226,13 @@ const els = {
   fullscreenItem: document.querySelector("#fullscreen-item"),
   marquee: document.querySelector("#marquee"),
   marqueeBox: document.querySelector("#marquee-box"),
-  captureConfirm: document.querySelector("#capture-confirm"),
+  marqueeMenu: document.querySelector("#marquee-menu"),
   selectLayer: document.querySelector("#select-layer"),
   selectBox: document.querySelector("#select-box"),
   floatBar: document.querySelector("#float-bar"),
   selectHud: document.querySelector("#float-bar"),
   copyBtn: document.querySelector("#copy-btn"),
   pasteBtn: document.querySelector("#paste-btn"),
-  selLeftBtn: document.querySelector("#sel-left-btn"),
-  selRightBtn: document.querySelector("#sel-right-btn"),
   deleteBtn: document.querySelector("#delete-btn"),
   cropBtn: document.querySelector("#crop-btn"),
   lockBtn: document.querySelector("#lock-btn"),
@@ -247,6 +295,7 @@ const state = {
   eraseMode: loadEraser().mode,
   eraserWidth: loadEraser().width,
   pendingStamp: null,
+  stampGhost: null,
   shapeOffer: null,
   userScale: 1,
   panX: 0,
@@ -255,6 +304,8 @@ const state = {
   pageCssHeight: 0,
   stackBase: { width: 0, height: 0 },
   pageViews: [],
+  scrollLayout: null,
+  split: emptySplit(),
 };
 
 const pointers = new Map();
@@ -268,12 +319,14 @@ let ignoreChipMountMoves = 0;
 let lockedStrokePoints = null;
 let chipMenuBox = null;
 let frozenEndClient = null;
-let captureConfirmArmedAt = 0;
 let renderGen = 0;
 let paperScrollHold = null;
+const pageCache = createPaintCache(PAGE_BITMAP_LIMIT);
+const thumbCache = createPaintCache(THUMB_BITMAP_LIMIT);
+const stagePool = [];
 
 const WRITE_CHROME =
-  ".sheet-card, .slot-panel, .toolbar, .write-top, .m4-bar, .more-panel, .marquee, .preview-drawer, .select-hud, .float-bar, #float-bar, .shape-chips";
+  ".sheet-card, .slot-panel, .toolbar, .write-top, .m4-bar, .more-panel, .marquee, .preview-drawer, .select-hud, .float-bar, #float-bar, .select-layer, #select-layer, .shape-chips, #area-link-panel, #split-tabs, #split-pane, #area-layer";
 
 function isWriteChrome(target) {
   return Boolean(target?.closest?.(WRITE_CHROME));
@@ -311,6 +364,87 @@ function activeSlot() {
 
 function usesStamp() {
   return state.tool === "stamp";
+}
+
+function clearStampGhost() {
+  if (!state.stampGhost) {
+    return;
+  }
+  const page = state.stampGhost.page;
+  state.stampGhost = null;
+  const view = state.pageViews.find((item) => item.pageNum === page);
+  if (view) {
+    drawStrokesOn(view);
+  }
+}
+
+function showStampGhostAt(view, point) {
+  if (!usesStamp() || state.interactMode === "view" || !view || !point) {
+    clearStampGhost();
+    return;
+  }
+  const prevPage = state.stampGhost?.page;
+  const next = followStampGhost(state.stampGhost, point, activeSlot().stamp) || stampGhostItem(
+    activeSlot().stamp,
+    point.x,
+    point.y,
+    stampTilt(point.x, point.y),
+  );
+  next.tilt = stampTilt(point.x, point.y);
+  next.page = view.pageNum;
+  state.stampGhost = next;
+  if (state.pendingStamp) {
+    state.pendingStamp.point = point;
+    state.pendingStamp.view = view;
+  }
+  if (prevPage && prevPage !== view.pageNum) {
+    const prev = state.pageViews.find((item) => item.pageNum === prevPage);
+    if (prev) {
+      drawStrokesOn(prev);
+    }
+  }
+  drawStrokesOn(view);
+}
+
+function trackStampGhost(event) {
+  if (!usesStamp() || state.interactMode === "view") {
+    clearStampGhost();
+    return;
+  }
+  if (overlayOpen() || gesture || state.rectTool) {
+    return;
+  }
+  const stage = event.target.closest(".page-stage");
+  if (!stage) {
+    if (!state.pendingStamp) {
+      clearStampGhost();
+    }
+    return;
+  }
+  const ink = stage.querySelector(".ink-canvas");
+  if (!ink) {
+    return;
+  }
+  const view = state.pageViews.find((item) => item.stage === stage);
+  showStampGhostAt(view, eventToNorm(event, ink));
+}
+
+function refreshStampGhostPhrase() {
+  if (!usesStamp()) {
+    clearStampGhost();
+    return;
+  }
+  if (!state.stampGhost) {
+    return;
+  }
+  state.stampGhost = {
+    ...state.stampGhost,
+    stamp: normalizeStamp(activeSlot().stamp),
+  };
+  const view = state.pageViews.find((item) => item.pageNum === state.stampGhost.page);
+  if (view) {
+    drawStrokesOn(view);
+  }
 }
 
 function showBanner(message) {
@@ -359,9 +493,15 @@ function resetEditorExtras() {
   state.selectDrag = null;
   state.cropping = null;
   state.inkClipboard = [];
+  state.scrollLayout = null;
+  pageCache.clear();
+  thumbCache.clear();
+  stagePool.length = 0;
   hideMarquee();
   hideSelectUi();
   closePreview();
+  state.split = emptySplit();
+  syncSplitUi();
   syncHistoryButtons();
   syncRectTool();
 }
@@ -444,6 +584,9 @@ function drawStrokesOn(view, liveStroke = null) {
       scale,
       canvas,
     );
+  }
+  if (state.stampGhost && view.pageNum === state.stampGhost.page) {
+    paintStamp(ctx, state.stampGhost, scale, canvas);
   }
   paintImageLayer(view.underCanvas, items, true, () => drawStrokesOn(view));
   paintImageLayer(view.overCanvas, items, false, () => drawStrokesOn(view));
@@ -650,65 +793,204 @@ async function renderPageView(view) {
   drawStrokesOn(view, state.drawing && state.drawPage === view.pageNum ? state.currentStroke : null);
 }
 
+function snapshotCanvas(source) {
+  if (!source?.width || !source.height) {
+    return null;
+  }
+  const copy = document.createElement("canvas");
+  copy.width = source.width;
+  copy.height = source.height;
+  const ctx = copy.getContext("2d");
+  if (!ctx) {
+    return null;
+  }
+  ctx.drawImage(source, 0, 0);
+  return copy;
+}
+
+function pageViewCacheKey(view) {
+  const leaf = leafAt(state.leaves, view?.pageNum);
+  return pageBitmapKey(leaf, {
+    cssWidth: view?.cssWidth || state.scrollLayout?.pageWidth || state.pageCssWidth,
+    cssHeight: view?.cssHeight || state.scrollLayout?.pageHeight || state.pageCssHeight,
+    viewMode: state.viewMode,
+  });
+}
+
+function cachePageView(view) {
+  if (!view?.rendered || !view.pdfCanvas?.width) {
+    return;
+  }
+  const bitmap = snapshotCanvas(view.pdfCanvas);
+  if (!bitmap) {
+    return;
+  }
+  pageCache.set(pageViewCacheKey(view), {
+    cssWidth: view.cssWidth,
+    cssHeight: view.cssHeight,
+    pixelWidth: view.pdfCanvas.width,
+    pixelHeight: view.pdfCanvas.height,
+    bitmap,
+  });
+}
+
+function restorePageBitmap(view, entry) {
+  if (!view || !entry?.bitmap) {
+    return false;
+  }
+  applyPageSize(view, entry.cssWidth, entry.cssHeight, entry.pixelWidth, entry.pixelHeight);
+  const ctx = canvas2d(view.pdfCanvas);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, view.pdfCanvas.width, view.pdfCanvas.height);
+  ctx.drawImage(entry.bitmap, 0, 0);
+  if (state.viewMode === "page" || view.pageNum === state.page) {
+    state.pageCssWidth = entry.cssWidth;
+    state.pageCssHeight = entry.cssHeight;
+  }
+  view.rendered = true;
+  return true;
+}
+
+function acquireStage(pageNum) {
+  const pooled = stagePool.pop();
+  if (!pooled) {
+    return makeStage(pageNum);
+  }
+  pooled.pageNum = pageNum;
+  pooled.stage.dataset.page = String(pageNum);
+  pooled.rendered = false;
+  pooled.token += 1;
+  return pooled;
+}
+
+function releaseStage(view) {
+  if (!view) {
+    return;
+  }
+  cachePageView(view);
+  view.stage.remove();
+  if (stagePool.length < 8) {
+    stagePool.push(view);
+  }
+}
+
+function resetPageStackChrome() {
+  els.pageStack.classList.remove("is-windowed");
+  els.pageStack.style.width = "";
+  els.pageStack.style.height = "";
+}
+
+function positionScrollStage(view) {
+  const metrics = state.scrollLayout;
+  if (!metrics || !view) {
+    return;
+  }
+  view.stage.style.position = "absolute";
+  view.stage.style.top = `${pageStackOffset(view.pageNum, metrics)}px`;
+  view.stage.style.left = "50%";
+  view.stage.style.marginLeft = `${-metrics.pageWidth / 2}px`;
+  if (!view.cssWidth) {
+    view.stage.style.width = `${metrics.pageWidth}px`;
+    view.stage.style.height = `${metrics.pageHeight}px`;
+  }
+}
+
 function visiblePageRange() {
-  if (state.viewMode !== "scroll" || !state.pageViews.length) {
+  if (state.viewMode !== "scroll") {
     return { from: state.page, to: state.page };
   }
-  const scale = state.userScale;
-  const viewTop = els.workspace.scrollTop;
-  const viewBottom = viewTop + els.workspace.clientHeight;
-  let from = state.pageCount;
-  let to = 1;
-  for (const view of state.pageViews) {
-    const top = view.stage.offsetTop * scale;
-    const bottom = top + view.stage.offsetHeight * scale;
-    if (bottom > viewTop - 240 && top < viewBottom + 240) {
-      from = Math.min(from, view.pageNum);
-      to = Math.max(to, view.pageNum);
-    }
+  if (state.scrollLayout?.count) {
+    return visibleScrollPages({
+      scrollTop: els.workspace.scrollTop,
+      viewportHeight: els.workspace.clientHeight,
+      scale: state.userScale,
+      metrics: state.scrollLayout,
+      currentPage: state.page,
+    });
   }
-  if (from > to) {
-    return { from: state.page, to: state.page };
-  }
-  return { from, to };
+  return { from: state.page, to: state.page };
 }
 
 async function renderVisiblePages() {
-  const { from, to } = visiblePageRange();
+  await syncScrollWindow();
   const jobs = [];
   for (const view of state.pageViews) {
-    const nearby = view.pageNum >= from && view.pageNum <= to;
-    if (nearby && !view.rendered) {
-      jobs.push(renderPageView(view));
+    if (view.rendered) {
+      continue;
     }
+    const cached = pageCache.get(pageViewCacheKey(view));
+    if (cached && restorePageBitmap(view, cached)) {
+      drawStrokesOn(view, state.drawing && state.drawPage === view.pageNum ? state.currentStroke : null);
+      continue;
+    }
+    jobs.push(renderPageView(view).then(() => cachePageView(view)));
   }
   await Promise.all(jobs);
 }
 
-function updateCurrentPageFromScroll() {
-  if (state.viewMode !== "scroll" || !state.pageViews.length) {
+async function syncScrollWindow() {
+  if (state.viewMode !== "scroll" || !state.scrollLayout?.count) {
     return;
   }
-  const scale = state.userScale;
-  const mid = els.workspace.scrollTop + els.workspace.clientHeight / 2;
-  let best = state.page;
-  let bestDist = Infinity;
+  const range = visiblePageRange();
+  const keep = new Set();
+  for (let page = range.from; page <= range.to; page += 1) {
+    keep.add(page);
+  }
+  keep.add(state.page);
+  if (state.drawPage) {
+    keep.add(state.drawPage);
+  }
+  const next = [];
   for (const view of state.pageViews) {
-    const center = (view.stage.offsetTop + view.stage.offsetHeight / 2) * scale;
-    const dist = Math.abs(center - mid);
-    if (dist < bestDist) {
-      bestDist = dist;
-      best = view.pageNum;
+    if (keep.has(view.pageNum)) {
+      positionScrollStage(view);
+      next.push(view);
+      keep.delete(view.pageNum);
+    } else {
+      releaseStage(view);
     }
   }
+  for (const pageNum of [...keep].sort((a, b) => a - b)) {
+    if (pageNum < 1 || pageNum > state.scrollLayout.count) {
+      continue;
+    }
+    const view = acquireStage(pageNum);
+    positionScrollStage(view);
+    els.pageStack.append(view.stage);
+    const cached = pageCache.get(pageViewCacheKey(view));
+    if (cached) {
+      restorePageBitmap(view, cached);
+      drawStrokesOn(view);
+    }
+    next.push(view);
+  }
+  state.pageViews = next;
+}
+
+function updateCurrentPageFromScroll() {
+  if (state.viewMode !== "scroll" || !state.scrollLayout?.count) {
+    return;
+  }
+  const best = pageAtScrollMid({
+    scrollTop: els.workspace.scrollTop,
+    viewportHeight: els.workspace.clientHeight,
+    scale: state.userScale,
+    metrics: state.scrollLayout,
+  });
   if (best !== state.page) {
     state.page = best;
     updatePager();
     persistSession();
+    applyPreviewAfterPageChange();
   }
 }
 
 function measureStackBase() {
+  if (state.scrollLayout) {
+    state.stackBase = { width: state.scrollLayout.width, height: state.scrollLayout.height };
+    return;
+  }
   const stages = state.pageViews;
   if (!stages.length) {
     state.stackBase = { width: 0, height: 0 };
@@ -752,8 +1034,11 @@ function applyViewport() {
 
 async function rebuildPages() {
   const gen = ++renderGen;
-  els.pageStack.replaceChildren();
+  stagePool.length = 0;
   state.pageViews = [];
+  els.pageStack.replaceChildren();
+  resetPageStackChrome();
+  state.scrollLayout = null;
   if (!state.pdf && !state.leaves.length) {
     return;
   }
@@ -763,13 +1048,14 @@ async function rebuildPages() {
     const view = makeStage(state.page);
     state.pageViews = [view];
     els.pageStack.append(view.stage);
-    await renderPageView(view);
-  } else {
-    for (let index = 1; index <= state.leaves.length; index += 1) {
-      const view = makeStage(index);
-      state.pageViews.push(view);
-      els.pageStack.append(view.stage);
+    const cached = pageCache.get(pageViewCacheKey(view));
+    if (cached && restorePageBitmap(view, cached)) {
+      drawStrokesOn(view);
+    } else {
+      await renderPageView(view);
+      cachePageView(view);
     }
+  } else {
     const firstLeaf = state.leaves[0];
     let css;
     if (firstLeaf?.kind === "pdf" && state.pdf) {
@@ -786,10 +1072,11 @@ async function rebuildPages() {
     if (gen !== renderGen) {
       return;
     }
-    for (const view of state.pageViews) {
-      view.stage.style.width = `${css.width}px`;
-      view.stage.style.height = `${css.height}px`;
-    }
+    state.scrollLayout = scrollStackMetrics(state.leaves.length, css.width, css.height, PAGE_STACK_GAP);
+    els.pageStack.classList.add("is-windowed");
+    els.pageStack.style.width = `${state.scrollLayout.width}px`;
+    els.pageStack.style.height = `${state.scrollLayout.height}px`;
+    await syncScrollWindow();
     await renderVisiblePages();
     scrollPageIntoView(state.page, false);
   }
@@ -798,15 +1085,68 @@ async function rebuildPages() {
   }
   applyViewport();
   updatePager();
+  updateMarquee();
+  updateAreaHits();
+  if (state.split?.tabs?.length) {
+    renderSplitStage();
+  }
 }
 
 function scrollPageIntoView(pageNum, smooth) {
+  const metrics = state.scrollLayout;
+  if (metrics) {
+    const top = pageStackOffset(pageNum, metrics) * state.userScale - 12;
+    els.workspace.scrollTo({ top: Math.max(0, top), behavior: smooth ? "smooth" : "auto" });
+    return;
+  }
   const view = state.pageViews.find((item) => item.pageNum === pageNum);
   if (!view) {
     return;
   }
   const top = view.stage.offsetTop * state.userScale - 12;
   els.workspace.scrollTo({ top: Math.max(0, top), behavior: smooth ? "smooth" : "auto" });
+}
+
+async function showPageInPlace(pageNum) {
+  let view = state.pageViews.find((item) => item.pageNum === pageNum) || state.pageViews[0];
+  if (!view) {
+    view = makeStage(pageNum);
+    state.pageViews = [view];
+    els.pageStack.replaceChildren(view.stage);
+  }
+  if (view.pageNum !== pageNum) {
+    cachePageView(view);
+    view.token += 1;
+    view.pageNum = pageNum;
+    view.stage.dataset.page = String(pageNum);
+    view.rendered = false;
+  }
+  const cached = pageCache.get(pageViewCacheKey(view));
+  if (cached && restorePageBitmap(view, cached)) {
+    drawStrokesOn(view, state.drawing && state.drawPage === view.pageNum ? state.currentStroke : null);
+    updateMarquee();
+    updateAreaHits();
+    return;
+  }
+  await renderPageView(view);
+  cachePageView(view);
+  updateMarquee();
+  updateAreaHits();
+}
+
+function applyPreviewAfterPageChange() {
+  const plan = previewUpdateOnPageChange({
+    drawerOpen: Boolean(els.previewDrawer && !els.previewDrawer.hidden),
+    tab: state.previewTab,
+    listBuilt: Boolean(els.previewList?.querySelector(".preview-list-window")),
+  });
+  if (plan.rebuildList) {
+    renderPreview();
+    return;
+  }
+  if (plan.moveCurrent) {
+    syncPreviewCurrent({ paintVisible: plan.paintVisible });
+  }
 }
 
 function updatePager() {
@@ -999,16 +1339,17 @@ async function goToPage(nextPage) {
   state.page = nextPage;
   abortStroke();
   if (state.viewMode === "page") {
-    await rebuildPages();
+    await showPageInPlace(nextPage);
+    applyViewport();
+    updatePager();
   } else {
+    await syncScrollWindow();
     scrollPageIntoView(nextPage, true);
     updatePager();
     await renderVisiblePages();
   }
   await persistSession();
-  if (!els.previewDrawer.hidden) {
-    renderPreview();
-  }
+  applyPreviewAfterPageChange();
 }
 
 function allowsInkPointer(event) {
@@ -1248,6 +1589,7 @@ function shapeHoldCallbacks() {
 
 function abortStroke() {
   state.pendingStamp = null;
+  clearStampGhost();
   releasePaperScroll();
   shapeHold.reset();
   dismissShapeChips();
@@ -1305,6 +1647,7 @@ function startStroke(event, stage) {
       startX: event.clientX,
       startY: event.clientY,
     };
+    showStampGhostAt(view, point);
     state.drawing = false;
     state.currentStroke = null;
     return;
@@ -1386,10 +1729,16 @@ function endStroke(event) {
         // Capture may already be released.
       }
     }
-    const moved = Math.hypot(event.clientX - state.pendingStamp.startX, event.clientY - state.pendingStamp.startY);
     const view = state.pendingStamp.view || state.pageViews.find((item) => item.pageNum === state.drawPage);
-    if (moved <= STAMP_TAP_SLOP && view) {
-      placeStamp(view, state.pendingStamp.point);
+    if (event.type !== "pointercancel") {
+      const ink = state.drawCanvas || view?.inkCanvas;
+      if (ink && view) {
+        showStampGhostAt(view, eventToNorm(event, ink));
+      }
+      const place = stampPlaceFromGhost(state.stampGhost) || state.pendingStamp.point;
+      if (view && place) {
+        placeStamp(view, place);
+      }
     }
     state.pendingStamp = null;
     releasePaperScroll();
@@ -1548,6 +1897,10 @@ function syncToolSelection() {
   syncInkTools();
   syncPenOnly();
   syncZoomLock();
+  if (!usesStamp()) {
+    state.pendingStamp = null;
+    clearStampGhost();
+  }
 }
 
 function setPenOnly(on) {
@@ -1639,6 +1992,10 @@ function hideSelectUi() {
     return;
   }
   els.selectLayer.hidden = true;
+  els.selectLayer.classList.remove("is-rotating", "is-cropping");
+  if (els.selectBox) {
+    els.selectBox.style.transform = "none";
+  }
   if (els.floatBar) {
     els.floatBar.hidden = true;
   }
@@ -1783,6 +2140,7 @@ function persistSlotChange() {
   saveInkTools(state.inkTools);
   syncInkTools();
   syncSlotEditor();
+  refreshStampGhostPhrase();
 }
 
 function setSlotKind(kind) {
@@ -1933,7 +2291,7 @@ function selectedStampItem() {
   return item?.type === "stamp" ? item : null;
 }
 
-function placeSelectBox(view, rect) {
+function placeSelectBox(view, rect, angle = 0) {
   if (!view || !rect) {
     els.selectLayer.hidden = true;
     return;
@@ -1944,6 +2302,8 @@ function placeSelectBox(view, rect) {
   els.selectBox.style.top = `${box.top + rect.y * box.height}px`;
   els.selectBox.style.width = `${Math.max(1, rect.w * box.width)}px`;
   els.selectBox.style.height = `${Math.max(1, rect.h * box.height)}px`;
+  els.selectBox.style.transformOrigin = "50% 50%";
+  els.selectBox.style.transform = angle ? `rotate(${angle}deg)` : "none";
 }
 
 function placeSelectHud(view, rect) {
@@ -1990,25 +2350,26 @@ function syncSelectHud() {
   els.cropConfirm.hidden = !cropping;
   els.copyBtn.hidden = cropping;
   els.pasteBtn.hidden = cropping;
-  if (els.selLeftBtn) {
-    els.selLeftBtn.hidden = cropping;
-  }
-  if (els.selRightBtn) {
-    els.selRightBtn.hidden = cropping;
-  }
   if (els.deleteBtn) {
     els.deleteBtn.hidden = cropping;
   }
   const stamp = selectedStampItem();
+  const rotating = state.selectDrag?.mode === "rotate";
   els.selectLayer.classList.toggle("is-image", Boolean(image) && !cropping);
   els.selectLayer.classList.toggle("is-stamp", Boolean(stamp) && !cropping);
+  els.selectLayer.classList.toggle("is-cropping", cropping);
+  els.selectLayer.classList.toggle("is-rotating", rotating);
   if (cropping) {
     const rect = rectFromPoints(state.cropping.a, state.cropping.b);
     placeSelectBox(view, rect);
     placeSelectHud(view, rect);
     return;
   }
-  const bounds = selectedBounds(items, state.selectIndices, view?.cssWidth || 400, view?.cssHeight || 600);
+  const cssW = view?.cssWidth || 400;
+  const cssH = view?.cssHeight || 600;
+  const bounds = rotating
+    ? state.selectDrag.originBounds
+    : selectedBounds(items, state.selectIndices, cssW, cssH);
   if (!bounds) {
     hideSelectUi();
     return;
@@ -2016,19 +2377,379 @@ function syncSelectHud() {
   els.selectLayer.hidden = false;
   els.floatBar.hidden = false;
   if (view) {
-    placeSelectBox(view, bounds);
+    placeSelectBox(view, bounds, rotating ? state.selectDrag.angle : 0);
   }
   placeSelectHud(view, bounds);
+}
+
+function hideMarqueeMenu() {
+  if (els.marqueeMenu) {
+    els.marqueeMenu.hidden = true;
+  }
+}
+
+function hideAreaLinkPanel() {
+  if (els.areaLinkPanel) {
+    els.areaLinkPanel.hidden = true;
+  }
 }
 
 function hideMarquee() {
   state.currentRect = null;
   state.pendingCapture = null;
   els.marquee.hidden = true;
-  els.captureConfirm.hidden = true;
+  hideMarqueeMenu();
+  hideAreaLinkPanel();
+  updateAreaHits();
 }
 
-function updateMarquee(showConfirm) {
+function sameNormRect(a, b) {
+  return (
+    Math.abs(Number(a?.x) - Number(b?.x)) < 1e-6 &&
+    Math.abs(Number(a?.y) - Number(b?.y)) < 1e-6 &&
+    Math.abs(Number(a?.w) - Number(b?.w)) < 1e-6 &&
+    Math.abs(Number(a?.h) - Number(b?.h)) < 1e-6
+  );
+}
+
+function noteViewSize() {
+  const box = els.writeScreen?.getBoundingClientRect();
+  return { width: box?.width || window.innerWidth, height: box?.height || window.innerHeight };
+}
+
+function applySplitChange(next) {
+  const had = (state.split?.tabs?.length || 0) > 0;
+  state.split = next;
+  syncSplitUi();
+  const has = (state.split?.tabs?.length || 0) > 0;
+  if (state.pdf && had !== has && !state.drawing) {
+    rebuildPages().then(() => {
+      if (state.split?.tabs?.length) {
+        renderSplitStage();
+      }
+    });
+  }
+}
+
+function syncSplitUi() {
+  if (!els.writeSplit || !els.splitPane || !els.splitTabs) {
+    return;
+  }
+  const size = noteViewSize();
+  const axis = splitAxis(size.width, size.height);
+  const tabs = state.split?.tabs ?? [];
+  if (tabs.length) {
+    state.split = { ...state.split, axis };
+    els.writeSplit.classList.add("is-open");
+    els.writeSplit.classList.toggle("axis-tb", axis === "tb");
+    els.writeSplit.classList.toggle("axis-lr", axis === "lr");
+    els.splitPane.hidden = false;
+  } else {
+    state.split = emptySplit();
+    els.writeSplit.classList.remove("is-open", "axis-tb", "axis-lr");
+    els.splitPane.hidden = true;
+    els.splitTabs.replaceChildren();
+    els.splitStage?.replaceChildren();
+    return;
+  }
+  els.splitTabs.replaceChildren();
+  for (const tab of tabs) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "split-tab";
+    btn.classList.toggle("is-active", tab.id === state.split.active);
+    const title = document.createElement("span");
+    title.textContent = tab.title;
+    const close = document.createElement("button");
+    close.type = "button";
+    close.className = "split-tab-close";
+    close.textContent = "x";
+    close.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      applySplitChange(closeSplitTab(state.split, tab.id));
+    });
+    btn.append(title, close);
+    btn.addEventListener("click", () => {
+      applySplitChange(activateSplitTab(state.split, tab.id));
+      renderSplitStage();
+    });
+    els.splitTabs.append(btn);
+  }
+  renderSplitStage();
+}
+
+async function renderSplitPdfPage(pdf, pdfPageNum) {
+  if (!pdf || !els.splitStage) {
+    return;
+  }
+  const page = await pdf.getPage(pdfPageNum);
+  const canvas = document.createElement("canvas");
+  const box = els.splitStage.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  const unscaled = page.getViewport({ scale: 1 });
+  const fit = Math.min(
+    Math.max(48, box.width || 240) / unscaled.width,
+    Math.max(48, box.height || 240) / unscaled.height,
+  );
+  const css = page.getViewport({ scale: fit });
+  const pixel = page.getViewport({ scale: fit * dpr });
+  canvas.width = pixel.width;
+  canvas.height = pixel.height;
+  canvas.style.width = `${css.width}px`;
+  canvas.style.height = `${css.height}px`;
+  await page.render({ canvasContext: canvas.getContext("2d"), viewport: pixel }).promise;
+  els.splitStage.replaceChildren(canvas);
+}
+
+async function renderSplitStage() {
+  if (!els.splitStage) {
+    return;
+  }
+  const tab = (state.split?.tabs ?? []).find((item) => item.id === state.split.active);
+  els.splitStage.replaceChildren();
+  if (!tab) {
+    return;
+  }
+  if (tab.kind === "url") {
+    const frame = document.createElement("iframe");
+    frame.src = tab.href;
+    frame.title = tab.title;
+    frame.referrerPolicy = "no-referrer";
+    els.splitStage.append(frame);
+    return;
+  }
+  if (tab.kind === "page") {
+    const leaf = leafAt(state.leaves, tab.page);
+    if (!leaf || leaf.kind === "outline" || !state.pdf) {
+      const note = document.createElement("p");
+      note.textContent = leaf?.title || `${tab.page}쪽`;
+      els.splitStage.append(note);
+      return;
+    }
+    try {
+      await renderSplitPdfPage(state.pdf, leaf.pdfPage);
+    } catch {
+      const note = document.createElement("p");
+      note.textContent = `${tab.page}쪽을 열 수 없습니다.`;
+      els.splitStage.append(note);
+    }
+    return;
+  }
+  if (tab.kind === "doc") {
+    if (!tab.identity) {
+      const note = document.createElement("p");
+      note.textContent = `${tab.name}을(를) 다시 열어 주세요.`;
+      els.splitStage.append(note);
+      return;
+    }
+    try {
+      const row = await loadDocument(tab.identity);
+      if (!row?.buffer) {
+        throw new Error("missing");
+      }
+      const other = await pdfjsLib.getDocument({ data: row.buffer }).promise;
+      await renderSplitPdfPage(other, 1);
+      other.destroy();
+    } catch {
+      const note = document.createElement("p");
+      note.textContent = `${tab.name}을(를) 다시 열어 주세요.`;
+      els.splitStage.append(note);
+    }
+  }
+}
+
+function openAreaLink(link) {
+  const tab = splitTabFromLink(link);
+  if (!tab) {
+    return;
+  }
+  const size = noteViewSize();
+  applySplitChange(openSplitTab(state.split, tab, splitAxis(size.width, size.height)));
+}
+
+function pendingLink() {
+  return areaLinkOf(state.pendingCapture);
+}
+
+function openPendingOrHitLink() {
+  const fromPending = pendingLink();
+  if (fromPending) {
+    openAreaLink(fromPending);
+    return;
+  }
+  if (!state.pendingCapture) {
+    return;
+  }
+  const hit = pickAreaAt(pageStrokes(state.pendingCapture.page), state.pendingCapture.rect.x + state.pendingCapture.rect.w / 2, state.pendingCapture.rect.y + state.pendingCapture.rect.h / 2);
+  if (hit) {
+    openAreaLink(areaLinkOf(hit));
+  }
+}
+
+function saveAreaLink(link) {
+  const ctx = regionView();
+  const item = ctx ? areaItem(ctx.pending.rect, link) : null;
+  if (!ctx || !item || state.interactMode === "view") {
+    return;
+  }
+  commitPageChange(ctx.pending.page, () => {
+    const items = pageStrokes(ctx.pending.page);
+    const index = items.findIndex((row) => row?.type === "area" && sameNormRect(row, item));
+    if (index >= 0) {
+      items[index] = item;
+    } else {
+      items.push(item);
+    }
+  });
+  state.pendingCapture = { ...ctx.pending, link: item.link };
+  hideAreaLinkPanel();
+  hideMarqueeMenu();
+  updateAreaHits();
+}
+
+function placeAreaLinkPanel() {
+  if (!els.areaLinkPanel || els.areaLinkPanel.hidden || !state.pendingCapture) {
+    return;
+  }
+  const box = els.marqueeBox.getBoundingClientRect();
+  const size = noteViewSize();
+  const width = els.areaLinkPanel.offsetWidth || 280;
+  const height = els.areaLinkPanel.offsetHeight || 220;
+  let left = box.left;
+  let top = box.bottom + 8;
+  left = Math.min(Math.max(8, left), Math.max(8, size.width - width - 8));
+  if (top + height > size.height - 8) {
+    top = Math.max(8, box.top - 8 - height);
+  }
+  els.areaLinkPanel.style.left = `${left}px`;
+  els.areaLinkPanel.style.top = `${top}px`;
+}
+
+async function showAreaLinkPanel() {
+  if (!state.pendingCapture || !els.areaLinkPanel) {
+    return;
+  }
+  hideMarqueeMenu();
+  els.areaLinkPanel.hidden = false;
+  if (els.areaLinkPage) {
+    els.areaLinkPage.max = String(Math.max(1, state.pageCount));
+    els.areaLinkPage.value = String(clampPageTarget(state.page, state.pageCount));
+  }
+  if (els.areaLinkUrl) {
+    els.areaLinkUrl.value = "";
+  }
+  await renderAreaLinkDocs();
+  placeAreaLinkPanel();
+}
+
+async function renderAreaLinkDocs() {
+  if (!els.areaLinkDocs) {
+    return;
+  }
+  let rows = [];
+  try {
+    rows = await listDocuments();
+  } catch {
+    rows = [];
+  }
+  const list = recentDocsForLink(
+    rows.map((row) => ({ name: row.name, at: row.openedAt || 0, identity: row.identity })),
+    state.fileName,
+  );
+  els.areaLinkDocs.replaceChildren();
+  if (!list.length) {
+    const empty = document.createElement("p");
+    empty.className = "area-link-empty";
+    empty.textContent = "최근 다른 PDF가 없습니다";
+    els.areaLinkDocs.append(empty);
+    return;
+  }
+  for (const row of list) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.textContent = displayName(row.name);
+    btn.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      saveAreaLink({ kind: "doc", name: row.name, identity: row.identity });
+    });
+    els.areaLinkDocs.append(btn);
+  }
+}
+
+function updateAreaHits() {
+  if (!els.areaLayer) {
+    return;
+  }
+  els.areaLayer.replaceChildren();
+  let any = false;
+  for (const view of state.pageViews || []) {
+    const stage = view.stage?.getBoundingClientRect();
+    if (!stage) {
+      continue;
+    }
+    for (const item of pageStrokes(view.pageNum)) {
+      if (item?.type !== "area" || !hasAreaLink(item)) {
+        continue;
+      }
+      if (
+        state.pendingCapture &&
+        state.pendingCapture.page === view.pageNum &&
+        sameNormRect(state.pendingCapture.rect, item)
+      ) {
+        continue;
+      }
+      const hit = document.createElement("div");
+      hit.className = "area-hit";
+      hit.style.left = `${stage.left + item.x * stage.width}px`;
+      hit.style.top = `${stage.top + item.y * stage.height}px`;
+      hit.style.width = `${Math.max(1, item.w * stage.width)}px`;
+      hit.style.height = `${Math.max(1, item.h * stage.height)}px`;
+      bindMarqueeHold(hit, {
+        onHold: () => {
+          state.pendingCapture = { page: view.pageNum, rect: { x: item.x, y: item.y, w: item.w, h: item.h }, link: item.link };
+          hideAreaLinkPanel();
+          updateMarquee();
+          showMarqueeMenu();
+        },
+        onTap: () => {
+          openAreaLink(areaLinkOf(item));
+        },
+      });
+      els.areaLayer.append(hit);
+      any = true;
+    }
+  }
+  els.areaLayer.hidden = !any;
+}
+
+function placeMarqueeMenuUi() {
+  if (!els.marqueeMenu || els.marqueeMenu.hidden || !state.pendingCapture) {
+    return;
+  }
+  const box = els.marqueeBox.getBoundingClientRect();
+  const view = state.pageViews.find((item) => item.pageNum === state.pendingCapture.page);
+  const paper = view?.stage.getBoundingClientRect() || {
+    left: 0,
+    top: 0,
+    width: window.innerWidth,
+    height: window.innerHeight,
+  };
+  const pos = placeMarqueeMenu(box, paper, els.marqueeMenu.offsetWidth || 360);
+  els.marqueeMenu.style.left = `${pos.left}px`;
+  els.marqueeMenu.style.top = `${pos.top}px`;
+}
+
+function showMarqueeMenu() {
+  if (!state.pendingCapture || !els.marqueeMenu) {
+    return;
+  }
+  els.marqueeMenu.hidden = false;
+  placeMarqueeMenuUi();
+}
+
+function updateMarquee() {
   const source = state.currentRect || state.pendingCapture;
   if (!source) {
     return;
@@ -2048,13 +2769,8 @@ function updateMarquee(showConfirm) {
   els.marqueeBox.style.top = `${top}px`;
   els.marqueeBox.style.width = `${width}px`;
   els.marqueeBox.style.height = `${height}px`;
-  if (showConfirm) {
-    els.captureConfirm.hidden = false;
-    const confirmW = els.captureConfirm.offsetWidth || 64;
-    els.captureConfirm.style.left = `${Math.min(window.innerWidth - confirmW - 8, Math.max(8, left))}px`;
-    els.captureConfirm.style.top = `${Math.min(window.innerHeight - 44, top + height + 8)}px`;
-  } else {
-    els.captureConfirm.hidden = true;
+  if (!els.marqueeMenu.hidden) {
+    placeMarqueeMenuUi();
   }
 }
 
@@ -2079,8 +2795,9 @@ function startRect(event, stage) {
   state.drawPage = Number(stage.dataset.page) || state.page;
   state.drawCanvas = ink;
   state.pendingCapture = null;
+  hideMarqueeMenu();
   state.currentRect = { page: state.drawPage, a: point, b: point };
-  updateMarquee(false);
+  updateMarquee();
 }
 
 function moveRect(event) {
@@ -2089,7 +2806,7 @@ function moveRect(event) {
   }
   event.preventDefault();
   state.currentRect.b = eventToNorm(event, state.drawCanvas);
-  updateMarquee(false);
+  updateMarquee();
 }
 
 function endRect(event) {
@@ -2121,8 +2838,8 @@ function endRect(event) {
   }
   if (state.rectTool === "capture") {
     state.pendingCapture = { page, rect };
-    captureConfirmArmedAt = performance.now() + 400;
-    updateMarquee(true);
+    hideMarqueeMenu();
+    updateMarquee();
   }
 }
 
@@ -2154,6 +2871,15 @@ function startSelect(event, stage) {
     state.cropping = { ...state.cropping, page: state.drawPage, a: point, b: point };
     syncSelectHud();
     return;
+  }
+
+  if (!state.cropping && state.selectIndices.length && state.selectPage === state.drawPage) {
+    const bounds = selectedBounds(items, state.selectIndices, cssW, cssH);
+    if (bounds && rotateHandleAt(bounds, point, cssW, cssH)) {
+      state.selectDrag = makeRotateDrag(point, items, bounds, cssW, cssH, state.drawPage);
+      syncSelectHud();
+      return;
+    }
   }
 
   const image = selectedImageItem();
@@ -2211,7 +2937,7 @@ function moveSelect(event) {
       return;
     }
     state.currentRect = { page: drag.page, a: drag.a, b: drag.b };
-    updateMarquee(false);
+    updateMarquee();
     return;
   }
   const key = inkKey(leafAt(state.leaves, drag.page));
@@ -2228,6 +2954,13 @@ function moveSelect(event) {
         ? resizeStamp(origin, drag.handle, point, cssW, cssH)
         : resizeImage(origin, drag.handle, point);
     state.pages[key] = next;
+  } else if (drag.mode === "rotate") {
+    const viewNow = state.pageViews.find((item) => item.pageNum === drag.page);
+    const cssW = viewNow?.cssWidth || 400;
+    const cssH = viewNow?.cssHeight || 600;
+    const delta = angleDegFromCenter(drag.center, point, cssW, cssH) - drag.startAngle;
+    drag.angle = delta;
+    state.pages[key] = rotateSelectedItems(drag.origin, drag.indices, delta, drag.center, cssW, cssH);
   }
   const view = state.pageViews.find((item) => item.pageNum === drag.page);
   if (view) {
@@ -2293,31 +3026,149 @@ function copySelection() {
   state.inkClipboard = copyItems(items, state.selectIndices, 0, 0);
 }
 
-function rotateSelection(delta) {
+function makeRotateDrag(point, items, bounds, cssW, cssH, pageNum) {
+  const center = { x: bounds.x + bounds.w / 2, y: bounds.y + bounds.h / 2 };
+  return {
+    mode: "rotate",
+    page: pageNum,
+    start: point,
+    origin: cloneItems(items),
+    indices: [...state.selectIndices],
+    center,
+    originBounds: bounds,
+    startAngle: angleDegFromCenter(center, point, cssW, cssH),
+    angle: 0,
+  };
+}
+
+function beginRotateFromHandle(event) {
   if (state.interactMode === "view" || state.cropping || !state.selectIndices.length) {
-    return;
+    return false;
   }
   const pageNum = state.selectPage || state.page;
   const view = state.pageViews.find((item) => item.pageNum === pageNum);
-  const cssW = view?.cssWidth || 400;
-  const cssH = view?.cssHeight || 600;
+  const ink = view?.inkCanvas || view?.stage?.querySelector(".ink-canvas");
+  if (!ink || !view) {
+    return false;
+  }
   const items = pageStrokes(pageNum);
+  const cssW = view.cssWidth || 400;
+  const cssH = view.cssHeight || 600;
   const bounds = selectedBounds(items, state.selectIndices, cssW, cssH);
   if (!bounds) {
-    return;
+    return false;
   }
-  const center = { x: bounds.x + bounds.w / 2, y: bounds.y + bounds.h / 2 };
-  const next = rotateSelectedItems(items, state.selectIndices, delta, center, cssW, cssH);
-  if (JSON.stringify(next) === JSON.stringify(items)) {
-    return;
+  event.preventDefault();
+  event.stopPropagation();
+  try {
+    ink.setPointerCapture(event.pointerId);
+  } catch {
+    try {
+      els.workspace.setPointerCapture(event.pointerId);
+    } catch {
+      // optional
+    }
   }
-  commitPageChange(pageNum, () => {
-    state.pages[inkKey(leafAt(state.leaves, pageNum))] = next;
-  });
+  const point = eventToNorm(event, ink);
+  state.drawPage = pageNum;
+  state.drawCanvas = ink;
+  state.selectPage = pageNum;
+  state.selectDrag = makeRotateDrag(point, items, bounds, cssW, cssH, pageNum);
+  const onRotateDocMove = (moveEvent) => {
+    if (state.selectDrag?.mode === "rotate") {
+      moveSelect(moveEvent);
+    }
+  };
+  const onRotateDocUp = (upEvent) => {
+    document.removeEventListener("pointermove", onRotateDocMove);
+    document.removeEventListener("pointerup", onRotateDocUp);
+    document.removeEventListener("pointercancel", onRotateDocUp);
+    if (state.selectDrag?.mode === "rotate") {
+      endSelect(upEvent);
+    }
+  };
+  document.addEventListener("pointermove", onRotateDocMove);
+  document.addEventListener("pointerup", onRotateDocUp);
+  document.addEventListener("pointercancel", onRotateDocUp);
+  syncSelectHud();
+  return true;
+}
+
+function regionView() {
+  const pending = state.pendingCapture;
+  if (!pending) {
+    return null;
+  }
+  const view = state.pageViews.find((item) => item.pageNum === pending.page);
+  return {
+    pending,
+    view,
+    cssW: view?.cssWidth || 400,
+    cssH: view?.cssHeight || 600,
+    items: pageStrokes(pending.page),
+  };
+}
+
+function redrawRegionPage(pageNum) {
+  const view = state.pageViews.find((item) => item.pageNum === pageNum);
   if (view) {
     drawStrokesOn(view);
   }
-  syncSelectHud();
+}
+
+function copyRegion() {
+  const ctx = regionView();
+  if (!ctx) {
+    return;
+  }
+  state.inkClipboard = copyItemsInRect(ctx.items, ctx.pending.rect, ctx.cssW, ctx.cssH);
+  hideMarqueeMenu();
+}
+
+function duplicateRegion() {
+  const ctx = regionView();
+  if (!ctx || state.interactMode === "view") {
+    return;
+  }
+  const next = duplicateItemsInRect(ctx.items, ctx.pending.rect, ctx.cssW, ctx.cssH);
+  if (next.length === ctx.items.length) {
+    hideMarqueeMenu();
+    return;
+  }
+  commitPageChange(ctx.pending.page, () => {
+    state.pages[inkKey(leafAt(state.leaves, ctx.pending.page))] = next;
+  });
+  redrawRegionPage(ctx.pending.page);
+  hideMarqueeMenu();
+}
+
+function deleteRegion() {
+  const ctx = regionView();
+  if (!ctx || state.interactMode === "view") {
+    return;
+  }
+  const next = deleteItemsInRect(ctx.items, ctx.pending.rect, ctx.cssW, ctx.cssH);
+  if (JSON.stringify(next) === JSON.stringify(ctx.items)) {
+    hideMarqueeMenu();
+    return;
+  }
+  commitPageChange(ctx.pending.page, () => {
+    state.pages[inkKey(leafAt(state.leaves, ctx.pending.page))] = next;
+  });
+  redrawRegionPage(ctx.pending.page);
+  hideMarqueeMenu();
+}
+
+function mosaicRegion() {
+  const ctx = regionView();
+  if (!ctx || state.interactMode === "view") {
+    return;
+  }
+  commitPageChange(ctx.pending.page, () => {
+    pageStrokes(ctx.pending.page).push(mosaicItem(ctx.pending.rect, MOSAIC_CELL_CSS));
+  });
+  redrawRegionPage(ctx.pending.page);
+  hideMarqueeMenu();
 }
 
 function deleteSelection() {
@@ -2612,6 +3463,7 @@ function renderTocList() {
         removeTocEntry(entry.id);
       }
     });
+    row.dataset.dest = String(dest);
     row.append(title, jump, del);
     row.addEventListener("click", (event) => {
       if (tocRowAction(event.target?.className) === "jump") {
@@ -2622,6 +3474,123 @@ function renderTocList() {
   }
 }
 
+function makePreviewRow(leaf) {
+  const pageNum = pageOfLeaf(state.leaves, leaf.id);
+  const row = document.createElement("div");
+  row.className = "preview-row";
+  row.dataset.page = String(pageNum);
+  row.dataset.leaf = leaf.id;
+  if (pageNum === state.page) {
+    row.classList.add("is-current");
+  }
+  const thumb = document.createElement("canvas");
+  thumb.className = "preview-thumb";
+  const meta = document.createElement("div");
+  meta.className = "preview-meta";
+  const label = document.createElement("span");
+  label.textContent = leaf.kind === "outline" ? leaf.title : `${pageNum}`;
+  const star = document.createElement("button");
+  star.type = "button";
+  star.className = "preview-bookmark";
+  star.classList.toggle("is-on", leaf.bookmark);
+  star.textContent = leaf.bookmark ? "★" : "☆";
+  star.setAttribute("aria-label", "책갈피");
+  star.addEventListener("click", (event) => {
+    event.stopPropagation();
+    state.leaves = toggleBookmark(state.leaves, pageNum - 1);
+    persistStrokes();
+    if (state.previewFilter !== "all") {
+      renderPreviewList();
+      return;
+    }
+    const now = leafAt(state.leaves, pageNum);
+    star.classList.toggle("is-on", Boolean(now?.bookmark));
+    star.textContent = now?.bookmark ? "★" : "☆";
+  });
+  meta.append(label, star);
+  row.append(thumb, meta);
+  row.addEventListener("click", () => {
+    goToPage(pageNum);
+  });
+  return row;
+}
+
+function syncPreviewCurrent({ paintVisible = false } = {}) {
+  if (els.previewDrawer?.hidden) {
+    return;
+  }
+  if (state.previewTab === "toc") {
+    els.tocList?.querySelectorAll(".preview-toc-row").forEach((row) => {
+      row.classList.toggle("is-current", Number(row.dataset.dest) === state.page);
+    });
+    return;
+  }
+  if (!els.previewList) {
+    return;
+  }
+  const shown = filterLeaves(state.leaves, state.previewFilter);
+  const index = shown.findIndex((leaf) => pageOfLeaf(state.leaves, leaf.id) === state.page);
+  if (index >= 0) {
+    const top = index * previewRowStride();
+    const viewH = els.previewList.clientHeight;
+    const body = previewRowBody();
+    if (top < els.previewList.scrollTop || top + body > els.previewList.scrollTop + viewH) {
+      els.previewList.scrollTop = Math.max(0, top - 8);
+    }
+  }
+  els.previewList.querySelectorAll(".preview-row").forEach((row) => {
+    row.classList.toggle("is-current", Number(row.dataset.page) === state.page);
+  });
+  if (paintVisible) {
+    paintVisiblePreviewRows();
+  }
+}
+
+async function paintVisiblePreviewRows() {
+  if (!els.previewList || els.previewDrawer?.hidden || state.previewTab === "toc") {
+    return;
+  }
+  const windowEl = els.previewList.querySelector(".preview-list-window");
+  if (!windowEl) {
+    return;
+  }
+  const shown = filterLeaves(state.leaves, state.previewFilter);
+  const range = visiblePreviewRows({
+    scrollTop: els.previewList.scrollTop,
+    viewportHeight: els.previewList.clientHeight || 640,
+    count: shown.length,
+  });
+  const stride = previewRowStride();
+  windowEl.style.transform = `translateY(${Math.max(0, range.from) * stride}px)`;
+  const needed = shown.slice(Math.max(0, range.from), range.to + 1);
+  const have = new Map([...windowEl.children].map((row) => [row.dataset.leaf, row]));
+  const next = [];
+  for (const leaf of needed) {
+    let row = have.get(leaf.id);
+    if (row) {
+      have.delete(leaf.id);
+    } else {
+      row = makePreviewRow(leaf);
+    }
+    row.classList.toggle("is-current", pageOfLeaf(state.leaves, leaf.id) === state.page);
+    next.push(row);
+  }
+  for (const stale of have.values()) {
+    stale.remove();
+  }
+  windowEl.replaceChildren(...next);
+  await Promise.all(
+    next.map((row) => {
+      const leaf = shown.find((item) => item.id === row.dataset.leaf);
+      const canvas = row.querySelector(".preview-thumb");
+      if (!leaf || !canvas) {
+        return null;
+      }
+      return paintPreviewThumb(canvas, leaf);
+    }),
+  );
+}
+
 async function renderPreviewList() {
   if (!els.previewList) {
     return;
@@ -2630,43 +3599,29 @@ async function renderPreviewList() {
     btn.classList.toggle("is-selected", btn.dataset.previewFilter === state.previewFilter);
   });
   const shown = filterLeaves(state.leaves, state.previewFilter);
-  els.previewList.replaceChildren();
-  for (const leaf of shown) {
-    const pageNum = pageOfLeaf(state.leaves, leaf.id);
-    const row = document.createElement("div");
-    row.className = "preview-row";
-    if (pageNum === state.page) {
-      row.classList.add("is-current");
-    }
-    const thumb = document.createElement("canvas");
-    thumb.className = "preview-thumb";
-    const meta = document.createElement("div");
-    meta.className = "preview-meta";
-    const label = document.createElement("span");
-    label.textContent = leaf.kind === "outline" ? leaf.title : `${pageNum}`;
-    const star = document.createElement("button");
-    star.type = "button";
-    star.className = "preview-bookmark";
-    star.classList.toggle("is-on", leaf.bookmark);
-    star.textContent = leaf.bookmark ? "★" : "☆";
-    star.setAttribute("aria-label", "책갈피");
-    star.addEventListener("click", (event) => {
-      event.stopPropagation();
-      state.leaves = toggleBookmark(state.leaves, pageNum - 1);
-      persistStrokes();
-      renderPreviewList();
-    });
-    meta.append(label, star);
-    row.append(thumb, meta);
-    row.addEventListener("click", () => {
-      goToPage(pageNum);
-    });
-    els.previewList.append(row);
-    paintPreviewThumb(thumb, leaf);
-  }
+  const spacer = document.createElement("div");
+  spacer.className = "preview-list-spacer";
+  spacer.style.height = `${previewListHeight(shown.length)}px`;
+  const windowEl = document.createElement("div");
+  windowEl.className = "preview-list-window";
+  els.previewList.replaceChildren(spacer, windowEl);
+  await paintVisiblePreviewRows();
 }
 
 async function paintPreviewThumb(canvas, leaf) {
+  const key = thumbCacheKey(leaf);
+  if (canvas.dataset.painted === key) {
+    return;
+  }
+  const hit = thumbCache.get(key);
+  if (hit?.bitmap) {
+    canvas.width = hit.width;
+    canvas.height = hit.height;
+    const blit = canvas.getContext("2d");
+    blit.drawImage(hit.bitmap, 0, 0);
+    canvas.dataset.painted = key;
+    return;
+  }
   const ctx = canvas.getContext("2d");
   canvas.width = 180;
   canvas.height = 240;
@@ -2677,6 +3632,11 @@ async function paintPreviewThumb(canvas, leaf) {
     ctx.textAlign = "center";
     ctx.font = "600 16px sans-serif";
     ctx.fillText(leaf.title || "개요", 90, 40);
+    const bitmap = snapshotCanvas(canvas);
+    if (bitmap) {
+      thumbCache.set(key, { width: canvas.width, height: canvas.height, bitmap });
+    }
+    canvas.dataset.painted = key;
     return;
   }
   try {
@@ -2688,6 +3648,11 @@ async function paintPreviewThumb(canvas, leaf) {
     canvas.width = viewport.width;
     canvas.height = viewport.height;
     await page.render({ canvasContext: ctx, viewport }).promise;
+    const bitmap = snapshotCanvas(canvas);
+    if (bitmap) {
+      thumbCache.set(key, { width: canvas.width, height: canvas.height, bitmap });
+    }
+    canvas.dataset.painted = key;
   } catch {
     // cream placeholder
   }
@@ -2711,7 +3676,7 @@ let captureWriting = false;
 
 async function confirmCapture() {
   const pending = state.pendingCapture;
-  if (!pending || captureWriting || performance.now() < captureConfirmArmedAt) {
+  if (!pending || captureWriting) {
     return;
   }
   captureWriting = true;
@@ -2945,7 +3910,7 @@ function selectMoreAction(action) {
     openSettings();
     return;
   }
-  if (action !== "mosaic" && action !== "capture") {
+  if (action !== "capture") {
     return;
   }
   abortStroke();
@@ -3069,13 +4034,13 @@ function onWorkspacePointerDown(event) {
     return;
   }
   if (overlayOpen()) {
-    if (!event.target.closest(".slot-panel, .sheet-card, .toolbar, .write-top, .m4-bar, .more-panel, .preview-drawer, .select-hud, .float-bar, #float-bar, .shape-chips")) {
+    if (!event.target.closest(".slot-panel, .sheet-card, .toolbar, .write-top, .m4-bar, .more-panel, .preview-drawer, .select-hud, .float-bar, #float-bar, .select-layer, #select-layer, .shape-chips")) {
       closeAllPanels();
       ignoreAfterPanel = true;
     }
     return;
   }
-  if (event.target.closest(".toolbar, .write-top, .sheet, .slot-panel, .m4-bar, .more-panel, .marquee, .preview-drawer, .select-hud, .float-bar, #float-bar, .shape-chips")) {
+  if (event.target.closest(".toolbar, .write-top, .sheet, .slot-panel, .m4-bar, .more-panel, .marquee, .preview-drawer, .select-hud, .float-bar, #float-bar, .select-layer, #select-layer, .shape-chips")) {
     return;
   }
 
@@ -3155,6 +4120,13 @@ function onWorkspacePointerMove(event) {
   }
   if (state.currentRect) {
     moveRect(event);
+    return;
+  }
+  if (usesStamp()) {
+    trackStampGhost(event);
+    if (state.pendingStamp) {
+      event.preventDefault();
+    }
     return;
   }
   moveStroke(event);
@@ -3557,6 +4529,15 @@ document.querySelectorAll("#preview-filters [data-preview-filter]").forEach((btn
     renderPreviewList();
   });
 });
+if (els.previewList) {
+  els.previewList.addEventListener(
+    "scroll",
+    () => {
+      paintVisiblePreviewRows();
+    },
+    { passive: true },
+  );
+}
 els.tocAdd.addEventListener("click", addTocEntry);
 els.outlineInsert.addEventListener("click", insertOutlinePage);
 els.copyBtn.addEventListener("click", (event) => {
@@ -3588,16 +4569,14 @@ els.pasteBtn.addEventListener("click", (event) => {
   event.stopPropagation();
   pasteClipboard();
 });
-els.selLeftBtn.addEventListener("click", (event) => {
-  event.preventDefault();
-  event.stopPropagation();
-  rotateSelection(-90);
-});
-els.selRightBtn.addEventListener("click", (event) => {
-  event.preventDefault();
-  event.stopPropagation();
-  rotateSelection(90);
-});
+if (els.selectLayer) {
+  els.selectLayer.addEventListener("pointerdown", (event) => {
+    if (!event.target.closest("[data-handle=\"rotate\"]")) {
+      return;
+    }
+    beginRotateFromHandle(event);
+  });
+}
 els.deleteBtn.addEventListener("click", (event) => {
   event.preventDefault();
   event.stopPropagation();
@@ -3618,11 +4597,75 @@ els.cropConfirm.addEventListener("click", (event) => {
   event.stopPropagation();
   confirmCrop();
 });
-els.captureConfirm.addEventListener("click", (event) => {
-  event.preventDefault();
-  event.stopPropagation();
-  confirmCapture();
-});
+if (els.marqueeBox) {
+  bindMarqueeHold(els.marqueeBox, {
+    onHold: showMarqueeMenu,
+    onTap: () => {
+      openPendingOrHitLink();
+    },
+  });
+}
+if (els.marqueeMenu) {
+  els.marqueeMenu.addEventListener("pointerdown", (event) => {
+    event.stopPropagation();
+  });
+  els.marqueeMenu.addEventListener("click", (event) => {
+    const btn = event.target.closest("[data-marquee]");
+    if (!btn) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    const action = btn.dataset.marquee;
+    if (action === "copy") {
+      copyRegion();
+      return;
+    }
+    if (action === "duplicate") {
+      duplicateRegion();
+      return;
+    }
+    if (action === "delete") {
+      deleteRegion();
+      return;
+    }
+    if (action === "capture") {
+      confirmCapture();
+      return;
+    }
+    if (action === "mosaic") {
+      mosaicRegion();
+      return;
+    }
+    if (action === "link") {
+      showAreaLinkPanel();
+    }
+  });
+}
+if (els.areaLinkPanel) {
+  els.areaLinkPanel.addEventListener("pointerdown", (event) => {
+    event.stopPropagation();
+  });
+}
+if (els.areaLinkPageGo) {
+  els.areaLinkPageGo.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    saveAreaLink({ kind: "page", page: clampPageTarget(els.areaLinkPage?.value, state.pageCount) });
+  });
+}
+if (els.areaLinkUrlGo) {
+  els.areaLinkUrlGo.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const href = acceptAreaUrl(els.areaLinkUrl?.value);
+    if (!href) {
+      showBanner("http 또는 https 주소만 연결할 수 있습니다.");
+      return;
+    }
+    saveAreaLink({ kind: "url", href });
+  });
+}
 els.settingsBackdrop.addEventListener("click", closeSettings);
 els.settingsDone.addEventListener("click", closeSettings);
 
@@ -3690,6 +4733,10 @@ els.workspace.addEventListener("scroll", () => {
   if (restoreHeldPaperScroll()) {
     return;
   }
+  updateAreaHits();
+  if (state.pendingCapture || state.currentRect) {
+    updateMarquee();
+  }
   if (state.viewMode !== "scroll") {
     return;
   }
@@ -3708,7 +4755,10 @@ els.writeScreen.addEventListener("touchstart", preventWriteSurfaceTouch, { passi
 els.writeScreen.addEventListener("touchmove", preventWriteSurfaceTouch, { passive: false });
 
 document.addEventListener("pointerdown", (event) => {
-  if (event.target.closest(".slot-panel, .toolbar, [data-tool], #eraser-btn, #more-btn, .m4-bar, .marquee, .select-hud, .float-bar, #float-bar, .preview-drawer, .shape-chips")) {
+  if (state.pendingCapture && !event.target.closest("#marquee-box, #marquee-menu, #area-link-panel, .area-hit, #area-layer")) {
+    hideMarquee();
+  }
+  if (event.target.closest(".slot-panel, .toolbar, [data-tool], #eraser-btn, #more-btn, .m4-bar, .marquee, .select-hud, .float-bar, #float-bar, .select-layer, #select-layer, .preview-drawer, .shape-chips, #area-link-panel, #split-tabs, #split-pane, #area-layer")) {
     return;
   }
   closeAllPanels();
@@ -3716,6 +4766,16 @@ document.addEventListener("pointerdown", (event) => {
 
 document.addEventListener("keydown", (event) => {
   const typing = event.target.closest?.("input, textarea, [contenteditable='true']");
+  if (event.key === "Escape" && state.pendingCapture && !typing) {
+    event.preventDefault();
+    hideMarquee();
+    return;
+  }
+  if (event.key === "Escape" && els.areaLinkPanel && !els.areaLinkPanel.hidden && !typing) {
+    event.preventDefault();
+    hideAreaLinkPanel();
+    return;
+  }
   if ((event.key === "Delete" || event.key === "Backspace") && !typing) {
     if (!els.writeScreen.hidden && state.interactMode !== "view") {
       event.preventDefault();
@@ -3776,8 +4836,12 @@ window.addEventListener("resize", () => {
       placeOverflowPanel();
     }
     if (state.pendingCapture || state.currentRect) {
-      updateMarquee(Boolean(state.pendingCapture));
+      updateMarquee();
     }
+    if (state.split?.tabs?.length) {
+      syncSplitUi();
+    }
+    updateAreaHits();
     if (state.tool === "select") {
       syncSelectHud();
     }

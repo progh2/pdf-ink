@@ -138,9 +138,15 @@
             </div>
           </div>
 
-          <div class="workspace" id="workspace">
-            <div class="viewport" id="viewport">
-              <div class="page-stack" id="page-stack"></div>
+          <div id="write-split">
+            <div class="workspace" id="workspace">
+              <div class="viewport" id="viewport">
+                <div class="page-stack" id="page-stack"></div>
+              </div>
+            </div>
+            <div class="split-pane" id="split-pane" hidden>
+              <div class="split-tabs" id="split-tabs"></div>
+              <div class="split-stage" id="split-stage"></div>
             </div>
           </div>
         </div>
@@ -167,7 +173,6 @@
       </div>
 
       <div class="slot-panel more-panel" id="more-panel" hidden>
-        <button type="button" data-more="mosaic">마스킹(모자이크)</button>
         <button type="button" data-more="capture">영역캡처</button>
         <button type="button" data-more="fullscreen" id="fullscreen-item">전체화면</button>
         <button type="button" data-more="image">이미지</button>
@@ -210,7 +215,30 @@
 
       <div class="marquee" id="marquee" hidden>
         <div class="marquee-box" id="marquee-box"></div>
-        <button type="button" class="marquee-confirm" id="capture-confirm" hidden>복사</button>
+        <div class="marquee-menu" id="marquee-menu" hidden>
+          <button type="button" data-marquee="copy">복사</button>
+          <button type="button" data-marquee="duplicate">복제</button>
+          <button type="button" data-marquee="delete">삭제</button>
+          <button type="button" data-marquee="capture">캡처</button>
+          <button type="button" data-marquee="mosaic">마스킹</button>
+          <button type="button" data-marquee="link">연결</button>
+        </div>
+      </div>
+
+      <div class="area-layer" id="area-layer" hidden></div>
+      <div class="slot-panel area-link-panel" id="area-link-panel" hidden>
+        <p class="area-link-label">이 문서</p>
+        <div class="area-link-page-row">
+          <input id="area-link-page" type="number" min="1" step="1" inputmode="numeric" aria-label="페이지" />
+          <button type="button" id="area-link-page-go">쪽</button>
+        </div>
+        <p class="area-link-label">다른 PDF</p>
+        <div class="area-link-docs" id="area-link-docs"></div>
+        <p class="area-link-label">웹 주소</p>
+        <div class="area-link-url-row">
+          <input id="area-link-url" type="url" placeholder="https://" aria-label="웹 주소" />
+          <button type="button" id="area-link-url-go">열기</button>
+        </div>
       </div>
 
       <div class="select-layer" id="select-layer" hidden>
@@ -219,13 +247,12 @@
           <span class="select-handle" data-handle="ne"></span>
           <span class="select-handle" data-handle="se"></span>
           <span class="select-handle" data-handle="sw"></span>
+          <span class="select-handle" data-handle="rotate" aria-label="회전"></span>
         </div>
       </div>
       <div class="select-hud float-bar" id="float-bar" hidden>
         <button type="button" id="copy-btn">복사</button>
         <button type="button" id="paste-btn">붙여넣기</button>
-        <button type="button" id="sel-left-btn">왼쪽</button>
-        <button type="button" id="sel-right-btn">오른쪽</button>
         <button type="button" id="delete-btn">삭제</button>
         <button type="button" id="crop-btn" hidden>크롭</button>
         <button type="button" id="lock-btn" hidden>고정</button>
