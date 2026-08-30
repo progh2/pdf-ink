@@ -79,7 +79,7 @@ describe("#53 개요 추가·수정·삭제", () => {
     assert.notEqual(entries[0].kind, "outline");
   });
 
-  it("persists outline across reload and does not bake into PDF bytes", () => {
+  it("persists outline across reload and hands it to the PDF writer (#54)", () => {
     withLocalStorage(() => {
       const outline = addOutlineEntry([], 2);
       saveStrokes("doc::1::1", { 1: [] }, null, outline);
@@ -90,9 +90,8 @@ describe("#53 개요 추가·수정·삭제", () => {
     });
     assert.match(main, /saveStrokes\(state\.identity, state\.pages, state\.leaves, state\.outline\)/);
     assert.match(main, /state\.outline = normalizeOutline\(stored\.outline\)/);
-    assert.doesNotMatch(main, /pdf-lib|jsPDF|doc\.outline|setDocOutline/);
-    const saveFn = main.slice(main.indexOf("function saveDocumentNow"), main.indexOf("function exportDocumentStub"));
-    assert.doesNotMatch(saveFn, /createObjectURL|download|pdf-lib|jsPDF/);
+    // #54: 드로어 개요는 내보낸 PDF에 책갈피로 박힌다. 로컬 저장은 그대로.
+    assert.match(main, /outline: state\.outline/);
   });
 
   it("jumps to the destination page and keeps 보기/편집 header", () => {
