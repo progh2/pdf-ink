@@ -8,6 +8,9 @@ import {
   beginInkPoints,
   canCreateInk,
   finishInkPoints,
+  INTERACT_LOCKED_LABEL,
+  INTERACT_UNLOCKED_LABEL,
+  interactModeLabel,
   isReusedInkStart,
   rectFromPoints,
   shouldPanPointer,
@@ -17,7 +20,51 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const css = readFileSync(join(root, "src/style.css"), "utf8");
 const main = readFileSync(join(root, "src/main.js"), "utf8");
 const html = readFileSync(join(root, "index.html"), "utf8");
+const interactSrc = readFileSync(join(root, "src/interact.js"), "utf8");
 const toolbar = html.slice(html.indexOf('id="toolbar"'), html.indexOf('id="workspace"'));
+
+describe("#52 헤더 자물쇠에 보기/편집", () => {
+  const header = html.slice(html.indexOf('class="write-top"'), html.indexOf('class="write-body"'));
+  const lock = header.slice(header.indexOf('id="interact-btn"'), header.indexOf('class="page-pager"'));
+
+  it("locks to 보기 and unlocks to 편집, never 읽기", () => {
+    assert.equal(INTERACT_LOCKED_LABEL, "보기");
+    assert.equal(INTERACT_UNLOCKED_LABEL, "편집");
+    assert.equal(interactModeLabel("view"), "보기");
+    assert.equal(interactModeLabel("edit"), "편집");
+    assert.match(lock, /class="interact-lock-label">편집/);
+    assert.match(lock, /aria-label="편집"/);
+    assert.match(lock, /id="interact-btn"/);
+    assert.match(main, /setAttribute\("aria-label", label\)/);
+    assert.match(main, /interactModeLabel\(state\.interactMode\)/);
+    assert.match(main, /\.interact-lock-label/);
+    assert.match(interactSrc, /INTERACT_LOCKED_LABEL = "보기"/);
+    assert.match(interactSrc, /INTERACT_UNLOCKED_LABEL = "편집"/);
+    assert.doesNotMatch(lock, /읽기/);
+    assert.doesNotMatch(header, /읽기/);
+    assert.doesNotMatch(main, /읽기/);
+    assert.doesNotMatch(interactSrc, /읽기/);
+  });
+
+  it("keeps 32 lock, 6px gap, 13 type, and one toolbar", () => {
+    assert.equal((html.match(/class="toolbar"/g) || []).length, 1);
+    assert.doesNotMatch(toolbar, /id="interact-btn"/);
+    assert.doesNotMatch(toolbar, /interact-lock-label|>보기<|>편집</);
+    assert.doesNotMatch(html, /class="m4-bar"|id="m4-bar"|class="touch-pill"/);
+    assert.match(css, /\.interact-lock-icon \{[\s\S]*width: 32px;[\s\S]*height: 32px/);
+    assert.match(css, /\.interact-lock \{[\s\S]*color: #8a8478/);
+    assert.match(css, /\.interact-lock \{[\s\S]*gap: 6px/);
+    assert.match(css, /\.interact-lock-label \{[\s\S]*font-size: 13px;[\s\S]*color: #5c574e/);
+    assert.match(css, /\.interact-lock\.is-on \.interact-lock-label \{[\s\S]*color: #8a8478/);
+  });
+
+  it("view still blocks ink; default stays edit unless stored as view", () => {
+    assert.equal(canCreateInk({ interactMode: "view", penOnly: false, pointerType: "mouse" }), false);
+    assert.equal(canCreateInk({ interactMode: "edit", penOnly: false, pointerType: "mouse" }), true);
+    assert.match(main, /interactMode: loadInteractMode\(\)/);
+    assert.doesNotMatch(main, /interactMode:\s*"view"/);
+  });
+});
 
 describe("보기 모드", () => {
   it("does not create strokes in view mode", () => {

@@ -117,7 +117,10 @@ describe("#56 GoodNotes 4 utility bar", () => {
     assert.match(header, /id="prev-btn"/);
     assert.match(header, /id="next-btn"/);
     assert.doesNotMatch(header, /undo-btn|more-btn|select-btn|toolbar-grip/);
-    assert.match(css, /\.interact-lock \{[\s\S]*width: 32px;[\s\S]*color: #8a8478/);
+    assert.match(css, /\.interact-lock \{[\s\S]*color: #8a8478/);
+    assert.match(css, /\.interact-lock-icon \{[\s\S]*width: 32px;[\s\S]*height: 32px/);
+    assert.match(header, /보기|편집/);
+    assert.doesNotMatch(header, /읽기/);
     assert.match(html, /id="slot-panel"/);
     assert.match(html, /id="slot-palette"/);
     assert.match(css, /\.slot-palette\[data-kind="pen"\] \{[\s\S]*repeat\(3, 28px\)/);

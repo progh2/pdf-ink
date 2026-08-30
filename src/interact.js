@@ -2,6 +2,15 @@ export function normalizeInteractMode(value) {
   return value === "view" ? "view" : "edit";
 }
 
+export const INTERACT_LOCKED_LABEL = "보기";
+export const INTERACT_UNLOCKED_LABEL = "편집";
+
+export function interactModeLabel(mode) {
+  return normalizeInteractMode(mode) === "view"
+    ? INTERACT_LOCKED_LABEL
+    : INTERACT_UNLOCKED_LABEL;
+}
+
 export function canCreateInk({ interactMode, penOnly, pointerType, rectTool, tool } = {}) {
   if (normalizeInteractMode(interactMode) === "view") {
     return false;
