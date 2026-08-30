@@ -203,3 +203,15 @@ export function deleteSelectedItems(items, indices) {
   }
   return (items || []).filter((_, index) => !remove.has(index));
 }
+
+export function copyItemsInRect(items, rect, cssWidth, cssHeight) {
+  return copyItems(items, pickItemsInRect(items, rect, cssWidth, cssHeight), 0, 0);
+}
+
+export function duplicateItemsInRect(items, rect, cssWidth, cssHeight, dx = PASTE_NUDGE, dy = PASTE_NUDGE) {
+  return pasteItems(items, copyItems(items, pickItemsInRect(items, rect, cssWidth, cssHeight), dx, dy));
+}
+
+export function deleteItemsInRect(items, rect, cssWidth, cssHeight) {
+  return deleteSelectedItems(items, pickItemsInRect(items, rect, cssWidth, cssHeight));
+}

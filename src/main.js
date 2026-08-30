@@ -58,6 +58,7 @@ import {
 } from "./interact.js";
 import { canRedo, canUndo, cloneItems, createHistory, recordChange, redoChange, undoChange } from "./history.js";
 import { bindUndoHold } from "./undoHold.js";
+import { bindMarqueeHold, placeMarqueeMenu } from "./marqueeHold.js";
 import {
   SHAPE_HOLD_CHIP_HEIGHT,
   SHAPE_HOLD_DISMISS_MS,
@@ -70,7 +71,10 @@ import { MOSAIC_CELL_CSS, mosaicBoxesPx, mosaicItem } from "./mosaic.js";
 import { captureRegionPng, composePageRgba, cropRgba, writePngClipboard } from "./capture.js";
 import {
   copyItems,
+  copyItemsInRect,
+  deleteItemsInRect,
   deleteSelectedItems,
+  duplicateItemsInRect,
   itemBounds,
   offsetItems,
   pickItemsAt,
@@ -191,7 +195,7 @@ const els = {
   fullscreenItem: document.querySelector("#fullscreen-item"),
   marquee: document.querySelector("#marquee"),
   marqueeBox: document.querySelector("#marquee-box"),
-  captureConfirm: document.querySelector("#capture-confirm"),
+  marqueeMenu: document.querySelector("#marquee-menu"),
   selectLayer: document.querySelector("#select-layer"),
   selectBox: document.querySelector("#select-box"),
   floatBar: document.querySelector("#float-bar"),
@@ -279,7 +283,6 @@ let ignoreAfterPanel = false;
 let lastInkUpClient = null;
 const shapeHold = createShapeHold({ holdMs: SHAPE_HOLD_MS });
 let shapeOfferDismissTimer = 0;
-let captureConfirmArmedAt = 0;
 let renderGen = 0;
 let paperScrollHold = null;
 const pageCache = createPaintCache(PAGE_BITMAP_LIMIT);
@@ -2227,14 +2230,45 @@ function syncSelectHud() {
   placeSelectHud(view, bounds);
 }
 
+function hideMarqueeMenu() {
+  if (els.marqueeMenu) {
+    els.marqueeMenu.hidden = true;
+  }
+}
+
 function hideMarquee() {
   state.currentRect = null;
   state.pendingCapture = null;
   els.marquee.hidden = true;
-  els.captureConfirm.hidden = true;
+  hideMarqueeMenu();
 }
 
-function updateMarquee(showConfirm) {
+function placeMarqueeMenuUi() {
+  if (!els.marqueeMenu || els.marqueeMenu.hidden || !state.pendingCapture) {
+    return;
+  }
+  const box = els.marqueeBox.getBoundingClientRect();
+  const view = state.pageViews.find((item) => item.pageNum === state.pendingCapture.page);
+  const paper = view?.stage.getBoundingClientRect() || {
+    left: 0,
+    top: 0,
+    width: window.innerWidth,
+    height: window.innerHeight,
+  };
+  const pos = placeMarqueeMenu(box, paper, els.marqueeMenu.offsetWidth || 280);
+  els.marqueeMenu.style.left = `${pos.left}px`;
+  els.marqueeMenu.style.top = `${pos.top}px`;
+}
+
+function showMarqueeMenu() {
+  if (!state.pendingCapture || !els.marqueeMenu) {
+    return;
+  }
+  els.marqueeMenu.hidden = false;
+  placeMarqueeMenuUi();
+}
+
+function updateMarquee() {
   const source = state.currentRect || state.pendingCapture;
   if (!source) {
     return;
@@ -2254,13 +2288,8 @@ function updateMarquee(showConfirm) {
   els.marqueeBox.style.top = `${top}px`;
   els.marqueeBox.style.width = `${width}px`;
   els.marqueeBox.style.height = `${height}px`;
-  if (showConfirm) {
-    els.captureConfirm.hidden = false;
-    const confirmW = els.captureConfirm.offsetWidth || 64;
-    els.captureConfirm.style.left = `${Math.min(window.innerWidth - confirmW - 8, Math.max(8, left))}px`;
-    els.captureConfirm.style.top = `${Math.min(window.innerHeight - 44, top + height + 8)}px`;
-  } else {
-    els.captureConfirm.hidden = true;
+  if (!els.marqueeMenu.hidden) {
+    placeMarqueeMenuUi();
   }
 }
 
@@ -2285,8 +2314,9 @@ function startRect(event, stage) {
   state.drawPage = Number(stage.dataset.page) || state.page;
   state.drawCanvas = ink;
   state.pendingCapture = null;
+  hideMarqueeMenu();
   state.currentRect = { page: state.drawPage, a: point, b: point };
-  updateMarquee(false);
+  updateMarquee();
 }
 
 function moveRect(event) {
@@ -2295,7 +2325,7 @@ function moveRect(event) {
   }
   event.preventDefault();
   state.currentRect.b = eventToNorm(event, state.drawCanvas);
-  updateMarquee(false);
+  updateMarquee();
 }
 
 function endRect(event) {
@@ -2327,8 +2357,8 @@ function endRect(event) {
   }
   if (state.rectTool === "capture") {
     state.pendingCapture = { page, rect };
-    captureConfirmArmedAt = performance.now() + 400;
-    updateMarquee(true);
+    hideMarqueeMenu();
+    updateMarquee();
   }
 }
 
@@ -2426,7 +2456,7 @@ function moveSelect(event) {
       return;
     }
     state.currentRect = { page: drag.page, a: drag.a, b: drag.b };
-    updateMarquee(false);
+    updateMarquee();
     return;
   }
   const key = inkKey(leafAt(state.leaves, drag.page));
@@ -2581,6 +2611,83 @@ function beginRotateFromHandle(event) {
   document.addEventListener("pointercancel", onRotateDocUp);
   syncSelectHud();
   return true;
+}
+
+function regionView() {
+  const pending = state.pendingCapture;
+  if (!pending) {
+    return null;
+  }
+  const view = state.pageViews.find((item) => item.pageNum === pending.page);
+  return {
+    pending,
+    view,
+    cssW: view?.cssWidth || 400,
+    cssH: view?.cssHeight || 600,
+    items: pageStrokes(pending.page),
+  };
+}
+
+function redrawRegionPage(pageNum) {
+  const view = state.pageViews.find((item) => item.pageNum === pageNum);
+  if (view) {
+    drawStrokesOn(view);
+  }
+}
+
+function copyRegion() {
+  const ctx = regionView();
+  if (!ctx) {
+    return;
+  }
+  state.inkClipboard = copyItemsInRect(ctx.items, ctx.pending.rect, ctx.cssW, ctx.cssH);
+  hideMarqueeMenu();
+}
+
+function duplicateRegion() {
+  const ctx = regionView();
+  if (!ctx || state.interactMode === "view") {
+    return;
+  }
+  const next = duplicateItemsInRect(ctx.items, ctx.pending.rect, ctx.cssW, ctx.cssH);
+  if (next.length === ctx.items.length) {
+    hideMarqueeMenu();
+    return;
+  }
+  commitPageChange(ctx.pending.page, () => {
+    state.pages[inkKey(leafAt(state.leaves, ctx.pending.page))] = next;
+  });
+  redrawRegionPage(ctx.pending.page);
+  hideMarqueeMenu();
+}
+
+function deleteRegion() {
+  const ctx = regionView();
+  if (!ctx || state.interactMode === "view") {
+    return;
+  }
+  const next = deleteItemsInRect(ctx.items, ctx.pending.rect, ctx.cssW, ctx.cssH);
+  if (JSON.stringify(next) === JSON.stringify(ctx.items)) {
+    hideMarqueeMenu();
+    return;
+  }
+  commitPageChange(ctx.pending.page, () => {
+    state.pages[inkKey(leafAt(state.leaves, ctx.pending.page))] = next;
+  });
+  redrawRegionPage(ctx.pending.page);
+  hideMarqueeMenu();
+}
+
+function mosaicRegion() {
+  const ctx = regionView();
+  if (!ctx || state.interactMode === "view") {
+    return;
+  }
+  commitPageChange(ctx.pending.page, () => {
+    pageStrokes(ctx.pending.page).push(mosaicItem(ctx.pending.rect, MOSAIC_CELL_CSS));
+  });
+  redrawRegionPage(ctx.pending.page);
+  hideMarqueeMenu();
 }
 
 function deleteSelection() {
@@ -3088,7 +3195,7 @@ let captureWriting = false;
 
 async function confirmCapture() {
   const pending = state.pendingCapture;
-  if (!pending || captureWriting || performance.now() < captureConfirmArmedAt) {
+  if (!pending || captureWriting) {
     return;
   }
   captureWriting = true;
@@ -3322,7 +3429,7 @@ function selectMoreAction(action) {
     openSettings();
     return;
   }
-  if (action !== "mosaic" && action !== "capture") {
+  if (action !== "capture") {
     return;
   }
   abortStroke();
@@ -4005,11 +4112,42 @@ els.cropConfirm.addEventListener("click", (event) => {
   event.stopPropagation();
   confirmCrop();
 });
-els.captureConfirm.addEventListener("click", (event) => {
-  event.preventDefault();
-  event.stopPropagation();
-  confirmCapture();
-});
+if (els.marqueeBox) {
+  bindMarqueeHold(els.marqueeBox, { onHold: showMarqueeMenu });
+}
+if (els.marqueeMenu) {
+  els.marqueeMenu.addEventListener("pointerdown", (event) => {
+    event.stopPropagation();
+  });
+  els.marqueeMenu.addEventListener("click", (event) => {
+    const btn = event.target.closest("[data-marquee]");
+    if (!btn) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    const action = btn.dataset.marquee;
+    if (action === "copy") {
+      copyRegion();
+      return;
+    }
+    if (action === "duplicate") {
+      duplicateRegion();
+      return;
+    }
+    if (action === "delete") {
+      deleteRegion();
+      return;
+    }
+    if (action === "capture") {
+      confirmCapture();
+      return;
+    }
+    if (action === "mosaic") {
+      mosaicRegion();
+    }
+  });
+}
 els.settingsBackdrop.addEventListener("click", closeSettings);
 els.settingsDone.addEventListener("click", closeSettings);
 
@@ -4095,6 +4233,9 @@ els.writeScreen.addEventListener("touchstart", preventWriteSurfaceTouch, { passi
 els.writeScreen.addEventListener("touchmove", preventWriteSurfaceTouch, { passive: false });
 
 document.addEventListener("pointerdown", (event) => {
+  if (state.pendingCapture && !event.target.closest("#marquee-box, #marquee-menu")) {
+    hideMarquee();
+  }
   if (event.target.closest(".slot-panel, .toolbar, [data-tool], #eraser-btn, #more-btn, .m4-bar, .marquee, .select-hud, .float-bar, #float-bar, .select-layer, #select-layer, .preview-drawer, .shape-chips")) {
     return;
   }
@@ -4103,6 +4244,11 @@ document.addEventListener("pointerdown", (event) => {
 
 document.addEventListener("keydown", (event) => {
   const typing = event.target.closest?.("input, textarea, [contenteditable='true']");
+  if (event.key === "Escape" && state.pendingCapture && !typing) {
+    event.preventDefault();
+    hideMarquee();
+    return;
+  }
   if ((event.key === "Delete" || event.key === "Backspace") && !typing) {
     if (!els.writeScreen.hidden && state.interactMode !== "view") {
       event.preventDefault();
@@ -4163,7 +4309,7 @@ window.addEventListener("resize", () => {
       placeOverflowPanel();
     }
     if (state.pendingCapture || state.currentRect) {
-      updateMarquee(Boolean(state.pendingCapture));
+      updateMarquee();
     }
     if (state.tool === "select") {
       syncSelectHud();
