@@ -138,9 +138,15 @@
             </div>
           </div>
 
-          <div class="workspace" id="workspace">
-            <div class="viewport" id="viewport">
-              <div class="page-stack" id="page-stack"></div>
+          <div id="write-split">
+            <div class="workspace" id="workspace">
+              <div class="viewport" id="viewport">
+                <div class="page-stack" id="page-stack"></div>
+              </div>
+            </div>
+            <div class="split-pane" id="split-pane" hidden>
+              <div class="split-tabs" id="split-tabs"></div>
+              <div class="split-stage" id="split-stage"></div>
             </div>
           </div>
         </div>
@@ -215,6 +221,23 @@
           <button type="button" data-marquee="delete">삭제</button>
           <button type="button" data-marquee="capture">캡처</button>
           <button type="button" data-marquee="mosaic">마스킹</button>
+          <button type="button" data-marquee="link">연결</button>
+        </div>
+      </div>
+
+      <div class="area-layer" id="area-layer" hidden></div>
+      <div class="slot-panel area-link-panel" id="area-link-panel" hidden>
+        <p class="area-link-label">이 문서</p>
+        <div class="area-link-page-row">
+          <input id="area-link-page" type="number" min="1" step="1" inputmode="numeric" aria-label="페이지" />
+          <button type="button" id="area-link-page-go">쪽</button>
+        </div>
+        <p class="area-link-label">다른 PDF</p>
+        <div class="area-link-docs" id="area-link-docs"></div>
+        <p class="area-link-label">웹 주소</p>
+        <div class="area-link-url-row">
+          <input id="area-link-url" type="url" placeholder="https://" aria-label="웹 주소" />
+          <button type="button" id="area-link-url-go">열기</button>
         </div>
       </div>
 

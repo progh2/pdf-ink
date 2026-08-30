@@ -92,7 +92,8 @@ describe("#71 영역 선택 유지·메뉴", () => {
     assert.match(marquee, /data-marquee="delete">삭제/);
     assert.match(marquee, /data-marquee="capture">캡처/);
     assert.match(marquee, /data-marquee="mosaic">마스킹/);
-    assert.doesNotMatch(marquee, /연결|id="capture-confirm"|marquee-confirm/);
+    assert.match(marquee, /data-marquee="link">연결/);
+    assert.doesNotMatch(marquee, /id="capture-confirm"|marquee-confirm/);
     assert.doesNotMatch(hud, /data-marquee=/);
     assert.match(css, /\.marquee-menu \{[\s\S]*height: 44px/);
     assert.match(css, /\.marquee-menu button \{[\s\S]*height: 44px/);
@@ -126,7 +127,7 @@ describe("#71 영역 선택 유지·메뉴", () => {
     assert.match(main, /function deleteRegion/);
     assert.match(main, /function mosaicRegion/);
     assert.match(main, /confirmCapture/);
-    assert.doesNotMatch(main, /data-marquee="link"|연결/);
+    assert.doesNotMatch(hud, /연결|data-marquee="link"/);
   });
 
   it("fires the menu at 400ms or on right-click, not before", () => {
@@ -165,6 +166,34 @@ describe("#71 영역 선택 유지·메뉴", () => {
     assert.equal(early, 0);
     el2.dispatchEvent(new Event("contextmenu"));
     assert.equal(early, 1);
+  });
+
+  it("fires onTap on a short lift, not after a hold", () => {
+    const clock = createClock();
+    const el = createEl();
+    let taps = 0;
+    let holds = 0;
+    bindMarqueeHold(el, {
+      onHold: () => {
+        holds += 1;
+      },
+      onTap: () => {
+        taps += 1;
+      },
+      setTimeoutFn: clock.setTimeoutFn,
+      clearTimeoutFn: clock.clearTimeoutFn,
+    });
+    el.dispatchEvent(Object.assign(new Event("pointerdown"), { button: 0, pointerId: 3, clientX: 8, clientY: 8 }));
+    clock.advance(100);
+    el.dispatchEvent(Object.assign(new Event("pointerup"), { pointerId: 3 }));
+    assert.equal(taps, 1);
+    assert.equal(holds, 0);
+
+    el.dispatchEvent(Object.assign(new Event("pointerdown"), { button: 0, pointerId: 4, clientX: 8, clientY: 8 }));
+    clock.advance(400);
+    el.dispatchEvent(Object.assign(new Event("pointerup"), { pointerId: 4 }));
+    assert.equal(holds, 1);
+    assert.equal(taps, 1);
   });
 
   it("keeps the menu on the paper", () => {
