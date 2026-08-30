@@ -123,7 +123,10 @@ describe("#56 GoodNotes 4 utility bar", () => {
     assert.match(css, /\.slot-palette\[data-kind="pen"\] \{[\s\S]*repeat\(3, 28px\)/);
     assert.match(main, /function openInkEditor/);
     assert.match(main, /selectInkTool/);
-    assert.doesNotMatch(main, /shapeSnap|snapToShape|holdShape/);
+    assert.match(main, /createShapeHold\(/);
+    assert.match(main, /from "\.\/shapeHold\.js"/);
+    assert.match(html, /id="shape-chips"/);
+    assert.doesNotMatch(toolbar, /shape-chips|data-shape=/);
   });
 
   it("puts overflow rows on ⋯ and keeps undo hold + visible redo", () => {
