@@ -1756,6 +1756,77 @@ body {
   box-shadow: 0 0 0 2px #c4a574;
 }
 
+.sticker-cell-wrap {
+  position: relative;
+  line-height: 0;
+}
+
+.sticker-cell-close {
+  position: absolute;
+  right: -6px;
+  top: -6px;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: #fff;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.sticker-region.is-selected {
+  background: rgba(196, 165, 116, 0.12);
+}
+
+.sticker-region-handle {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border: 1px solid #c4a574;
+  border-radius: 2px;
+  background: #fff;
+}
+
+.sticker-region-handle[data-handle="nw"] {
+  left: -4px;
+  top: -4px;
+}
+
+.sticker-region-handle[data-handle="ne"] {
+  right: -4px;
+  top: -4px;
+}
+
+.sticker-region-handle[data-handle="se"] {
+  right: -4px;
+  bottom: -4px;
+}
+
+.sticker-region-handle[data-handle="sw"] {
+  left: -4px;
+  bottom: -4px;
+}
+
+.sticker-region-close {
+  position: absolute;
+  right: -10px;
+  top: -10px;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid #c4a574;
+  border-radius: 50%;
+  background: #fff;
+  color: #8a8478;
+  font-size: 11px;
+  line-height: 1;
+  pointer-events: auto;
+  cursor: pointer;
+}
+
 .sticker-empty {
   color: var(--muted);
   font-size: 13px;
