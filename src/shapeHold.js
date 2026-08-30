@@ -254,6 +254,27 @@ export function applyShapeChip(chip, points) {
   return offer.chips[chip] || points;
 }
 
+function copyPoints(points) {
+  if (!Array.isArray(points)) {
+    return [];
+  }
+  return points
+    .filter((point) => point && Number.isFinite(point.x) && Number.isFinite(point.y))
+    .map((point) => ({ x: point.x, y: point.y }));
+}
+
+export function isShapeHoldJitter(client, lastClient, slopPx = SHAPE_HOLD_MOVE_SLOP_PX) {
+  if (!client || !lastClient) {
+    return false;
+  }
+  const dx = Number(client.x) - Number(lastClient.x);
+  const dy = Number(client.y) - Number(lastClient.y);
+  if (!Number.isFinite(dx) || !Number.isFinite(dy)) {
+    return false;
+  }
+  return Math.hypot(dx, dy) <= slopPx;
+}
+
 export function createShapeHold({
   holdMs = SHAPE_HOLD_MS,
   moveSlopPx = SHAPE_HOLD_MOVE_SLOP_PX,
@@ -267,6 +288,7 @@ export function createShapeHold({
   let offer = null;
   let armed = false;
   let lastSignificantAt = 0;
+  let frozen = null;
 
   const clearTimer = () => {
     if (timer) {
@@ -275,12 +297,19 @@ export function createShapeHold({
     }
   };
 
+  const pointsForOffer = (getPoints) => {
+    if (frozen) {
+      return frozen;
+    }
+    return typeof getPoints === "function" ? getPoints() : [];
+  };
+
   const fire = (getPoints, onOffer) => {
     timer = 0;
     if (offer || !armed || !canShapeHold(tool)) {
       return;
     }
-    const next = shapeOfferFromStroke(typeof getPoints === "function" ? getPoints() : []);
+    const next = shapeOfferFromStroke(pointsForOffer(getPoints));
     if (!next) {
       return;
     }
@@ -296,6 +325,7 @@ export function createShapeHold({
       offer = null;
       armed = false;
       lastSignificantAt = 0;
+      frozen = null;
     },
     begin({ tool: nextTool, client, getPoints, onOffer } = {}) {
       this.reset();
@@ -310,11 +340,10 @@ export function createShapeHold({
     },
     noteMove({ client, getPoints, onOffer } = {}) {
       if (!armed || !canShapeHold(tool) || !client) {
-        return false;
+        return true;
       }
-      const dx = client.x - (lastClient?.x ?? client.x);
-      const dy = client.y - (lastClient?.y ?? client.y);
-      if (Math.hypot(dx, dy) <= moveSlopPx) {
+      if (isShapeHoldJitter(client, lastClient, moveSlopPx)) {
+        frozen = copyPoints(typeof getPoints === "function" ? getPoints() : []);
         if (!offer && now() - lastSignificantAt >= holdMs) {
           fire(getPoints, onOffer);
         }
@@ -322,29 +351,33 @@ export function createShapeHold({
       }
       lastClient = client;
       lastSignificantAt = now();
+      frozen = null;
       if (offer) {
         offer = null;
         onOffer?.(null);
       }
       clearTimer();
       timer = setTimeoutFn(() => fire(getPoints, onOffer), holdMs);
-      return false;
+      return true;
     },
     finish(freehandPoints) {
       clearTimer();
+      const keptPoints = frozen && frozen.length ? frozen : freehandPoints;
       if (armed && !offer && now() - lastSignificantAt >= holdMs) {
-        offer = shapeOfferFromStroke(freehandPoints);
+        offer = shapeOfferFromStroke(keptPoints);
       }
       const kept = offer;
       lastClient = null;
       armed = false;
+      frozen = null;
       return {
-        points: freehandPoints,
+        points: keptPoints,
         offer: kept,
         snapped: false,
       };
     },
     isOffering: () => Boolean(offer),
     currentOffer: () => offer,
+    isFrozen: () => Boolean(frozen),
   };
 }

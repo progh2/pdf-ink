@@ -1254,17 +1254,20 @@ function moveStroke(event) {
   }
   event.preventDefault();
   const client = { x: event.clientX, y: event.clientY };
-  state.currentStroke.points = appendInkPoint(
-    state.currentStroke.points,
-    eventToNorm(event, state.drawCanvas),
-    client,
-    lastInkUpClient,
-  );
+  let append = true;
   if (canShapeHold(state.currentStroke.type)) {
-    shapeHold.noteMove({
+    append = shapeHold.noteMove({
       client,
       ...shapeHoldCallbacks(),
     });
+  }
+  if (append) {
+    state.currentStroke.points = appendInkPoint(
+      state.currentStroke.points,
+      eventToNorm(event, state.drawCanvas),
+      client,
+      lastInkUpClient,
+    );
   }
   drawLive();
 }
