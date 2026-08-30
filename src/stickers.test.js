@@ -15,6 +15,7 @@ import {
   STUDIO_TOOLS,
   addFolder,
   cornerScale,
+  deleteRegionAt,
   applyChroma,
   deleteFolder,
   deleteSticker,
@@ -25,14 +26,19 @@ import {
   normalizeAngle,
   normalizeFolders,
   normalizeStickers,
+  moveRegion,
   pixelAt,
+  pointInRegion,
+  regionHandleAt,
   regionPixelRect,
+  resizeRegion,
   renameFolder,
   rotatedSize,
   scaledSize,
   stickerFitSize,
   stickerSizeOnPage,
   stickersInFolder,
+  topRegionAt,
   wholeImageRect,
 } from "./stickers.js";
 
@@ -265,5 +271,92 @@ describe("#79 코너 크기 배선", () => {
     assert.match(main, /cornerScale\(/);
     assert.match(main, /const sized = studioScaledCanvas\(state\.studioScale\)/);
     assert.match(main, /angle \? studioRotatedCanvas\(angle, sized\) : sized/);
+  });
+});
+
+describe("#100 영역 수정·이동·삭제", () => {
+  const rect = { x1: 20, y1: 20, x2: 80, y2: 60 };
+
+  it("finds the corner under the finger", () => {
+    assert.equal(regionHandleAt(rect, { x: 20, y: 20 }), "nw");
+    assert.equal(regionHandleAt(rect, { x: 80, y: 60 }), "se");
+    assert.equal(regionHandleAt(rect, { x: 84, y: 22 }), "ne", "a near miss still grabs");
+    assert.equal(regionHandleAt(rect, { x: 50, y: 40 }), null);
+  });
+
+  it("picks the region under the finger, topmost first", () => {
+    const regions = [rect, { x1: 40, y1: 30, x2: 120, y2: 90 }];
+    assert.equal(pointInRegion(rect, { x: 50, y: 40 }), true);
+    assert.equal(pointInRegion(rect, { x: 5, y: 5 }), false);
+    assert.equal(topRegionAt(regions, { x: 50, y: 40 }), 1, "the later drag wins the overlap");
+    assert.equal(topRegionAt(regions, { x: 25, y: 25 }), 0);
+    assert.equal(topRegionAt(regions, { x: 300, y: 300 }), -1);
+  });
+
+  it("slides a region without letting it leave the picture", () => {
+    assert.deepEqual(moveRegion(rect, 10, 5, 280, 160), { x1: 30, y1: 25, x2: 90, y2: 65 });
+    // Pushed hard left/up it stops at the edge, keeping its size.
+    assert.deepEqual(moveRegion(rect, -500, -500, 280, 160), { x1: 0, y1: 0, x2: 60, y2: 40 });
+    const far = moveRegion(rect, 5000, 5000, 280, 160);
+    assert.deepEqual(far, { x1: 220, y1: 120, x2: 280, y2: 160 });
+  });
+
+  it("resizes from the dragged corner and keeps the other one", () => {
+    assert.deepEqual(resizeRegion(rect, "se", { x: 120, y: 100 }, 280, 160), {
+      x1: 20,
+      y1: 20,
+      x2: 120,
+      y2: 100,
+    });
+    assert.deepEqual(resizeRegion(rect, "nw", { x: 10, y: 10 }, 280, 160), {
+      x1: 10,
+      y1: 10,
+      x2: 80,
+      y2: 60,
+    });
+    // Dragged past the opposite corner it flips instead of going negative.
+    const flipped = resizeRegion(rect, "se", { x: 5, y: 5 }, 280, 160);
+    assert.ok(flipped.x2 >= flipped.x1 && flipped.y2 >= flipped.y1);
+    // Never off the picture.
+    assert.deepEqual(resizeRegion(rect, "se", { x: 9000, y: 9000 }, 280, 160), {
+      x1: 20,
+      y1: 20,
+      x2: 280,
+      y2: 160,
+    });
+  });
+
+  it("deletes just that region", () => {
+    const regions = [rect, { x1: 0, y1: 0, x2: 10, y2: 10 }];
+    assert.deepEqual(deleteRegionAt(regions, 0), [regions[1]]);
+    assert.deepEqual(deleteRegionAt(regions, 5), regions);
+  });
+});
+
+describe("#100 배선", () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const main = readFileSync(join(here, "main.js"), "utf8");
+  const css = readFileSync(join(here, "style.css"), "utf8");
+
+  it("deletes a sticker straight from the grid, no confirm", () => {
+    assert.match(main, /class = "sticker-cell-close"|className = "sticker-cell-close"/);
+    assert.match(main, /removeSticker\(sticker\.id\)/);
+    assert.match(css, /\.sticker-cell-close \{[\s\S]*width: 20px[\s\S]*height: 20px/);
+    assert.doesNotMatch(main, /confirm\(/);
+  });
+
+  it("edits a drawn region: pick, move, resize, delete", () => {
+    assert.match(main, /topRegionAt\(stickerRegions, point\)/);
+    assert.match(main, /drag\.mode === "resize"[\s\S]*resizeRegion/);
+    assert.match(main, /moveRegion\(rect, point\.x - drag\.last\.x/);
+    assert.match(main, /deleteRegionAt\(stickerRegions, Number\(close\.dataset\.regionClose\)\)/);
+    // Empty space still starts a new region.
+    assert.match(main, /drag = \{ mode: "draw"/);
+  });
+
+  it("shows handles on the picked region only", () => {
+    assert.match(main, /index === stickerRegionPick[\s\S]*is-selected/);
+    assert.match(css, /\.sticker-region-handle \{[\s\S]*width: 8px/);
+    assert.match(css, /\.sticker-region \{[\s\S]*1\.5px solid #c4a574/);
   });
 });

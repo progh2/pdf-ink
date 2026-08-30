@@ -128,15 +128,21 @@ import {
   normalizeAngle,
   normalizeFolders,
   normalizeStickers,
+  REGION_HANDLES,
   cornerScale,
+  deleteRegionAt,
+  moveRegion,
   pixelAt,
+  regionHandleAt,
   regionPixelRect,
+  resizeRegion,
   renameFolder,
   rotatedSize,
   scaledSize,
   stickerFitSize,
   stickerSizeOnPage,
   stickersInFolder,
+  topRegionAt,
   wholeImageRect,
 } from "./stickers.js";
 import { captureRegionPng, composePageRgba, cropRgba, encodePngRgba, writePngClipboard } from "./capture.js";
@@ -4480,6 +4486,7 @@ async function exportDocument() {
 
 let stickerSource = null;
 let stickerRegions = [];
+let stickerRegionPick = -1;
 let studioPixels = null;
 
 function stickerCtx(canvas) {
@@ -4531,6 +4538,7 @@ function closeStickerSheet() {
 function clearStickerSource() {
   stickerSource = null;
   stickerRegions = [];
+  stickerRegionPick = -1;
   if (els.stickerSource) {
     els.stickerSource.hidden = true;
   }
@@ -4566,6 +4574,7 @@ async function loadStickerFile(file) {
     stickerCtx(canvas).drawImage(img, 0, 0, canvas.width, canvas.height);
     stickerSource = { img, width: img.width, height: img.height };
     stickerRegions = [];
+    stickerRegionPick = -1;
     renderStickerRegions();
     els.stickerSource.hidden = false;
     els.stickerMakeActions.hidden = false;
@@ -4579,18 +4588,44 @@ function renderStickerRegions(live = null) {
   if (!els.stickerRegions) {
     return;
   }
+  const scale = regionViewScale();
   const boxes = live ? [...stickerRegions, live] : stickerRegions;
   els.stickerRegions.replaceChildren(
-    ...boxes.map((rect) => {
+    ...boxes.map((rect, index) => {
       const div = document.createElement("div");
       div.className = "sticker-region";
-      div.style.left = `${Math.min(rect.x1, rect.x2)}px`;
-      div.style.top = `${Math.min(rect.y1, rect.y2)}px`;
-      div.style.width = `${Math.abs(rect.x2 - rect.x1)}px`;
-      div.style.height = `${Math.abs(rect.y2 - rect.y1)}px`;
+      const left = Math.min(rect.x1, rect.x2);
+      const top = Math.min(rect.y1, rect.y2);
+      div.style.left = `${left * scale}px`;
+      div.style.top = `${top * scale}px`;
+      div.style.width = `${Math.abs(rect.x2 - rect.x1) * scale}px`;
+      div.style.height = `${Math.abs(rect.y2 - rect.y1) * scale}px`;
+      if (!live && index === stickerRegionPick) {
+        div.classList.add("is-selected");
+        for (const handle of REGION_HANDLES) {
+          const dot = document.createElement("span");
+          dot.className = "sticker-region-handle";
+          dot.dataset.handle = handle;
+          div.append(dot);
+        }
+        const close = document.createElement("button");
+        close.type = "button";
+        close.className = "sticker-region-close";
+        close.dataset.regionClose = String(index);
+        close.textContent = "✕";
+        close.setAttribute("aria-label", "이 영역 지우기");
+        div.append(close);
+      }
       return div;
     }),
   );
+}
+
+/** Canvas pixels to the css box the reader is touching. */
+function regionViewScale() {
+  const canvas = els.stickerCanvas;
+  const box = canvas.getBoundingClientRect();
+  return canvas.width ? box.width / canvas.width : 1;
 }
 
 /** Each rect becomes its own sticker: a drag list never merges into one. */
@@ -4730,7 +4765,19 @@ function renderStickerGrid() {
       img.alt = sticker.name || "스티커";
       cell.append(img);
       bindStickerCell(cell, sticker);
-      return cell;
+      const wrap = document.createElement("div");
+      wrap.className = "sticker-cell-wrap";
+      const kill = document.createElement("button");
+      kill.type = "button";
+      kill.className = "sticker-cell-close";
+      kill.textContent = "✕";
+      kill.setAttribute("aria-label", "스티커 지우기");
+      kill.addEventListener("click", (event) => {
+        event.stopPropagation();
+        removeSticker(sticker.id);
+      });
+      wrap.append(cell, kill);
+      return wrap;
     }),
   );
 }
@@ -4974,9 +5021,16 @@ async function deleteStudioSticker() {
   if (!state.stickerPick) {
     return;
   }
-  state.stickers = deleteSticker(state.stickers, state.stickerPick);
+  await removeSticker(state.stickerPick);
+}
+
+/** ✕ on the thumb, no confirm, same as the outline x (#53). */
+async function removeSticker(id) {
+  state.stickers = deleteSticker(state.stickers, id);
+  if (state.stickerPick === id) {
+    closeStudio();
+  }
   await persistStickers();
-  closeStudio();
   renderStickerGrid();
 }
 
@@ -5663,7 +5717,7 @@ els.stickerStudioBox?.querySelectorAll("[data-handle]").forEach((handle) => {
   handle.addEventListener("pointercancel", stop);
 });
 
-// 자르기: 미리보기 위 드래그 하나가 스티커 한 장.
+// 자르기: 빈 곳을 끌면 새 영역, 그린 영역은 고르고 옮기고 크기 바꾸고 지운다.
 if (els.stickerSource) {
   let drag = null;
   const localPoint = (event) => {
@@ -5672,38 +5726,88 @@ if (els.stickerSource) {
     const scaleY = els.stickerCanvas.height / Math.max(1, box.height);
     return { x: (event.clientX - box.left) * scaleX, y: (event.clientY - box.top) * scaleY };
   };
+  const bounds = () => [els.stickerCanvas.width, els.stickerCanvas.height];
+
   els.stickerSource.addEventListener("pointerdown", (event) => {
     if (!stickerSource) {
       return;
     }
+    const close = event.target.closest?.("[data-region-close]");
+    if (close) {
+      event.preventDefault();
+      stickerRegions = deleteRegionAt(stickerRegions, Number(close.dataset.regionClose));
+      stickerRegionPick = -1;
+      renderStickerRegions();
+      return;
+    }
     const point = localPoint(event);
-    drag = { x1: point.x, y1: point.y, x2: point.x, y2: point.y, id: event.pointerId };
+    const hit = topRegionAt(stickerRegions, point);
     try {
       els.stickerSource.setPointerCapture(event.pointerId);
     } catch {
       // optional
     }
+    if (hit >= 0) {
+      const handle = regionHandleAt(stickerRegions[hit], point);
+      stickerRegionPick = hit;
+      drag = { mode: handle ? "resize" : "move", handle, index: hit, last: point, id: event.pointerId };
+      renderStickerRegions();
+      return;
+    }
+    stickerRegionPick = -1;
+    drag = { mode: "draw", rect: { x1: point.x, y1: point.y, x2: point.x, y2: point.y }, id: event.pointerId };
+    renderStickerRegions();
   });
+
   els.stickerSource.addEventListener("pointermove", (event) => {
     if (!drag || drag.id !== event.pointerId) {
       return;
     }
     event.preventDefault();
     const point = localPoint(event);
-    drag.x2 = point.x;
-    drag.y2 = point.y;
-    renderStickerRegions(drag);
+    const [w, h] = bounds();
+    if (drag.mode === "draw") {
+      drag.rect.x2 = point.x;
+      drag.rect.y2 = point.y;
+      renderStickerRegions(drag.rect);
+      return;
+    }
+    const now = stickerRegions[drag.index];
+    if (!now) {
+      return;
+    }
+    stickerRegions = stickerRegions.map((rect, index) => {
+      if (index !== drag.index) {
+        return rect;
+      }
+      return drag.mode === "resize"
+        ? resizeRegion(rect, drag.handle, point, w, h)
+        : moveRegion(rect, point.x - drag.last.x, point.y - drag.last.y, w, h);
+    });
+    drag.last = point;
+    renderStickerRegions();
   });
+
   const endRegion = (event) => {
     if (!drag || drag.id !== event.pointerId) {
       return;
     }
-    const rect = { x1: drag.x1, y1: drag.y1, x2: drag.x2, y2: drag.y2 };
+    const finished = drag;
     drag = null;
-    if (
-      regionPixelRect(rect, els.stickerCanvas.width, els.stickerCanvas.height, stickerSource.width, stickerSource.height)
-    ) {
-      stickerRegions = [...stickerRegions, rect];
+    if (finished.mode === "draw") {
+      const rect = finished.rect;
+      if (
+        regionPixelRect(
+          rect,
+          els.stickerCanvas.width,
+          els.stickerCanvas.height,
+          stickerSource.width,
+          stickerSource.height,
+        )
+      ) {
+        stickerRegions = [...stickerRegions, rect];
+        stickerRegionPick = stickerRegions.length - 1;
+      }
     }
     renderStickerRegions();
   };

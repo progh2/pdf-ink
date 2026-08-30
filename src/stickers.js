@@ -136,6 +136,110 @@ export function regionPixelRect(rect, previewWidth, previewHeight, imageWidth, i
   return { x, y, w: Math.min(w, iw - x), h: Math.min(h, ih - y) };
 }
 
+export const REGION_HANDLE_CSS = 8;
+export const REGION_HIT_CSS = 12;
+export const REGION_HANDLES = ["nw", "ne", "se", "sw"];
+
+function normRect(rect) {
+  return {
+    left: Math.min(Number(rect?.x1) || 0, Number(rect?.x2) || 0),
+    top: Math.min(Number(rect?.y1) || 0, Number(rect?.y2) || 0),
+    right: Math.max(Number(rect?.x1) || 0, Number(rect?.x2) || 0),
+    bottom: Math.max(Number(rect?.y1) || 0, Number(rect?.y2) || 0),
+  };
+}
+
+function cornerPoints(rect) {
+  const box = normRect(rect);
+  return {
+    nw: { x: box.left, y: box.top },
+    ne: { x: box.right, y: box.top },
+    se: { x: box.right, y: box.bottom },
+    sw: { x: box.left, y: box.bottom },
+  };
+}
+
+/** Corner under the finger, for resizing a drawn region (#100). */
+export function regionHandleAt(rect, point, hitPx = REGION_HIT_CSS) {
+  const corners = cornerPoints(rect);
+  for (const handle of REGION_HANDLES) {
+    const corner = corners[handle];
+    if (Math.hypot(point.x - corner.x, point.y - corner.y) <= hitPx) {
+      return handle;
+    }
+  }
+  return null;
+}
+
+export function pointInRegion(rect, point) {
+  const box = normRect(rect);
+  return point.x >= box.left && point.x <= box.right && point.y >= box.top && point.y <= box.bottom;
+}
+
+/** Topmost first: the last drawn region wins an overlap. */
+export function topRegionAt(regions, point, hitPx = REGION_HIT_CSS) {
+  const list = regions || [];
+  for (let index = list.length - 1; index >= 0; index -= 1) {
+    if (regionHandleAt(list[index], point, hitPx) || pointInRegion(list[index], point)) {
+      return index;
+    }
+  }
+  return -1;
+}
+
+function clampRect(box, width, height) {
+  const w = Math.max(1, Number(width) || 1);
+  const h = Math.max(1, Number(height) || 1);
+  return {
+    x1: Math.min(Math.max(0, box.left), w),
+    y1: Math.min(Math.max(0, box.top), h),
+    x2: Math.min(Math.max(0, box.right), w),
+    y2: Math.min(Math.max(0, box.bottom), h),
+  };
+}
+
+/** Dragging inside slides the whole region, never off the picture. */
+export function moveRegion(rect, dx, dy, width, height) {
+  const box = normRect(rect);
+  const w = box.right - box.left;
+  const h = box.bottom - box.top;
+  const maxX = Math.max(0, (Number(width) || 1) - w);
+  const maxY = Math.max(0, (Number(height) || 1) - h);
+  const left = Math.min(Math.max(0, box.left + (Number(dx) || 0)), maxX);
+  const top = Math.min(Math.max(0, box.top + (Number(dy) || 0)), maxY);
+  return { x1: left, y1: top, x2: left + w, y2: top + h };
+}
+
+/** Dragging a corner moves that corner only, the opposite one stays put. */
+export function resizeRegion(rect, handle, point, width, height) {
+  const box = normRect(rect);
+  const next = { ...box };
+  if (String(handle).includes("w")) {
+    next.left = point.x;
+  } else {
+    next.right = point.x;
+  }
+  if (String(handle).includes("n")) {
+    next.top = point.y;
+  } else {
+    next.bottom = point.y;
+  }
+  return clampRect(
+    {
+      left: Math.min(next.left, next.right),
+      top: Math.min(next.top, next.bottom),
+      right: Math.max(next.left, next.right),
+      bottom: Math.max(next.top, next.bottom),
+    },
+    width,
+    height,
+  );
+}
+
+export function deleteRegionAt(regions, index) {
+  return (regions || []).filter((_, at) => at !== index);
+}
+
 export function wholeImageRect(imageWidth, imageHeight) {
   return { x: 0, y: 0, w: Math.max(1, Math.round(imageWidth)), h: Math.max(1, Math.round(imageHeight)) };
 }
