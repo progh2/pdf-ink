@@ -16,30 +16,41 @@ const header = html.slice(html.indexOf('class="write-top"'), html.indexOf('class
 const drawer = html.slice(html.indexOf('id="preview-drawer"'), html.indexOf('id="preview-backdrop"'));
 
 describe("M4 #25 chrome", () => {
-  it("keeps 선택 only inside ⋯, never as a capsule slot", () => {
+  it("keeps 선택 on the one utility bar, not a second capsule", () => {
     assert.equal((html.match(/class="toolbar"/g) || []).length, 1);
     assert.doesNotMatch(html, /id="m4-bar"|id="m4-rail"|class="m4-rail"/);
-    assert.doesNotMatch(toolbar, /id="select-btn"|data-tool="select"|선택/);
-    assert.doesNotMatch(html, /id="select-btn"|id="rotate-panel"/);
-    assert.ok(toolbar.indexOf('id="eraser-btn"') < toolbar.indexOf('id="undo-btn"'));
-    assert.ok(toolbar.indexOf('id="undo-btn"') < toolbar.indexOf('id="more-btn"'));
-    assert.doesNotMatch(toolbar, /id="prev-btn"|id="next-btn"|id="redo-btn"/);
+    assert.match(toolbar, /id="select-btn"/);
+    assert.doesNotMatch(html, /id="rotate-panel"/);
+    assert.ok(toolbar.indexOf('id="eraser-btn"') < toolbar.indexOf('id="select-btn"'));
+    assert.ok(toolbar.indexOf('id="select-btn"') < toolbar.indexOf('id="undo-btn"'));
+    assert.ok(toolbar.indexOf('id="undo-btn"') < toolbar.indexOf('id="redo-btn"'));
+    assert.ok(toolbar.indexOf('id="redo-btn"') < toolbar.indexOf('id="more-btn"'));
+    assert.doesNotMatch(toolbar, /id="prev-btn"|id="next-btn"/);
     assert.match(header, /id="prev-btn"/);
     assert.match(header, /id="next-btn"/);
     assert.match(header, /id="interact-btn"/);
-    assert.doesNotMatch(header, /select-btn|undo-btn|more-btn/);
-    assert.match(css, /\.tool \{[\s\S]*width: var\(--touch\)/);
-    assert.match(css, /--touch: 44px/);
+    assert.doesNotMatch(header, /undo-btn|more-btn/);
+    assert.match(css, /\.tool \{[\s\S]*width: var\(--cell\)/);
+    assert.match(css, /--cell: 44px/);
     assert.match(css, /\.toolbar \{[\s\S]*height: 56px/);
-    assert.doesNotMatch(main, /selectFitsCapsule|selectBtn/);
+    assert.doesNotMatch(main, /selectFitsCapsule/);
   });
 
-  it("puts 선택·이미지·회전(왼쪽/오른쪽)·미리보기 in the same overflow card", () => {
-    assert.deepEqual(M4_OVERFLOW_ITEMS, ["mosaic", "capture", "fullscreen", "select", "image", "rotate", "preview"]);
+  it("puts 이미지·회전(왼쪽/오른쪽)·미리보기 in the same overflow card", () => {
+    assert.deepEqual(M4_OVERFLOW_ITEMS, [
+      "mosaic",
+      "capture",
+      "fullscreen",
+      "image",
+      "rotate",
+      "preview",
+      "save",
+      "export",
+    ]);
     assert.match(more, /마스킹\(모자이크\)/);
     assert.match(more, /영역캡처/);
     assert.match(more, /전체화면/);
-    assert.match(more, /data-more="select">선택/);
+    assert.doesNotMatch(more, /data-more="select"/);
     assert.match(more, /이미지/);
     assert.match(more, /data-rotate="-90">왼쪽/);
     assert.match(more, /data-rotate="90">오른쪽/);
@@ -47,7 +58,7 @@ describe("M4 #25 chrome", () => {
     assert.match(more, /미리보기/);
     assert.doesNotMatch(more, /data-more="rotate"/);
     assert.doesNotMatch(more, /책갈피|개요 페이지/);
-    assert.doesNotMatch(toolbar, /책갈피|개요|이미지|회전|미리보기|선택/);
+    assert.doesNotMatch(toolbar, /책갈피|개요|이미지|회전|미리보기/);
     assert.match(drawer, /책갈피/);
     assert.match(drawer, /개요/);
     assert.match(drawer, /개요 페이지 넣기/);
@@ -72,8 +83,8 @@ describe("M4 #25 chrome", () => {
     assert.match(html, /id="float-bar"/);
     assert.match(html, /id="copy-btn">복사/);
     assert.match(html, /id="paste-btn">붙여넣기/);
-    assert.doesNotMatch(toolbar, /id="select-btn"|data-tool="select"/);
-    assert.doesNotMatch(html, /id="select-btn"/);
+    assert.match(toolbar, /id="select-btn"|data-tool="select"/);
+    assert.match(html, /id="select-btn"/);
     assert.match(css, /\.select-layer \{[\s\S]*z-index: 8/);
     assert.match(css, /\.float-bar \{[\s\S]*z-index: 8/);
     assert.match(css, /\.float-bar button \{[\s\S]*height: 44px/);

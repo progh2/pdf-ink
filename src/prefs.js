@@ -1,6 +1,9 @@
 import { defaultToolbarPosition, slotLineWidth } from "./viewport.js";
+import { defaultFloat, floatFromLegacySide, migrateDock } from "./toolbar.js";
 import {
   HIGHLIGHTER_OPACITY_DEFAULT,
+  PENCIL_COLOR,
+  STAMP_COLOR,
   clampOpacity,
   defaultColorForKind,
   normalizeEraseMode,
@@ -10,8 +13,10 @@ import {
 } from "./tools.js";
 
 const TOOLBAR_POS_KEY = "pdf-ink:toolbar-pos";
+const TOOLBAR_FLOAT_KEY = "pdf-ink:toolbar-float";
 const SLOTS_KEY = "pdf-ink:pen-slots";
 const SLOT_INDEX_KEY = "pdf-ink:slot-index";
+const INK_TOOLS_KEY = "pdf-ink:ink-tools";
 const VIEW_MODE_KEY = "pdf-ink:view-mode";
 const ZOOM_LOCK_KEY = "pdf-ink:zoom-lock";
 const INTERACT_KEY = "pdf-ink:interact-mode";
@@ -24,6 +29,21 @@ export const DEFAULT_SLOTS = [
 ];
 
 export const DEFAULT_ERASER = { mode: "pixel", width: 4 };
+
+export const DEFAULT_INK_TOOLS = {
+  pen: { type: "pen", color: "#1A1A1A", width: 2, opacity: HIGHLIGHTER_OPACITY_DEFAULT, stamp: "참 잘했어요" },
+  highlighter: {
+    type: "highlighter",
+    color: "#FFE566",
+    width: 8,
+    opacity: HIGHLIGHTER_OPACITY_DEFAULT,
+    stamp: "참 잘했어요",
+  },
+  pencil: { type: "pencil", color: PENCIL_COLOR, width: 2, opacity: HIGHLIGHTER_OPACITY_DEFAULT, stamp: "참 잘했어요" },
+  stamp: { type: "stamp", color: STAMP_COLOR, width: 2, opacity: HIGHLIGHTER_OPACITY_DEFAULT, stamp: "참 잘했어요" },
+};
+
+export const INK_TOOL_KINDS = ["pen", "highlighter", "pencil", "stamp"];
 
 export function normalizeColor(value, fallback = "#1A1A1A") {
   return normalizeHex(value, fallback);
@@ -60,17 +80,41 @@ function writeRaw(key, value) {
 }
 
 export function loadToolbarPosition(width, height) {
-  const raw = readRaw(TOOLBAR_POS_KEY);
-  if (raw === "top" || raw === "left" || raw === "right" || raw === "bottom") {
-    return raw;
-  }
-  return defaultToolbarPosition(width, height);
+  const fallback = defaultToolbarPosition(width, height);
+  return migrateDock(readRaw(TOOLBAR_POS_KEY), fallback);
 }
 
 export function saveToolbarPosition(position) {
-  if (position === "top" || position === "left" || position === "right" || position === "bottom") {
-    writeRaw(TOOLBAR_POS_KEY, position);
+  const next = migrateDock(position, "");
+  if (next) {
+    writeRaw(TOOLBAR_POS_KEY, next);
   }
+}
+
+export function loadToolbarFloat(width, height) {
+  const legacy = readRaw(TOOLBAR_POS_KEY);
+  try {
+    const raw = readRaw(TOOLBAR_FLOAT_KEY);
+    if (raw) {
+      const data = JSON.parse(raw);
+      if (Number.isFinite(data?.x) && Number.isFinite(data?.y)) {
+        return { x: data.x, y: data.y };
+      }
+    }
+  } catch {
+    // fall through
+  }
+  if (legacy === "left" || legacy === "right") {
+    return floatFromLegacySide(legacy, width, height);
+  }
+  return defaultFloat(width, height);
+}
+
+export function saveToolbarFloat(point) {
+  if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) {
+    return;
+  }
+  writeRaw(TOOLBAR_FLOAT_KEY, JSON.stringify({ x: point.x, y: point.y }));
 }
 
 export function loadSlots() {
@@ -94,6 +138,52 @@ export function saveSlots(slots) {
     SLOTS_KEY,
     JSON.stringify(slots.slice(0, 3).map((slot, index) => coerceSlot(slot, DEFAULT_SLOTS[index]))),
   );
+}
+
+export function coerceInkTool(kind, value) {
+  const fallback = DEFAULT_INK_TOOLS[kind] || DEFAULT_INK_TOOLS.pen;
+  const slot = coerceSlot({ ...(value || {}), type: kind }, fallback);
+  return { ...slot, type: kind };
+}
+
+export function coerceInkTools(value) {
+  const tools = {};
+  for (const kind of INK_TOOL_KINDS) {
+    tools[kind] = coerceInkTool(kind, value?.[kind]);
+  }
+  return tools;
+}
+
+function inkToolsFromSlots(slots) {
+  const list = Array.isArray(slots) ? slots : [];
+  const pick = (kind) => list.find((slot) => slot?.type === kind);
+  return coerceInkTools({
+    pen: pick("pen") || list[0],
+    highlighter: pick("highlighter"),
+    pencil: pick("pencil"),
+    stamp: pick("stamp") || list.find((slot) => slot?.stamp),
+  });
+}
+
+export function loadInkTools() {
+  try {
+    const raw = readRaw(INK_TOOLS_KEY);
+    if (raw) {
+      const data = JSON.parse(raw);
+      if (data && typeof data === "object") {
+        return coerceInkTools(data);
+      }
+    }
+  } catch {
+    // fall through to slots
+  }
+  return inkToolsFromSlots(loadSlots());
+}
+
+export function saveInkTools(tools) {
+  const next = coerceInkTools(tools);
+  writeRaw(INK_TOOLS_KEY, JSON.stringify(next));
+  saveSlots([next.pen, next.highlighter, next.pencil]);
 }
 
 export function loadSlotIndex() {

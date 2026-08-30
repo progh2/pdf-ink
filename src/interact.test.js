@@ -162,7 +162,7 @@ describe("#47 두 탭이 직선이 되면 안 됨", () => {
     assert.match(main, /lastInkUpClient/);
     assert.doesNotMatch(main, /shapeSnap|snapToShape|holdShape/);
     assert.equal((html.match(/class="toolbar"/g) || []).length, 1);
-    assert.equal((toolbar.match(/data-slot="/g) || []).length, 3);
+    assert.doesNotMatch(toolbar, /data-slot=/);
     assert.match(main, /bindUndoHold\(els\.undoBtn,\s*\{\s*onUndo:\s*undoInk,\s*onRedo:\s*redoInk/);
   });
 });

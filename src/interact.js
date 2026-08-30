@@ -103,13 +103,23 @@ export function rectBigEnough(rect, minNorm = 0.012) {
   return Boolean(rect && rect.w >= minNorm && rect.h >= minNorm);
 }
 
-export const M4_OVERFLOW_ITEMS = ["mosaic", "capture", "fullscreen", "select", "image", "rotate", "preview"];
+export const M4_OVERFLOW_ITEMS = [
+  "mosaic",
+  "capture",
+  "fullscreen",
+  "image",
+  "rotate",
+  "preview",
+  "save",
+  "export",
+];
 export const M4_OVERFLOW_LABELS = {
   mosaic: "마스킹(모자이크)",
   capture: "영역캡처",
   fullscreen: "전체화면",
-  select: "선택",
   image: "이미지",
   rotate: "회전",
   preview: "미리보기",
+  save: "저장",
+  export: "내보내기",
 };

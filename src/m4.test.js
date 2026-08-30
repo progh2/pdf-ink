@@ -13,7 +13,7 @@ const history = readFileSync(join(root, "src/history.js"), "utf8");
 const capture = readFileSync(join(root, "src/capture.js"), "utf8");
 
 describe("M4 #31 chrome", () => {
-  it("keeps undo/overflow inside the slot toolbar capsule opposite the 3 slots", () => {
+  it("keeps undo/overflow on the one utility bar and view/edit on the header lock", () => {
     const rail = html.slice(html.indexOf('class="toolbar-rail"'), html.indexOf('id="workspace"'));
     const toolbar = html.slice(html.indexOf('id="toolbar"'), html.indexOf('id="workspace"'));
     const header = html.slice(html.indexOf('class="write-top"'), html.indexOf('class="write-body"'));
@@ -23,42 +23,45 @@ describe("M4 #31 chrome", () => {
     assert.match(rail, /id="undo-btn"/);
     assert.match(rail, /id="more-btn"/);
     assert.match(toolbar, /id="undo-btn"/);
+    assert.match(toolbar, /id="redo-btn"/);
     assert.match(toolbar, /id="more-btn"/);
-    assert.match(toolbar, /toolbar-cluster/);
-    assert.ok(toolbar.indexOf('data-slot="0"') < toolbar.indexOf('id="undo-btn"'));
+    assert.doesNotMatch(toolbar, /toolbar-cluster|data-slot=/);
     assert.ok(toolbar.indexOf('id="eraser-btn"') < toolbar.indexOf('id="undo-btn"'));
-    assert.ok(toolbar.indexOf('id="undo-btn"') < toolbar.indexOf('id="more-btn"'));
-    assert.equal((toolbar.match(/data-slot="/g) || []).length, 3);
+    assert.ok(toolbar.indexOf('id="undo-btn"') < toolbar.indexOf('id="redo-btn"'));
+    assert.ok(toolbar.indexOf('id="redo-btn"') < toolbar.indexOf('id="more-btn"'));
     assert.match(toolbar, /id="eraser-btn"/);
-    assert.match(toolbar, /id="settings-btn"/);
-    assert.doesNotMatch(toolbar, /id="prev-btn"|id="next-btn"|id="redo-btn"|interact-btn/);
+    assert.match(toolbar, /id="select-btn"/);
+    assert.doesNotMatch(toolbar, /id="prev-btn"|id="next-btn"|interact-btn/);
     assert.match(header, /id="prev-btn"/);
     assert.match(header, /id="next-btn"/);
-    assert.match(css, /\.toolbar \{[\s\S]*justify-content: space-between/);
-    assert.match(css, /\[data-toolbar="left"\] \.toolbar,[\s\S]*height: auto/);
     assert.match(main, /armStayOnWrite/);
     assert.doesNotMatch(main.slice(main.indexOf("function redoInk"), main.indexOf("function overflowSide")), /showUploadScreen|pages\s*=\s*\{\}/);
-    const railCss = css.slice(css.indexOf(".toolbar-rail {"), css.indexOf(".write-screen[data-toolbar=\"left\"] .toolbar-rail"));
-    assert.doesNotMatch(railCss, /space-between/);
     assert.match(html, /aria-label="되돌리기"/);
-    assert.doesNotMatch(html, /id="redo-btn"/);
-    assert.doesNotMatch(header, /undo-btn|more-btn|select-btn/);
+    assert.match(html, /id="redo-btn"/);
+    assert.doesNotMatch(header, /undo-btn|more-btn/);
     assert.match(header, /id="interact-btn"/);
-    assert.deepEqual(M4_OVERFLOW_ITEMS, ["mosaic", "capture", "fullscreen", "select", "image", "rotate", "preview"]);
-    assert.doesNotMatch(toolbar, /id="select-btn"|data-tool="select"/);
+    assert.deepEqual(M4_OVERFLOW_ITEMS, [
+      "mosaic",
+      "capture",
+      "fullscreen",
+      "image",
+      "rotate",
+      "preview",
+      "save",
+      "export",
+    ]);
     assert.match(toolbar, /id="undo-btn"/);
-    assert.doesNotMatch(toolbar, /책갈피|개요|미리보기|이미지|회전|선택/);
-    assert.match(html, /data-more="select">선택/);
+    assert.doesNotMatch(toolbar, /책갈피|개요|미리보기|이미지|회전/);
     assert.match(html, /data-more="image">이미지/);
     assert.match(html, /data-rotate="-90">왼쪽/);
     assert.match(html, /data-more="preview">미리보기/);
-    assert.doesNotMatch(html, /id="select-btn"|id="rotate-panel"|data-more="rotate"/);
+    assert.doesNotMatch(html, /id="rotate-panel"|data-more="rotate"/);
     assert.match(html, /id="preview-drawer"/);
     assert.match(html, /data-preview-filter="bookmarks">책갈피/);
     assert.doesNotMatch(html, /id="m4-bar"|id="m4-rail"|class="m4-rail"/);
     assert.match(css, /\.toolbar \{[\s\S]*height: 56px/);
-    assert.match(css, /\.tool \{[\s\S]*width: var\(--touch\)/);
-    assert.match(css, /--touch: 44px/);
+    assert.match(css, /\.tool \{[\s\S]*width: var\(--cell\)/);
+    assert.match(css, /--cell: 44px/);
     assert.match(css, /\.interact-lock \{[\s\S]*width: 32px;[\s\S]*color: #8a8478/);
     assert.match(css, /\.slot-panel \{[\s\S]*padding: 12px;[\s\S]*border: 1px solid #e6e1d6;[\s\S]*border-radius: 16px/);
     assert.match(css, /\.more-panel button \{[\s\S]*height: 44px/);
@@ -66,7 +69,6 @@ describe("M4 #31 chrome", () => {
     assert.match(main, /from "\.\/undoHold\.js"/);
     assert.match(main, /placeOverflowPanel[\s\S]*left = "-9999px"/);
     assert.match(css, /\.more-panel \{[\s\S]*left: -9999px/);
-    assert.doesNotMatch(main, /redoBtn/);
   });
 
   it("does not start ink while mosaic/capture is armed, and keeps capture until confirm", () => {
@@ -86,6 +88,6 @@ describe("M4 #31 chrome", () => {
     assert.match(main, /els\.captureConfirm\.addEventListener\("click"/);
     assert.match(main, /writePngClipboard/);
     assert.equal((main.match(/writePngClipboard/g) || []).length, 2);
-    assert.doesNotMatch(html, />저장</);
+    assert.match(html, /data-more="save">저장/);
   });
 });
