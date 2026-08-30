@@ -72,3 +72,11 @@ export function deleteOutlineEntry(entries, id) {
 export function outlineDestPage(entry) {
   return Math.max(1, Math.round(Number(entry?.page) || 1));
 }
+
+/** Plain text only. Callers must not use innerHTML for outline titles. */
+export function setOutlineTitleText(node, title) {
+  if (!node) {
+    return;
+  }
+  node.textContent = String(title ?? "");
+}

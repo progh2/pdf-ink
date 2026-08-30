@@ -108,6 +108,7 @@ import {
   outlineDestPage,
   outlineTitleForPage,
   renameOutlineEntry,
+  setOutlineTitleText,
 } from "./outline.js";
 import {
   HIGHLIGHTER_OPACITY_DEFAULT,
@@ -2414,7 +2415,7 @@ function renderTocList() {
     const title = document.createElement("button");
     title.type = "button";
     title.className = "preview-toc-title";
-    title.textContent = entry.title || outlineTitleForPage(dest);
+    setOutlineTitleText(title, entry.title || outlineTitleForPage(dest));
     title.addEventListener("click", (event) => {
       event.stopPropagation();
       beginTocTitleEdit(title, entry);

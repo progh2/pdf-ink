@@ -13,6 +13,7 @@ import {
   PREVIEW_TAB_LABELS,
   PREVIEW_TABS,
   renameOutlineEntry,
+  setOutlineTitleText,
 } from "./outline.js";
 import { BAR_TOOLS } from "./toolbar.js";
 import { loadStrokes, saveStrokes } from "./storage.js";
@@ -88,7 +89,7 @@ describe("#53 개요 추가·수정·삭제", () => {
     });
     assert.match(main, /saveStrokes\(state\.identity, state\.pages, state\.leaves, state\.outline\)/);
     assert.match(main, /state\.outline = normalizeOutline\(stored\.outline\)/);
-    assert.doesNotMatch(main, /pdf-lib|jsPDF|setOutline|docOutline/);
+    assert.doesNotMatch(main, /pdf-lib|jsPDF|doc\.outline|setDocOutline/);
     const saveFn = main.slice(main.indexOf("function saveDocumentNow"), main.indexOf("function exportDocumentStub"));
     assert.doesNotMatch(saveFn, /createObjectURL|download|pdf-lib|jsPDF/);
   });
@@ -134,5 +135,26 @@ describe("#53 개요 추가·수정·삭제", () => {
     assert.doesNotMatch(more, /data-more="outline"|개요 추가/);
     assert.match(drawer, /개요 페이지 넣기/);
     assert.match(drawer, /data-preview-filter="outline">개요/);
+  });
+
+  it("keeps tag-looking title characters as textContent, never innerHTML", () => {
+    const tagged = "<b>제목</b>";
+    const entry = makeOutlineEntry(1, { title: tagged });
+    assert.equal(entry.title, tagged);
+    assert.equal(renameOutlineEntry([entry], entry.id, tagged)[0].title, tagged);
+    const node = {
+      textContent: "",
+      set innerHTML(_value) {
+        throw new Error("innerHTML");
+      },
+    };
+    setOutlineTitleText(node, tagged);
+    assert.equal(node.textContent, tagged);
+    const tocUi = main.slice(main.indexOf("function beginTocTitleEdit"), main.indexOf("async function renderPreviewList"));
+    assert.match(tocUi, /setOutlineTitleText\(/);
+    assert.match(tocUi, /input\.value = entry\.title/);
+    assert.doesNotMatch(tocUi, /innerHTML|insertAdjacentHTML|DOMParser|outerHTML/);
+    assert.match(main, /from "\.\/outline\.js"/);
+    assert.match(main, /setOutlineTitleText/);
   });
 });
