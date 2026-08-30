@@ -14,9 +14,12 @@ import {
   ROTATE_HANDLE_GAP_CSS,
   ROTATE_HANDLE_SIZE_CSS,
   ROTATE_HANDLE_STROKE_CSS,
+  isStrokeItem,
   rotateHandleAt,
   rotateHandleCenter,
   selectedBounds,
+  selectHudTop,
+  strokeHitsPoint,
   translateItem,
   translateItems,
 } from "./select.js";
@@ -129,5 +132,59 @@ describe("선택", () => {
     assert.equal(pages[1].length, 2);
     assert.equal(pages[1][0].type, "pen");
     assert.equal(pages[1][1].type, "stamp");
+  });
+});
+
+describe("첫 사용 선택 (#86)", () => {
+  const curve = {
+    type: "pen",
+    width: 2,
+    points: [
+      { x: 0.2, y: 0.2 },
+      { x: 0.5, y: 0.5 },
+      { x: 0.8, y: 0.2 },
+    ],
+  };
+
+  it("grabs a thin stroke tapped a few px off the ink", () => {
+    const hair = { type: "pen", width: 1, points: [{ x: 0.2, y: 0.5 }, { x: 0.8, y: 0.5 }] };
+    assert.equal(strokeHitsPoint(hair, { x: 0.5, y: 0.5 }, 400, 600), true);
+    // 3 css px below the ink on a 600 css px page.
+    assert.equal(strokeHitsPoint(hair, { x: 0.5, y: 0.505 }, 400, 600), true);
+    assert.deepEqual(pickItemsAt([hair], { x: 0.5, y: 0.505 }, 400, 600), [0]);
+  });
+
+  it("does not grab the empty middle of a curve's box", () => {
+    assert.equal(strokeHitsPoint(curve, { x: 0.5, y: 0.22 }, 400, 600), false);
+    assert.deepEqual(pickItemsAt([curve], { x: 0.5, y: 0.22 }, 400, 600), []);
+    assert.equal(strokeHitsPoint(curve, { x: 0.5, y: 0.5 }, 400, 600), true);
+  });
+
+  it("still grabs the stamp by its box", () => {
+    const items = [curve, stamp];
+    assert.deepEqual(pickItemsAt(items, { x: 0.7, y: 0.7 }, 400, 600), [1]);
+    assert.equal(isStrokeItem(curve), true);
+    assert.equal(isStrokeItem(stamp), false);
+  });
+
+  it("marquee still uses the box, so a curve is caught by a box over it", () => {
+    assert.deepEqual(pickItemsInRect([curve], { x: 0.1, y: 0.1, w: 0.8, h: 0.6 }, 400, 600), [0]);
+  });
+
+  it("puts the float bar under the selection when it fits", () => {
+    assert.deepEqual(selectHudTop({ top: 100, bottom: 200 }, 56, 800), { top: 208, placement: "below" });
+  });
+
+  it("flips the float bar above a selection near the bottom", () => {
+    const spot = selectHudTop({ top: 600, bottom: 760 }, 56, 800);
+    assert.equal(spot.placement, "above");
+    assert.equal(spot.top, 536);
+    assert.ok(spot.top + 56 <= 600, "bar must not cover the object");
+  });
+
+  it("clamps only when the selection fills the screen", () => {
+    const spot = selectHudTop({ top: 0, bottom: 800 }, 56, 800);
+    assert.equal(spot.placement, "clamped");
+    assert.ok(spot.top >= 8 && spot.top + 56 <= 800);
   });
 });

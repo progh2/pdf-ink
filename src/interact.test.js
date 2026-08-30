@@ -13,7 +13,9 @@ import {
   interactModeLabel,
   isReusedInkStart,
   rectFromPoints,
+  shouldNoticeViewMode,
   shouldPanPointer,
+  VIEW_NOTICE_TEXT,
 } from "./interact.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -214,5 +216,26 @@ describe("#47 두 탭이 직선이 되면 안 됨", () => {
     assert.equal((html.match(/class="toolbar"/g) || []).length, 1);
     assert.doesNotMatch(toolbar, /data-slot=/);
     assert.match(main, /bindUndoHold\(els\.undoBtn,\s*\{\s*onUndo:\s*undoInk,\s*onRedo:\s*redoInk/);
+  });
+});
+
+describe("보기 중 안내 (#86)", () => {
+  it("says it once when a locked page is drawn on", () => {
+    assert.equal(shouldNoticeViewMode({ interactMode: "view", tool: "pen", now: 0, lastAt: null }), true);
+    assert.equal(shouldNoticeViewMode({ interactMode: "view", tool: "pen", now: 500, lastAt: 0 }), false);
+    assert.equal(shouldNoticeViewMode({ interactMode: "view", tool: "pen", now: 2000, lastAt: 0 }), true);
+  });
+
+  it("stays quiet while editing or when not a drawing tool", () => {
+    assert.equal(shouldNoticeViewMode({ interactMode: "edit", tool: "pen", now: 0, lastAt: null }), false);
+    assert.equal(shouldNoticeViewMode({ interactMode: "view", tool: "select", now: 0, lastAt: null }), false);
+    assert.equal(shouldNoticeViewMode({ interactMode: "view", tool: "pen", rectTool: "capture", now: 0, lastAt: null }), false);
+  });
+
+  it("covers the drawing tools that leave no ink while locked", () => {
+    for (const tool of ["pen", "highlighter", "pencil", "eraser", "stamp"]) {
+      assert.equal(shouldNoticeViewMode({ interactMode: "view", tool, now: 0, lastAt: null }), true, tool);
+    }
+    assert.equal(VIEW_NOTICE_TEXT, "보기 중");
   });
 });
