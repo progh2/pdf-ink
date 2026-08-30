@@ -50,6 +50,7 @@ import {
   beginInkPoints,
   canCreateInk,
   finishInkPoints,
+  interactModeLabel,
   rectBigEnough,
   rectFromPoints,
   shouldPanPointer,
@@ -1376,9 +1377,14 @@ function syncZoomLock() {
 
 function syncInteract() {
   const viewing = state.interactMode === "view";
+  const label = interactModeLabel(state.interactMode);
   els.interactBtn.classList.toggle("is-on", viewing);
   els.interactBtn.setAttribute("aria-pressed", viewing ? "true" : "false");
-  els.interactBtn.setAttribute("aria-label", viewing ? "보기" : "편집");
+  els.interactBtn.setAttribute("aria-label", label);
+  const text = els.interactBtn.querySelector(".interact-lock-label");
+  if (text) {
+    text.textContent = label;
+  }
   const closed = els.interactBtn.querySelector(".lock-closed");
   const opened = els.interactBtn.querySelector(".lock-open");
   if (closed && opened) {

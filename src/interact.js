@@ -2,6 +2,10 @@ export function normalizeInteractMode(value) {
   return value === "view" ? "view" : "edit";
 }
 
+export function interactModeLabel(mode) {
+  return normalizeInteractMode(mode) === "view" ? "읽기" : "편집";
+}
+
 export function canCreateInk({ interactMode, penOnly, pointerType, rectTool, tool } = {}) {
   if (normalizeInteractMode(interactMode) === "view") {
     return false;

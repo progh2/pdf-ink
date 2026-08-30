@@ -33,14 +33,17 @@
           <h1 class="doc-title" id="doc-title"></h1>
           <div class="write-top-end">
             <button type="button" class="interact-lock" id="interact-btn" aria-label="편집" aria-pressed="false">
-              <svg class="lock-closed" viewBox="0 0 24 24" aria-hidden="true" hidden>
-                <rect x="6" y="11" width="12" height="9" rx="1.6" fill="none" stroke="currentColor" stroke-width="1.8" />
-                <path d="M8.5 11V8.4a3.5 3.5 0 0 1 7 0V11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
-              </svg>
-              <svg class="lock-open" viewBox="0 0 24 24" aria-hidden="true">
-                <rect x="6" y="11" width="12" height="9" rx="1.6" fill="none" stroke="currentColor" stroke-width="1.8" />
-                <path d="M15.5 11V8.4a3.5 3.5 0 0 0-7 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
-              </svg>
+              <span class="interact-lock-icon" aria-hidden="true">
+                <svg class="lock-closed" viewBox="0 0 24 24" hidden>
+                  <rect x="6" y="11" width="12" height="9" rx="1.6" fill="none" stroke="currentColor" stroke-width="1.8" />
+                  <path d="M8.5 11V8.4a3.5 3.5 0 0 1 7 0V11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+                </svg>
+                <svg class="lock-open" viewBox="0 0 24 24">
+                  <rect x="6" y="11" width="12" height="9" rx="1.6" fill="none" stroke="currentColor" stroke-width="1.8" />
+                  <path d="M15.5 11V8.4a3.5 3.5 0 0 0-7 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+                </svg>
+              </span>
+              <span class="interact-lock-label">편집</span>
             </button>
             <div class="page-pager">
               <button type="button" class="page-step" id="prev-btn" aria-label="이전 페이지">

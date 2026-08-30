@@ -62,7 +62,9 @@ describe("M4 #31 chrome", () => {
     assert.match(css, /\.toolbar \{[\s\S]*height: 56px/);
     assert.match(css, /\.tool \{[\s\S]*width: var\(--cell\)/);
     assert.match(css, /--cell: 44px/);
-    assert.match(css, /\.interact-lock \{[\s\S]*width: 32px;[\s\S]*color: #8a8478/);
+    assert.match(css, /\.interact-lock \{[\s\S]*color: #8a8478/);
+    assert.match(css, /\.interact-lock-icon \{[\s\S]*width: 32px;[\s\S]*height: 32px/);
+    assert.match(header, /읽기|편집/);
     assert.match(css, /\.slot-panel \{[\s\S]*padding: 12px;[\s\S]*border: 1px solid #e6e1d6;[\s\S]*border-radius: 16px/);
     assert.match(css, /\.more-panel button \{[\s\S]*height: 44px/);
     assert.match(main, /bindUndoHold\(els\.undoBtn,\s*\{\s*onUndo:\s*undoInk,\s*onRedo:\s*redoInk/);

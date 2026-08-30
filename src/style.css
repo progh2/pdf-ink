@@ -145,7 +145,7 @@ body {
   left: 50%;
   transform: translateX(-50%);
   margin: 0;
-  max-width: min(42vw, calc(100% - 220px));
+  max-width: min(42vw, calc(100% - 280px));
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -166,21 +166,39 @@ body {
 }
 
 .interact-lock {
-  width: 32px;
   height: 32px;
-  padding: 0;
+  padding: 0 4px 0 0;
   border: 0;
   border-radius: 10px;
   background: transparent;
   color: #8a8478;
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 2px;
+  cursor: pointer;
+}
+
+.interact-lock-icon {
+  width: 32px;
+  height: 32px;
   display: grid;
   place-items: center;
-  cursor: pointer;
+  flex: 0 0 32px;
 }
 
 .interact-lock svg {
   width: 20px;
   height: 20px;
+}
+
+.interact-lock-label {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  color: inherit;
+  white-space: nowrap;
 }
 
 .interact-lock.is-on {
