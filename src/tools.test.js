@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
@@ -194,6 +195,8 @@ describe("stamp ghost preview", () => {
     assert.equal((html.match(/class="toolbar"/g) || []).length, 1);
     assert.doesNotMatch(main, /stampGhost.*select-handle|select-handle.*stampGhost/);
     assert.doesNotMatch(main, /cropping.*stampGhost|stampGhost.*cropping/);
+    const syntax = spawnSync(process.execPath, ["--check", join(root, "src/main.js")], { encoding: "utf8" });
+    assert.equal(syntax.status, 0, syntax.stderr);
   });
 });
 

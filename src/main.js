@@ -244,7 +244,7 @@ const state = {
   eraserWidth: loadEraser().width,
   pendingStamp: null,
   stampGhost: null,
-  shapeOffer: null;
+  shapeOffer: null,
   userScale: 1,
   panX: 0,
   panY: 0,
