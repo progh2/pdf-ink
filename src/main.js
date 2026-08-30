@@ -115,6 +115,12 @@ import {
 import { MOSAIC_CELL_CSS, mosaicBoxesPx, mosaicItem } from "./mosaic.js";
 import { recentCardEntries } from "./recent.js";
 import {
+  ensureWritePermission,
+  pickerOptions,
+  supportsFileHandles,
+  writeHandle,
+} from "./fileHandle.js";
+import {
   CHROMA_TOLERANCE,
   DEFAULT_FOLDER_ID,
   ERASER_RADIUS_CSS,
@@ -368,6 +374,7 @@ const state = {
   previewFilter: "all",
   previewTab: "pages",
   pageClip: null,
+  fileHandle: null,
   stickers: [],
   stickerFolders: [],
   stickerFolder: DEFAULT_FOLDER_ID,
@@ -628,6 +635,7 @@ async function persistSession() {
       name: state.fileName,
       buffer: state.buffer,
       page: state.page,
+      handle: state.fileHandle,
     });
   } catch {
     // Session restore is best-effort; strokes are already in localStorage.
@@ -1413,6 +1421,7 @@ async function openStoredDocument(identity) {
       identity: row.identity,
       name: row.name || "문서.pdf",
       page: row.page || 1,
+      handle: row.handle || null,
     });
   } catch {
     showBanner("저장된 파일을 열 수 없습니다.");
@@ -1453,7 +1462,9 @@ function placeStamp(view, point) {
   drawStrokesOn(view);
 }
 
-async function openPdfBuffer(buffer, { identity, name, page = 1 }) {
+async function openPdfBuffer(buffer, { identity, name, page = 1, handle = null }) {
+  // Always replace: a handle from the previous file must never write this one.
+  state.fileHandle = handle;
   if (state.pdf) {
     await state.pdf.destroy();
     state.pdf = null;
@@ -1486,7 +1497,7 @@ async function openPdfBuffer(buffer, { identity, name, page = 1 }) {
   await persistSession();
 }
 
-async function openSelectedFile(file) {
+async function openSelectedFile(file, handle = null) {
   const fileCheck = validatePdfFile(file);
   if (!fileCheck.ok) {
     showBanner(fileCheck.message);
@@ -1505,6 +1516,7 @@ async function openSelectedFile(file) {
     await openPdfBuffer(buffer, {
       identity: fileIdentity(file),
       name: file.name,
+      handle,
     });
   } catch {
     showBanner("PDF를 열 수 없습니다. 다른 파일을 선택해 주세요.");
@@ -2005,11 +2017,28 @@ function endStroke(event) {
   drawLive();
 }
 
-function pickFile() {
+async function pickFile() {
   if (!pickerAllowed() || !dropzoneGesture) {
     return;
   }
   dropzoneGesture = false;
+  // Chrome hands back a handle, so 저장 can write the original file (#82).
+  if (supportsFileHandles(window)) {
+    try {
+      const [handle] = await window.showOpenFilePicker(pickerOptions());
+      if (!handle) {
+        return;
+      }
+      const file = await handle.getFile();
+      await openSelectedFile(file, handle);
+      return;
+    } catch (error) {
+      if (error?.name === "AbortError") {
+        return;
+      }
+      // Fall through to the plain input (sandboxed frames, older builds).
+    }
+  }
   els.fileInput.click();
 }
 
@@ -4456,7 +4485,17 @@ async function withAnnotatedPdf(run, failMessage) {
 async function saveDocumentNow() {
   persistStrokes();
   persistSession();
-  await withAnnotatedPdf((blob, fileName) => {
+  await withAnnotatedPdf(async (blob, fileName) => {
+    // #82: the file the reader opened, not another copy in Downloads.
+    if (await ensureWritePermission(state.fileHandle)) {
+      try {
+        await writeHandle(state.fileHandle, blob);
+        flashBanner(`원본에 저장했습니다. ${state.fileHandle.name || fileName}`, 2200);
+        return;
+      } catch {
+        flashBanner("원본에 쓰지 못해 파일로 내려받습니다.", 2200);
+      }
+    }
     downloadBlob(blob, fileName);
     flashBanner(`저장했습니다. ${fileName}`, 2200);
   }, "PDF를 저장하지 못했습니다.");

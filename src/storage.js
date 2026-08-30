@@ -89,13 +89,19 @@ function openDb() {
 }
 
 function toEntry(record) {
-  return {
+  const entry = {
     identity: record.identity,
     name: record.name,
     buffer: record.buffer,
     page: record.page || 1,
     openedAt: record.openedAt || Date.now(),
   };
+  // Chrome can store the file handle itself, so reopening keeps the overwrite
+  // path alive (#82). Other browsers simply have none.
+  if (record.handle) {
+    entry.handle = record.handle;
+  }
+  return entry;
 }
 
 export async function saveLastSession(session) {
