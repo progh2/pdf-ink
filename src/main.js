@@ -4650,9 +4650,14 @@ document.addEventListener("pointerdown", (event) => {
 
 document.addEventListener("keydown", (event) => {
   const typing = event.target.closest?.("input, textarea, [contenteditable='true']");
-  if (event.key === "Escape" && (state.pendingCapture || (els.areaLinkPanel && !els.areaLinkPanel.hidden)) && !typing) {
+  if (event.key === "Escape" && state.pendingCapture && !typing) {
     event.preventDefault();
     hideMarquee();
+    return;
+  }
+  if (event.key === "Escape" && els.areaLinkPanel && !els.areaLinkPanel.hidden && !typing) {
+    event.preventDefault();
+    hideAreaLinkPanel();
     return;
   }
   if ((event.key === "Delete" || event.key === "Backspace") && !typing) {
