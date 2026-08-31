@@ -185,8 +185,8 @@ describe("#85 preview / page navigation speed", () => {
     assert.match(main, /from "\.\/pageWindow\.js"/);
   });
 
-  it("adds only the 미리보기 cell (#106) and does not mix #73/#68/#71/#72", () => {
-    assert.equal(BAR_TOOLS.length, 10, '#106: 미리보기 칸이 늘었다');
+  it("keeps the bar at nine cells (#119) and does not mix #73/#68/#71/#72", () => {
+    assert.equal(BAR_TOOLS.length, 9, '#119: 미리보기는 헤더로 갔다');
     assert.deepEqual(BAR_TOOLS, [
       "pen",
       "highlighter",
@@ -194,14 +194,14 @@ describe("#85 preview / page navigation speed", () => {
       "eraser",
       "select",
       "stamp",
-      "preview",
       "undo",
       "redo",
       "more",
     ]);
     const cells = toolbar.slice(toolbar.indexOf("toolbar-cells"));
-    assert.equal((cells.match(/<button/g) || []).length, 10);
-    assert.match(toolbar, /id="preview-btn"/, "#106: 미리보기가 바 칸으로 나왔다");
+    assert.equal((cells.match(/<button/g) || []).length, 9);
+    assert.doesNotMatch(toolbar, /id="preview-btn"/, "#119: 미리보기는 헤더 아이콘");
+    assert.match(html.slice(html.indexOf('class="write-top"')), /id="preview-btn"/);
     assert.doesNotMatch(html, /id="preview-speed"|id="nav-cache-btn"/);
     assert.doesNotMatch(html, /data-more="preview"/, "#106: ⋯에서는 빠졌다");
     assert.match(css, /\.preview-drawer \{[\s\S]*width: var\(--preview-w, 120px\)/);

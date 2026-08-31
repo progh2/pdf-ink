@@ -54,7 +54,6 @@ describe("#56 GoodNotes 4 utility bar", () => {
       "eraser",
       "select",
       "stamp",
-      "preview",
       "undo",
       "redo",
       "more",
@@ -225,7 +224,7 @@ describe("#49 메뉴 위치 왼·오 이동", () => {
     assert.match(css, /\[data-toolbar="left"\] \.toolbar-cells,[\s\S]*flex-direction: column/);
     assert.equal((html.match(/class="toolbar"/g) || []).length, 1);
     assert.equal(
-      (html.match(/data-tool=|id="preview-btn"|id="undo-btn"|id="redo-btn"|id="more-btn"/g) || []).length,
+      (toolbar.match(/data-tool=|id="undo-btn"|id="redo-btn"|id="more-btn"/g) || []).length,
       BAR_TOOLS.length,
     );
     const dockFn = main.slice(main.indexOf("async function setToolbarPosition"), main.indexOf("async function setViewMode"));
@@ -286,5 +285,33 @@ describe("#94 종이 여백", () => {
     assert.match(main, /function scrollPadPx\(\)[\s\S]*viewMode === "scroll" \? PAN_MARGIN_PX : 0/);
     assert.match(main, /offset: scrollPadPx\(\)/);
     assert.match(main, /pageStackOffset\(pageNum, metrics\) \* state\.userScale - 12 \+ scrollPadPx\(\)/);
+  });
+});
+
+describe("#119 헤더로 옮긴 미리보기·보기/편집", () => {
+  const top = html.slice(html.indexOf('class="write-top"'), html.indexOf('class="write-body"'));
+
+  it("puts 다른 PDF · 미리보기 · 보기/편집 left of the title", () => {
+    const start = top.slice(top.indexOf('class="write-top-start"'), top.indexOf('class="doc-title"'));
+    assert.match(start, /id="other-pdf"/);
+    assert.match(start, /id="preview-btn"/);
+    assert.match(start, /id="interact-btn"/);
+    // The title comes after the left group, the pager stays on the right.
+    assert.ok(top.indexOf('id="preview-btn"') < top.indexOf('class="doc-title"'));
+    assert.ok(top.indexOf('class="doc-title"') < top.indexOf('id="next-btn"'));
+  });
+
+  it("takes the preview cell off the bar and keeps it out of ⋯", () => {
+    assert.equal(BAR_TOOLS.length, 9);
+    assert.doesNotMatch(BAR_TOOLS.join(","), /preview/);
+    assert.doesNotMatch(toolbar, /id="preview-btn"/);
+    assert.doesNotMatch(html, /data-more="preview"/);
+    assert.equal((html.match(/id="preview-btn"/g) || []).length, 1, "one preview button only");
+  });
+
+  it("keeps the header icon out of the way of the title", () => {
+    assert.match(css, /\.write-top-start \{[\s\S]*display: flex/);
+    assert.match(css, /\.header-icon \{[\s\S]*width: 32px[\s\S]*height: 32px/);
+    assert.match(css, /\.doc-title \{[\s\S]*max-width: min\(38vw/);
   });
 });
