@@ -1286,6 +1286,7 @@ body {
 .preview-row {
   display: flex;
   flex-direction: column;
+  align-items: flex-start;
   gap: 6px;
   min-height: 167px;
   padding: 0;
@@ -1358,9 +1359,9 @@ body {
 }
 
 .preview-thumb {
-  width: var(--thumb-w, 88px);
-  height: var(--thumb-h, 117px);
-  aspect-ratio: 3 / 4;
+  /* #122: a turned page keeps its own shape inside the row box. */
+  max-width: var(--thumb-w, 88px);
+  max-height: var(--thumb-h, 117px);
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #fff;

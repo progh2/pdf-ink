@@ -238,3 +238,27 @@ describe("#71 영역 선택 유지·메뉴", () => {
     assert.match(main, /commitPageChange\(ctx\.pending\.page/);
   });
 });
+
+describe("#121 영역 박스와 메뉴", () => {
+  const src = readFileSync(join(root, "src/marqueeHold.js"), "utf8");
+
+  it("does not capture the pointer, so the menu hears the release", () => {
+    assert.doesNotMatch(src, /setPointerCapture/, "capture retargets the click away from the menu");
+    assert.match(main, /bindMenuRelease\(els\.marqueeMenu, "marquee", runMarqueeAction\)/);
+    assert.doesNotMatch(main, /els\.marqueeMenu\.addEventListener\("click"/, "one path only, or it runs twice");
+  });
+
+  it("keeps the box after the drag that made it", () => {
+    const marquee = main.slice(main.indexOf('if (drag.mode === "marquee")'));
+    assert.match(marquee, /state\.currentRect = null;/);
+    assert.match(marquee, /state\.pendingCapture = \{ page: drag\.page, rect \}/);
+    assert.match(marquee, /updateMarquee\(\);[\s\S]{0,60}updateAreaHits\(\)/);
+  });
+
+  it("never starts a new drag from the box or its menu", () => {
+    for (const fn of ["function startSelect", "function startRect"]) {
+      const body = main.slice(main.indexOf(fn), main.indexOf(fn) + 400);
+      assert.match(body, /#marquee, #area-layer, #area-link-panel/, fn);
+    }
+  });
+});

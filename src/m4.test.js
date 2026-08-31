@@ -87,7 +87,8 @@ describe("M4 #31 chrome", () => {
     assert.doesNotMatch(main, /clipboard\.read|clipboard-read/);
     assert.doesNotMatch(capture, /clipboard\.read|clipboard-read/);
     assert.doesNotMatch(html, /id="capture-confirm"|마스킹\(모자이크\)|data-more="mosaic"/);
-    assert.match(main, /els\.marqueeMenu\.addEventListener\("click"/);
+    // #121: 메뉴는 click 대신 위임 pointerup으로 실행된다(누른 채 떼도 동작).
+    assert.match(main, /bindMenuRelease\(els\.marqueeMenu, "marquee", runMarqueeAction\)/);
     assert.match(main, /writePngClipboard/);
     assert.equal((main.match(/writePngClipboard/g) || []).length, 2);
     assert.match(html, /data-more="save">저장/);
