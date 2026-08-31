@@ -5,6 +5,9 @@ import {
   filterLeaves,
   inkKey,
   insertOutlineAfter,
+  makeOutlineLeaf,
+  makePdfLeaf,
+  nearestPdfLeaf,
   normalizeLeaves,
   outlineViewport,
   pageOfInkKey,
@@ -48,5 +51,29 @@ describe("미리보기 책갈피 개요", () => {
     const turned = setLeafRotate(leaves, 0, 90);
     assert.equal(turned[0].rotate, 90);
     assert.deepEqual(outlineViewport(200, 300, 90), { width: 300, height: 200 });
+  });
+});
+
+describe("#118 빈 쪽 크기", () => {
+  const leaves = [
+    makePdfLeaf(1),
+    makeOutlineLeaf("a"),
+    makePdfLeaf(2),
+    makeOutlineLeaf("b"),
+  ];
+
+  it("borrows the size from the page before it", () => {
+    assert.equal(nearestPdfLeaf(leaves, 1)?.pdfPage, 1);
+    assert.equal(nearestPdfLeaf(leaves, 3)?.pdfPage, 2);
+  });
+
+  it("looks forward when the blank page leads", () => {
+    const leading = [makeOutlineLeaf("a"), makePdfLeaf(7)];
+    assert.equal(nearestPdfLeaf(leading, 0)?.pdfPage, 7);
+  });
+
+  it("gives up quietly when there is no pdf page at all", () => {
+    assert.equal(nearestPdfLeaf([makeOutlineLeaf("a")], 0), null);
+    assert.equal(nearestPdfLeaf([], 0), null);
   });
 });

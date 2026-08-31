@@ -9,6 +9,7 @@ import {
   makeOutlineEntry,
   normalizeOutline,
   outlineDestPage,
+  outlinePageLabel,
   outlineTitleForPage,
   PREVIEW_TAB_LABELS,
   PREVIEW_TABS,
@@ -250,5 +251,28 @@ describe("#113 길게 눌러 연 메뉴는 떼면 실행", () => {
     assert.match(mainSrc, /bindMenuRelease\(els\.tocMenu, "tocMenu", runTocMenu\)/);
     // A disabled row never runs.
     assert.match(mainSrc, /if \(!button \|\| button\.disabled/);
+  });
+});
+
+describe("#120 목차 줄의 쪽 번호", () => {
+  const mainSrc = readFileSync(join(root, "src/main.js"), "utf8");
+  const cssSrc = readFileSync(join(root, "src/style.css"), "utf8");
+
+  it("labels the row p5. style", () => {
+    assert.equal(outlinePageLabel(5), "p5.");
+    assert.equal(outlinePageLabel(0), "p1.");
+    assert.equal(outlinePageLabel("nonsense"), "p1.");
+  });
+
+  it("uses the page the leaf sits on today (#107)", () => {
+    const toc = mainSrc.slice(mainSrc.indexOf("function renderTocList"), mainSrc.indexOf("async function renderPreviewList"));
+    assert.match(toc, /const dest = outlineDestPage\(entry, state\.leaves\)/);
+    assert.match(toc, /outlinePageLabel\(dest\)/);
+    assert.match(toc, /row\.append\(page, title, jump\)/);
+  });
+
+  it("keeps the number quiet and the row at 36", () => {
+    assert.match(cssSrc, /\.preview-toc-page \{[\s\S]*color: var\(--muted\)[\s\S]*font-size: 12px/);
+    assert.match(cssSrc, /\.preview-toc-row \{[\s\S]*height: 36px/);
   });
 });

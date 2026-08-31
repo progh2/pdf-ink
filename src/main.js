@@ -192,6 +192,7 @@ import {
   inkKey,
   insertOutlineAfter,
   leafAt,
+  nearestPdfLeaf,
   normalizeLeaves,
   outlineViewport,
   pageOfInkKey,
@@ -224,6 +225,7 @@ import {
   deleteOutlineEntry,
   normalizeOutline,
   outlineDestPage,
+  outlinePageLabel,
   outlineTitleForPage,
   renameOutlineEntry,
   setOutlineTitleText,
@@ -877,16 +879,63 @@ function applyPageSize(view, cssWidth, cssHeight, pixelWidth, pixelHeight) {
   }
 }
 
+/** Blank page size: the same paper as the page it was put next to (#118). */
+async function blankPageCss(leaf) {
+  const base = await basePageCss();
+  const fallback = outlineViewport(base.width, base.height, leaf?.rotate || 0);
+  if (!state.pdf) {
+    return fallback;
+  }
+  const index = state.leaves.findIndex((item) => item.id === leaf?.id);
+  const near = nearestPdfLeaf(state.leaves, index < 0 ? 0 : index);
+  if (!near) {
+    return fallback;
+  }
+  try {
+    const page = await state.pdf.getPage(near.pdfPage);
+    const rotation = normalizeRotation((page.rotate || 0) + (leaf?.rotate || 0));
+    const viewport = page.getViewport({ scale: fitScale(page, state.viewMode, rotation), rotation });
+    return { width: viewport.width, height: viewport.height };
+  } catch {
+    return fallback;
+  }
+}
+
+/** Thumb shape for a blank page: the neighbour page's aspect (#118). */
+async function blankThumbShape(leaf, size) {
+  const wide = Math.round(size.width * 2);
+  const tall = Math.round(size.height * 2);
+  if (!state.pdf) {
+    return { width: wide, height: tall };
+  }
+  const index = state.leaves.findIndex((item) => item.id === leaf?.id);
+  const near = nearestPdfLeaf(state.leaves, index < 0 ? 0 : index);
+  if (!near) {
+    return { width: wide, height: tall };
+  }
+  try {
+    const page = await state.pdf.getPage(near.pdfPage);
+    const rotation = normalizeRotation((page.rotate || 0) + (leaf?.rotate || 0));
+    const base = page.getViewport({ scale: 1, rotation });
+    const scale = Math.min(wide / base.width, tall / base.height);
+    return {
+      width: Math.max(1, Math.round(base.width * scale)),
+      height: Math.max(1, Math.round(base.height * scale)),
+    };
+  } catch {
+    return { width: wide, height: tall };
+  }
+}
+
 async function renderPageView(view) {
   const token = ++view.token;
   const leaf = leafAt(state.leaves, view.pageNum);
   const dpr = window.devicePixelRatio || 1;
   if (!leaf || leaf.kind === "outline" || !state.pdf) {
-    const base = await basePageCss();
+    const css = await blankPageCss(leaf);
     if (token !== view.token) {
       return;
     }
-    const css = outlineViewport(base.width, base.height, leaf?.rotate || 0);
     const factor = state.renderFactor;
     applyPageSize(
       view,
@@ -901,14 +950,9 @@ async function renderPageView(view) {
     }
     const ctx = canvas2d(view.pdfCanvas);
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.fillStyle = "#F7F4EC";
+    // A blank page is paper, not a sign: white, no lettering (#118).
+    ctx.fillStyle = "#FFFFFF";
     ctx.fillRect(0, 0, view.pdfCanvas.width, view.pdfCanvas.height);
-    ctx.fillStyle = "#5C574E";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "top";
-    const outlineScale = dpr * state.renderFactor;
-    ctx.font = `700 ${18 * outlineScale}px "Apple SD Gothic Neo", "Noto Sans KR", sans-serif`;
-    ctx.fillText(leaf?.title || "개요", view.pdfCanvas.width / 2, 36 * outlineScale);
     view.rendered = true;
     drawStrokesOn(view, state.drawing && state.drawPage === view.pageNum ? state.currentStroke : null);
     return;
@@ -3993,6 +4037,9 @@ function renderTocList() {
     if (dest === state.page) {
       row.classList.add("is-current");
     }
+    const page = document.createElement("span");
+    page.className = "preview-toc-page";
+    page.textContent = outlinePageLabel(dest);
     const title = document.createElement("button");
     title.type = "button";
     title.className = "preview-toc-title";
@@ -4001,7 +4048,7 @@ function renderTocList() {
     jump.className = "preview-toc-jump";
     jump.setAttribute("aria-hidden", "true");
     row.dataset.dest = String(dest);
-    row.append(title, jump);
+    row.append(page, title, jump);
     bindTocRowGestures(row, entry, dest);
     els.tocList.append(row);
   }
@@ -4458,10 +4505,12 @@ async function paintPreviewThumb(canvas, leaf) {
   ctx.fillStyle = "#F7F4EC";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   if (leaf.kind === "outline" || !state.pdf) {
-    ctx.fillStyle = "#5C574E";
-    ctx.textAlign = "center";
-    ctx.font = "600 16px sans-serif";
-    ctx.fillText(leaf.title || "빈 쪽", canvas.width / 2, 40);
+    // White paper, no lettering, shaped like the page it sits next to (#118).
+    const shape = await blankThumbShape(leaf, size);
+    canvas.width = shape.width;
+    canvas.height = shape.height;
+    ctx.fillStyle = "#FFFFFF";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
     const bitmap = snapshotCanvas(canvas);
     if (bitmap) {
       thumbCache.set(key, { width: canvas.width, height: canvas.height, bitmap });

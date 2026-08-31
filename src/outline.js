@@ -9,6 +9,11 @@ export const PREVIEW_TAB_LABELS = {
   toc: "목차",
 };
 
+/** Row prefix, `p5.` style (#120). */
+export function outlinePageLabel(page) {
+  return `p${Math.max(1, Math.round(Number(page) || 1))}.`;
+}
+
 export function outlineTitleForPage(page) {
   const n = Math.max(1, Math.round(Number(page) || 1));
   return `페이지 ${n}`;
