@@ -309,6 +309,7 @@ const els = {
   stickerStudioBox: document.querySelector("#sticker-studio-box"),
   stickerMenu: document.querySelector("#sticker-menu"),
   lockMenu: document.querySelector("#lock-menu"),
+  tocMenu: document.querySelector("#toc-menu"),
   stickerTools: document.querySelector("#sticker-tools"),
   stickerAngle: document.querySelector("#sticker-angle"),
   stickerSave: document.querySelector("#sticker-save"),
@@ -396,6 +397,7 @@ const state = {
   stickerPick: null,
   stickerMenuAt: null,
   lockMenuAt: null,
+  tocMenuAt: null,
   studioTool: "chroma",
   studioScale: 1,
   pageMenuAt: 0,
@@ -2215,6 +2217,7 @@ function closeMorePanel() {
 
 function closePreview() {
   hidePageMenu();
+  hideTocMenu();
   if (!els.previewDrawer) {
     return;
   }
@@ -2241,6 +2244,7 @@ function closeAllPanels() {
   closeEraserPanel();
   closeMorePanel();
   hidePageMenu();
+  hideTocMenu();
   hideLockMenu();
 }
 
@@ -3308,7 +3312,12 @@ function moveSelect(event) {
 }
 
 function endSelect(event) {
+  const lockPick = menuActionAtPoint(els.lockMenu, event, "lockMenu");
   cancelLockHold();
+  if (lockPick) {
+    unlockFromMenu();
+    return;
+  }
   const drag = state.selectDrag;
   if (!drag) {
     return;
@@ -3799,6 +3808,8 @@ function syncPreviewButton() {
 
 function setPreviewTab(tab) {
   state.previewTab = tab === "toc" ? "toc" : "pages";
+  hidePageMenu();
+  hideTocMenu();
   renderPreview();
 }
 
@@ -3865,6 +3876,110 @@ function beginTocTitleEdit(titleEl, entry) {
   input.select();
 }
 
+function hideTocMenu() {
+  if (els.tocMenu) {
+    els.tocMenu.hidden = true;
+  }
+  state.tocMenuAt = null;
+}
+
+function openTocMenu(id, rect) {
+  if (!els.tocMenu) {
+    return;
+  }
+  state.tocMenuAt = id;
+  els.tocMenu.hidden = false;
+  const spot = placePageMenu(rect.top, rect.right, window.innerHeight, 2);
+  els.tocMenu.style.left = `${Math.min(window.innerWidth - 148, spot.left)}px`;
+  els.tocMenu.style.top = `${spot.top}px`;
+}
+
+function runTocMenu(action) {
+  const id = state.tocMenuAt;
+  hideTocMenu();
+  if (!id) {
+    return;
+  }
+  if (action === "delete") {
+    removeTocEntry(id);
+    return;
+  }
+  if (action === "rename") {
+    const row = els.tocList?.querySelector(`[data-entry="${id}"] .preview-toc-title`);
+    const entry = state.outline.find((item) => item.id === id);
+    if (row && entry) {
+      beginTocTitleEdit(row, entry);
+    }
+  }
+}
+
+/** Tap jumps, hold opens 이름 변경·삭제. No stray x on the row (#114). */
+function bindTocRowGestures(row, entry, dest) {
+  let timer = 0;
+  let start = null;
+  let held = false;
+
+  const stop = () => {
+    window.clearTimeout(timer);
+    timer = 0;
+  };
+
+  const open = () => {
+    held = true;
+    openTocMenu(entry.id, row.getBoundingClientRect());
+  };
+
+  row.addEventListener("pointerdown", (event) => {
+    if (event.target.closest("input")) {
+      return;
+    }
+    start = { x: event.clientX, y: event.clientY, id: event.pointerId };
+    held = false;
+    timer = window.setTimeout(() => {
+      timer = 0;
+      open();
+    }, PAGE_HOLD_MS);
+  });
+
+  row.addEventListener("pointermove", (event) => {
+    if (!start || start.id !== event.pointerId || held) {
+      return;
+    }
+    if (Math.hypot(event.clientX - start.x, event.clientY - start.y) > PAGE_DRAG_SLOP_PX) {
+      stop();
+      start = null;
+    }
+  });
+
+  row.addEventListener("pointerup", (event) => {
+    if (!start || start.id !== event.pointerId) {
+      return;
+    }
+    stop();
+    const wasHeld = held;
+    const item = wasHeld ? menuActionAtPoint(els.tocMenu, event, "tocMenu") : null;
+    start = null;
+    if (item) {
+      runTocMenu(item);
+      return;
+    }
+    if (!wasHeld) {
+      goToPage(dest);
+    }
+  });
+
+  row.addEventListener("pointercancel", () => {
+    stop();
+    start = null;
+  });
+
+  row.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+    stop();
+    open();
+  });
+}
+
 function renderTocList() {
   if (!els.tocList) {
     return;
@@ -3874,6 +3989,7 @@ function renderTocList() {
     const dest = outlineDestPage(entry, state.leaves);
     const row = document.createElement("div");
     row.className = "preview-toc-row";
+    row.dataset.entry = entry.id;
     if (dest === state.page) {
       row.classList.add("is-current");
     }
@@ -3881,33 +3997,12 @@ function renderTocList() {
     title.type = "button";
     title.className = "preview-toc-title";
     setOutlineTitleText(title, entry.title || outlineTitleForPage(dest));
-    title.addEventListener("click", (event) => {
-      event.stopPropagation();
-      if (tocRowAction(title.className) === "edit") {
-        beginTocTitleEdit(title, entry);
-      }
-    });
     const jump = document.createElement("span");
     jump.className = "preview-toc-jump";
     jump.setAttribute("aria-hidden", "true");
-    const del = document.createElement("button");
-    del.type = "button";
-    del.className = "preview-toc-delete";
-    del.textContent = "x";
-    del.setAttribute("aria-label", "개요 삭제");
-    del.addEventListener("click", (event) => {
-      event.stopPropagation();
-      if (tocRowAction(del.className) === "delete") {
-        removeTocEntry(entry.id);
-      }
-    });
     row.dataset.dest = String(dest);
-    row.append(title, jump, del);
-    row.addEventListener("click", (event) => {
-      if (tocRowAction(event.target?.className) === "jump") {
-        goToPage(dest);
-      }
-    });
+    row.append(title, jump);
+    bindTocRowGestures(row, entry, dest);
     els.tocList.append(row);
   }
 }
@@ -3938,6 +4033,37 @@ function afterPageOp(nextPage) {
   if (!els.previewDrawer.hidden) {
     renderPreview();
   }
+}
+
+/**
+ * Which menu row the pointer was released over. A hold-then-slide release never
+ * produces a click on the item, so the menus read the release point (#113).
+ */
+function menuActionAtPoint(menu, event, key) {
+  if (!menu || menu.hidden) {
+    return null;
+  }
+  const node = document.elementFromPoint(event.clientX, event.clientY);
+  const button = node?.closest?.("button");
+  if (!button || button.disabled || !menu.contains(button)) {
+    return null;
+  }
+  return button.dataset[key] || null;
+}
+
+/** Menus fire on release, so both a slide-release and a plain tap work. */
+function bindMenuRelease(menu, key, run) {
+  if (!menu) {
+    return;
+  }
+  menu.addEventListener("pointerdown", (event) => event.stopPropagation());
+  menu.addEventListener("pointerup", (event) => {
+    const action = menuActionAtPoint(menu, event, key);
+    if (action) {
+      event.preventDefault();
+      run(action);
+    }
+  });
 }
 
 function hidePageMenu() {
@@ -4084,16 +4210,12 @@ function bindPreviewRowGestures(row, fallbackPage) {
     dragging = false;
   };
 
-  const grab = (event) => {
+  const grab = () => {
     held = true;
     row.classList.add("is-grabbed");
-    if (event?.pointerId != null) {
-      try {
-        row.setPointerCapture(event.pointerId);
-      } catch {
-        // optional
-      }
-    }
+    // No pointer capture here (#113): with capture the click after a hold goes
+    // to a common ancestor, so the menu button never hears it. is-grabbed's
+    // touch-action already keeps the drawer from scrolling.
     openPageMenu(pageOf(), row.getBoundingClientRect().top);
   };
 
@@ -4107,7 +4229,7 @@ function bindPreviewRowGestures(row, fallbackPage) {
     dragging = false;
     timer = window.setTimeout(() => {
       timer = 0;
-      grab(event);
+      grab();
     }, PAGE_HOLD_MS);
   });
 
@@ -4127,6 +4249,11 @@ function bindPreviewRowGestures(row, fallbackPage) {
       dragging = true;
       hidePageMenu();
       row.classList.add("is-dragging");
+      try {
+        row.setPointerCapture(event.pointerId);
+      } catch {
+        // optional
+      }
     }
     if (dragging) {
       event.preventDefault();
@@ -4142,9 +4269,15 @@ function bindPreviewRowGestures(row, fallbackPage) {
     const wasHeld = held;
     const from = pageOf() - 1;
     const to = wasDragging ? dropIndexForEvent(event) : -1;
+    // Held, slid onto an item and released: run it (#113).
+    const item = wasHeld && !wasDragging ? menuActionAtPoint(els.pageMenu, event, "pageMenu") : null;
     release();
     if (wasDragging) {
       movePageByDrag(from, to);
+      return;
+    }
+    if (item) {
+      runPageMenu(item);
       return;
     }
     if (!wasHeld) {
@@ -5063,11 +5196,7 @@ function bindStickerCell(cell, sticker) {
       timer = 0;
       held = true;
       cell.classList.add("is-grabbed");
-      try {
-        cell.setPointerCapture(event.pointerId);
-      } catch {
-        // optional
-      }
+      // Capture waits for the drag, or the menu never gets the release (#113).
       openStickerMenu(sticker.id, cell.getBoundingClientRect());
     }, PAGE_HOLD_MS);
   });
@@ -5085,12 +5214,11 @@ function bindStickerCell(cell, sticker) {
       dragging = true;
       if (held) {
         hideStickerMenu();
-      } else {
-        try {
-          cell.setPointerCapture(event.pointerId);
-        } catch {
-          // optional
-        }
+      }
+      try {
+        cell.setPointerCapture(event.pointerId);
+      } catch {
+        // optional
       }
     }
     event.preventDefault();
@@ -5109,8 +5237,13 @@ function bindStickerCell(cell, sticker) {
     const wasHeld = held;
     const target = folderAtPoint(event);
     const slot = wasHeld && wasDragging ? stickerSlotAt(event) : -1;
+    const item = wasHeld && !wasDragging ? menuActionAtPoint(els.stickerMenu, event, "stickerMenu") : null;
     cell.classList.remove("is-dragging");
     release();
+    if (item) {
+      runStickerMenu(item);
+      return;
+    }
     if (wasHeld && wasDragging) {
       reorderStickerTo(sticker, slot);
       return;
@@ -5994,12 +6127,8 @@ els.previewBtn?.addEventListener("click", () => {
   closeAllPanels();
   togglePreview();
 });
-els.lockMenu?.querySelectorAll("[data-lock-menu]").forEach((btn) => {
-  btn.addEventListener("click", unlockFromMenu);
-});
-els.stickerMenu?.querySelectorAll("[data-sticker-menu]").forEach((btn) => {
-  btn.addEventListener("click", () => runStickerMenu(btn.dataset.stickerMenu));
-});
+bindMenuRelease(els.lockMenu, "lockMenu", unlockFromMenu);
+bindMenuRelease(els.stickerMenu, "stickerMenu", runStickerMenu);
 els.stickerClose?.addEventListener("click", closeStickerSheet);
 els.stickerBackdrop?.addEventListener("click", closeStickerSheet);
 els.stickerDrop?.addEventListener("click", () => els.stickerFile.click());
@@ -6191,9 +6320,8 @@ if (els.stickerStudioCanvas) {
   });
 }
 
-document.querySelectorAll("#page-menu [data-page-menu]").forEach((btn) => {
-  btn.addEventListener("click", () => runPageMenu(btn.dataset.pageMenu));
-});
+bindMenuRelease(els.pageMenu, "pageMenu", runPageMenu);
+bindMenuRelease(els.tocMenu, "tocMenu", runTocMenu);
 document.querySelectorAll("#toolbar-pos-choices [data-pos]").forEach((btn) => {
   btn.addEventListener("click", () => setToolbarPosition(btn.dataset.pos));
 });
@@ -6524,6 +6652,11 @@ document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && els.stickerSheet && !els.stickerSheet.hidden && !typing) {
     event.preventDefault();
     closeStickerSheet();
+    return;
+  }
+  if (event.key === "Escape" && els.tocMenu && !els.tocMenu.hidden && !typing) {
+    event.preventDefault();
+    hideTocMenu();
     return;
   }
   if (event.key === "Escape" && els.pageMenu && !els.pageMenu.hidden && !typing) {
