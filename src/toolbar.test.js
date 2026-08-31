@@ -141,7 +141,6 @@ describe("#56 GoodNotes 4 utility bar", () => {
   it("puts overflow rows on ⋯ and keeps undo hold + visible redo", () => {
     assert.deepEqual(BAR_OVERFLOW_ITEMS, M4_OVERFLOW_ITEMS);
     assert.deepEqual(M4_OVERFLOW_ITEMS, [
-      "capture",
       "fullscreen",
       "image",
       "sticker",
@@ -150,7 +149,7 @@ describe("#56 GoodNotes 4 utility bar", () => {
       "export",
     ]);
     assert.doesNotMatch(more, /마스킹\(모자이크\)|data-more="mosaic"/);
-    assert.match(more, /영역캡처/);
+    assert.doesNotMatch(more, /영역캡처/, "#110: 선택 칸이 겸한다");
     assert.match(more, /전체화면/);
     assert.match(more, /이미지/);
     assert.match(more, /data-rotate="-90">왼쪽/);

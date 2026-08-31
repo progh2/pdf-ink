@@ -103,10 +103,12 @@ describe("#71 영역 선택 유지·메뉴", () => {
     assert.match(main, /hideMarquee\(\)/);
   });
 
-  it("starts from ⋯ 영역캡처, keeps the box on lift, and drops ⋯ 마스킹", () => {
+  it("starts from the select box, keeps it on lift, and drops ⋯ 마스킹 (#110)", () => {
     const endRect = main.slice(main.indexOf("function endRect"), main.indexOf("function startSelect"));
     const captureEnd = endRect.slice(endRect.indexOf('rectTool === "capture"'));
-    assert.match(more, /data-more="capture">영역캡처/);
+    // #110: the box now comes from the select cell, not a ⋯ row.
+    assert.doesNotMatch(more, /영역캡처|data-more="capture"/);
+    assert.match(html, /data-tool="select"/);
     assert.doesNotMatch(more, /마스킹\(모자이크\)|data-more="mosaic"/);
     assert.doesNotMatch(toolbar, /영역캡처|마스킹|data-more="capture"|data-marquee=/);
     assert.match(captureEnd, /state\.pendingCapture = \{ page, rect \}/);

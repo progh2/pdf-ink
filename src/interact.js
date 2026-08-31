@@ -137,7 +137,6 @@ export function rectBigEnough(rect, minNorm = 0.012) {
 }
 
 export const M4_OVERFLOW_ITEMS = [
-  "capture",
   "fullscreen",
   "image",
   "sticker",
