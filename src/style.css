@@ -1949,3 +1949,44 @@ body {
   color: var(--muted);
   font-size: 13px;
 }
+
+/* #127 one line, no second bar on the paper. */
+.sync-note {
+  position: fixed;
+  z-index: 12;
+  left: 50%;
+  top: 56px;
+  transform: translateX(-50%);
+  height: 44px;
+  max-width: calc(100vw - 24px);
+  padding: 0 8px 0 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  background: #fff;
+  box-shadow: 0 8px 18px rgba(40, 32, 22, 0.12);
+  color: var(--title);
+  font-size: 13px;
+}
+
+.sync-note button {
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--paper);
+  color: var(--title);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+#sync-dismiss {
+  width: 32px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+}

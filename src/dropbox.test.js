@@ -18,7 +18,9 @@ import {
   parentPath,
   pdfEntries,
   redirectUri,
+  SYNC_POLL_MS,
   refreshBody,
+  remoteChanged,
   sessionFromToken,
   tokenBody,
   tokenExpired,
@@ -183,5 +185,52 @@ describe("#82 드롭박스 배선", () => {
     assert.match(html, /id="dropbox-open">드롭박스에서 열기/);
     assert.equal((html.match(/class="toolbar"/g) || []).length, 1);
     assert.doesNotMatch(html, /data-tool="dropbox"|data-more="dropbox"/);
+  });
+});
+
+describe("#126 구운 뒤 두 겹 방지 · #127 변경 감지", () => {
+  const main = readFileSync(join(root, "src/main.js"), "utf8");
+  const html = readFileSync(join(root, "index.html"), "utf8");
+
+  it("knows when the file in Dropbox is not the one we opened", () => {
+    assert.equal(remoteChanged({ rev: "r1" }, { rev: "r2" }), true);
+    assert.equal(remoteChanged({ rev: "r1" }, { rev: "r1" }), false);
+    assert.equal(remoteChanged({ rev: "" }, { rev: "r2" }), false, "nothing to compare yet");
+    assert.equal(remoteChanged(null, { rev: "r2" }), false);
+    assert.equal(SYNC_POLL_MS >= 10_000, true, "a check must stay cheap");
+  });
+
+  it("clears the local ink only after a write-back", () => {
+    const flatten = main.slice(main.indexOf("async function flattenAfterWriteBack"), main.indexOf("async function saveDocumentNow"));
+    assert.match(flatten, /saveStrokes\(state\.identity, \{\}, null, outline\)/);
+    assert.match(flatten, /state\.pages = \{\}/);
+    assert.match(flatten, /state\.leaves = \[\]/, "rotation and duplicates are baked in");
+    assert.match(flatten, /flattenOutline\(state\.outline, state\.leaves\)/);
+    // The download path must not flatten: that copy leaves the original alone.
+    const save = main.slice(main.indexOf("async function saveDocumentNow"), main.indexOf("async function exportDocument("));
+    assert.match(save, /await flattenAfterWriteBack\(blob\)/);
+    const download = save.slice(save.indexOf("downloadBlob(blob, fileName)"));
+    assert.doesNotMatch(download, /flattenAfterWriteBack/);
+  });
+
+  it("does not flatten when the save hit a conflict", () => {
+    const save = main.slice(main.indexOf("async function saveDocumentNow"), main.indexOf("async function exportDocument("));
+    const conflict = save.slice(save.indexOf('result === "conflict"'), save.indexOf("flattenAfterWriteBack"));
+    assert.match(conflict, /return;/, "a refused upload keeps the ink");
+  });
+
+  it("opens locked and checks the remote in that moment", () => {
+    assert.match(main, /state\.interactMode = "view";\s*hideSyncNote\(\);\s*showDocumentUi\(\)/);
+    assert.match(main, /startSyncWatch\(\)/);
+    assert.match(main, /window\.addEventListener\("focus", \(\) => checkDropboxRemote\(\)\)/);
+    assert.match(main, /visibilitychange/);
+  });
+
+  it("asks with metadata only and never swaps the file behind the reader", () => {
+    const check = main.slice(main.indexOf("async function checkDropboxRemote"), main.indexOf("function startSyncWatch"));
+    assert.match(check, /dropboxRpc\(META_URL/);
+    assert.doesNotMatch(check, /DOWNLOAD_URL|openPdfBuffer/);
+    assert.match(html, /id="sync-reload">새로 불러오기/);
+    assert.match(main, /els\.syncReload\?\.addEventListener\("click", reloadFromDropbox\)/);
   });
 });
