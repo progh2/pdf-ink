@@ -1189,6 +1189,12 @@ body {
   cursor: pointer;
 }
 
+.preview-toc-page {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .preview-toc-title {
   flex: 0 1 auto;
   max-width: calc(100% - 40px);

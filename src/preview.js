@@ -98,6 +98,25 @@ export function normalizeLeaves(leaves, pageCount) {
   return out;
 }
 
+/**
+ * A blank page borrows its size from the page it was put next to (#118):
+ * the one before it, or the one after when it leads the document.
+ */
+export function nearestPdfLeaf(leaves, index) {
+  const list = leaves || [];
+  for (let at = Math.min(index, list.length - 1); at >= 0; at -= 1) {
+    if (list[at]?.kind !== "outline") {
+      return list[at];
+    }
+  }
+  for (let at = Math.max(0, index); at < list.length; at += 1) {
+    if (list[at]?.kind !== "outline") {
+      return list[at];
+    }
+  }
+  return null;
+}
+
 export function inkKey(leaf) {
   if (!leaf) {
     return "1";
