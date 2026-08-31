@@ -10,6 +10,7 @@ export const TOKEN_URL = "https://api.dropboxapi.com/oauth2/token";
 export const REVOKE_URL = "https://api.dropboxapi.com/2/auth/token/revoke";
 export const LIST_URL = "https://api.dropboxapi.com/2/files/list_folder";
 export const LIST_MORE_URL = "https://api.dropboxapi.com/2/files/list_folder/continue";
+export const META_URL = "https://api.dropboxapi.com/2/files/get_metadata";
 export const DOWNLOAD_URL = "https://content.dropboxapi.com/2/files/download";
 export const UPLOAD_URL = "https://content.dropboxapi.com/2/files/upload";
 
@@ -156,6 +157,15 @@ export function docFromEntry(entry) {
     rev: entry.rev || "",
     size: Number(entry.size) || 0,
   };
+}
+
+/** How often we ask whether someone else changed the file (#127). */
+export const SYNC_POLL_MS = 20_000;
+
+/** True when the file in Dropbox is not the one we opened. */
+export function remoteChanged(doc, meta) {
+  const rev = meta?.rev;
+  return Boolean(doc?.rev && rev && rev !== doc.rev);
 }
 
 /** Same shape as a local file identity, so ink keeps its own store per document. */

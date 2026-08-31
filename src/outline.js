@@ -90,6 +90,18 @@ export function normalizeOutline(entries, leaves = null) {
   return out;
 }
 
+/**
+ * After the ink is baked into the file the leaves start over at 1..N, so the
+ * entries drop their leaf anchor and re-attach by page number (#126).
+ */
+export function flattenOutline(entries, leaves = null) {
+  return (entries || []).map((entry) => ({
+    id: entry.id,
+    title: entry.title,
+    page: outlineDestPage(entry, leaves),
+  }));
+}
+
 export function addOutlineEntry(entries, page, leaves = null) {
   return [
     ...normalizeOutline(entries, leaves),

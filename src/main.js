@@ -123,6 +123,8 @@ import {
   DOWNLOAD_URL,
   LIST_MORE_URL,
   LIST_URL,
+  META_URL,
+  SYNC_POLL_MS,
   REVOKE_URL,
   TOKEN_URL,
   UPLOAD_URL,
@@ -136,6 +138,7 @@ import {
   makeVerifier,
   parentPath,
   pdfEntries,
+  remoteChanged,
   refreshBody,
   sessionFromToken,
   tokenBody,
@@ -250,6 +253,7 @@ import {
   addOutlineEntry,
   deleteOutlineEntry,
   normalizeOutline,
+  flattenOutline,
   outlineDestPage,
   outlinePageLabel,
   outlineTitleForPage,
@@ -318,6 +322,10 @@ const els = {
   imageInput: document.querySelector("#image-input"),
   previewDrawer: document.querySelector("#preview-drawer"),
   pageMenu: document.querySelector("#page-menu"),
+  syncNote: document.querySelector("#sync-note"),
+  syncNoteText: document.querySelector("#sync-note-text"),
+  syncReload: document.querySelector("#sync-reload"),
+  syncDismiss: document.querySelector("#sync-dismiss"),
   dropboxOpen: document.querySelector("#dropbox-open"),
   dropboxSheet: document.querySelector("#dropbox-sheet"),
   dropboxBackdrop: document.querySelector("#dropbox-backdrop"),
@@ -1604,10 +1612,14 @@ async function openPdfBuffer(buffer, { identity, name, page = 1, handle = null }
     state.panY = 0;
   }
   els.docTitle.textContent = displayName(name);
+  // #127: opens locked, and that moment is the sync check.
+  state.interactMode = "view";
+  hideSyncNote();
   showDocumentUi();
   showBanner("");
   await rebuildPages();
   await persistSession();
+  startSyncWatch();
 }
 
 async function openSelectedFile(file, handle = null) {
@@ -5195,6 +5207,108 @@ function disconnectDropbox() {
   }
 }
 
+/* ---- 다른 기기의 변경 알아채기 (#127) ---- */
+
+let syncTimer = 0;
+
+function hideSyncNote() {
+  if (els.syncNote) {
+    els.syncNote.hidden = true;
+  }
+}
+
+function showSyncNote(dirty) {
+  if (!els.syncNote) {
+    return;
+  }
+  els.syncNoteText.textContent = dirty
+    ? "다른 기기에서 바뀌었습니다. 내 필기는 그대로 남습니다."
+    : "다른 기기에서 바뀌었습니다.";
+  els.syncNote.hidden = false;
+}
+
+/** Metadata only: a check costs a few hundred bytes, never the whole file. */
+async function checkDropboxRemote() {
+  if (!state.dropboxDoc || !dropboxConnected() || els.writeScreen.hidden) {
+    return;
+  }
+  try {
+    const meta = await dropboxRpc(META_URL, { path: state.dropboxDoc.path });
+    if (remoteChanged(state.dropboxDoc, meta)) {
+      showSyncNote(Object.keys(state.pages || {}).length > 0);
+    }
+  } catch {
+    // offline or token trouble: stay quiet, the save path will report it
+  }
+}
+
+function startSyncWatch() {
+  window.clearInterval(syncTimer);
+  syncTimer = 0;
+  hideSyncNote();
+  if (!state.dropboxDoc) {
+    return;
+  }
+  checkDropboxRemote();
+  syncTimer = window.setInterval(checkDropboxRemote, SYNC_POLL_MS);
+}
+
+/** Takes the newer file, keeps the ink this browser has not saved yet. */
+async function reloadFromDropbox() {
+  const doc = state.dropboxDoc;
+  hideSyncNote();
+  if (!doc) {
+    return;
+  }
+  showBanner("새로 불러오는 중…");
+  try {
+    const token = await dropboxToken();
+    const reply = await fetch(DOWNLOAD_URL, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Dropbox-API-Arg": asciiHeader(downloadArg(doc.path)) },
+    });
+    if (!reply.ok) {
+      throw new Error("download");
+    }
+    const meta = JSON.parse(reply.headers.get("Dropbox-API-Result") || "{}");
+    const buffer = await reply.arrayBuffer();
+    state.dropboxDoc = { ...doc, rev: meta.rev || doc.rev };
+    showBanner("");
+    await openPdfBuffer(buffer, { identity: dropboxIdentity(doc), name: doc.name, page: state.page });
+    flashBanner("새로 불러왔습니다.");
+  } catch {
+    flashBanner("새로 불러오지 못했습니다.");
+  }
+}
+
+/**
+ * The ink is in the file now, so the browser must not draw it a second time
+ * when this document is opened again (#126). Only for a write-back, never for
+ * a downloaded copy.
+ */
+async function flattenAfterWriteBack(blob) {
+  if (!state.identity) {
+    return;
+  }
+  const buffer = await blob.arrayBuffer();
+  // Rotation, duplicates and blank pages are baked in: the leaves start over.
+  const outline = flattenOutline(state.outline, state.leaves);
+  try {
+    saveStrokes(state.identity, {}, null, outline);
+  } catch {
+    // storage is best effort
+  }
+  state.pages = {};
+  state.outline = outline;
+  state.leaves = [];
+  await openPdfBuffer(buffer, {
+    identity: state.identity,
+    name: state.fileName,
+    page: state.page,
+    handle: state.fileHandle,
+  });
+}
+
 async function saveDocumentNow() {
   persistStrokes();
   persistSession();
@@ -5202,18 +5316,21 @@ async function saveDocumentNow() {
     // #82: the file the reader opened, not another copy in Downloads.
     if (state.dropboxDoc && dropboxConnected()) {
       const result = await saveToDropbox(blob);
-      flashBanner(
-        result === "conflict"
-          ? "드롭박스에서 파일이 바뀌었습니다. 다시 저장하면 덮어씁니다."
-          : `드롭박스에 저장했습니다. ${state.dropboxDoc.name}`,
-        2600,
-      );
+      if (result === "conflict") {
+        flashBanner("드롭박스에서 파일이 바뀌었습니다. 다시 저장하면 덮어씁니다.", 2600);
+        return;
+      }
+      const name = state.dropboxDoc.name;
+      await flattenAfterWriteBack(blob);
+      flashBanner(`드롭박스에 저장했습니다. ${name}`, 2600);
       return;
     }
     if (await ensureWritePermission(state.fileHandle)) {
       try {
         await writeHandle(state.fileHandle, blob);
-        flashBanner(`원본에 저장했습니다. ${state.fileHandle.name || fileName}`, 2200);
+        const name = state.fileHandle.name || fileName;
+        await flattenAfterWriteBack(blob);
+        flashBanner(`원본에 저장했습니다. ${name}`, 2200);
         return;
       } catch {
         flashBanner("원본에 쓰지 못해 파일로 내려받습니다.", 2200);
@@ -6490,6 +6607,14 @@ for (const label of STAMP_LABELS) {
   els.stampPhrases.append(btn);
 }
 
+els.syncReload?.addEventListener("click", reloadFromDropbox);
+els.syncDismiss?.addEventListener("click", hideSyncNote);
+window.addEventListener("focus", () => checkDropboxRemote());
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) {
+    checkDropboxRemote();
+  }
+});
 els.dropboxOpen?.addEventListener("click", openDropboxSheet);
 els.dropboxClose?.addEventListener("click", closeDropboxSheet);
 els.dropboxBackdrop?.addEventListener("click", closeDropboxSheet);

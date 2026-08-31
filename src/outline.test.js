@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import {
   addOutlineEntry,
   deleteOutlineEntry,
+  flattenOutline,
   makeOutlineEntry,
   normalizeOutline,
   outlineDestPage,
@@ -274,5 +275,34 @@ describe("#120 목차 줄의 쪽 번호", () => {
   it("keeps the number quiet and the row at 36", () => {
     assert.match(cssSrc, /\.preview-toc-page \{[\s\S]*color: var\(--muted\)[\s\S]*font-size: 12px/);
     assert.match(cssSrc, /\.preview-toc-row \{[\s\S]*height: 36px/);
+  });
+});
+
+describe("#126 구운 뒤 목차 다시 붙이기", () => {
+  const leaves = [
+    { id: "p1", kind: "pdf", pdfPage: 1 },
+    { id: "o:a", kind: "outline", pdfPage: 0 },
+    { id: "p2", kind: "pdf", pdfPage: 2 },
+  ];
+
+  it("keeps the page it points at today and drops the leaf anchor", () => {
+    const entries = [
+      { id: "t:1", title: "표지", leafId: "p1", page: 1 },
+      { id: "t:2", title: "뒤", leafId: "p2", page: 9 },
+    ];
+    const flat = flattenOutline(entries, leaves);
+    assert.deepEqual(flat, [
+      { id: "t:1", title: "표지", page: 1 },
+      { id: "t:2", title: "뒤", page: 3 },
+    ]);
+    assert.equal(flat.every((entry) => entry.leafId === undefined), true);
+  });
+
+  it("re-attaches to the new 1..N leaves on the next open", () => {
+    const flat = flattenOutline([{ id: "t:2", title: "뒤", leafId: "p2", page: 9 }], leaves);
+    const fresh = [{ id: "p1", kind: "pdf", pdfPage: 1 }, { id: "p2", kind: "pdf", pdfPage: 2 }, { id: "p3", kind: "pdf", pdfPage: 3 }];
+    const [entry] = normalizeOutline(flat, fresh);
+    assert.equal(entry.leafId, "p3");
+    assert.equal(outlineDestPage(entry, fresh), 3);
   });
 });
