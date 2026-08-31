@@ -117,9 +117,9 @@ describe("#53 개요 추가·수정·삭제", () => {
     assert.match(drawer, /data-preview-tab="toc">목차/);
     assert.match(drawer, /id="toc-add"[^>]*>\+/);
     assert.match(drawer, /id="toc-list"/);
-    assert.match(main, /preview-toc-delete/);
-    assert.match(main, /textContent = "x"/);
-    assert.doesNotMatch(main, /long-press delete|tocHold|holdDelete/);
+    // #114: 상시 x는 사라지고 길게 누르기 메뉴로 갔다.
+    assert.doesNotMatch(main, /preview-toc-delete/);
+    assert.match(main, /data-toc-menu="delete"|runTocMenu/);
     assert.doesNotMatch(main, /drag.*outline|outline.*draggable|hierarchy|parentId/);
     assert.match(css, /\.preview-drawer \{[\s\S]*width: var\(--preview-w, 120px\)/);
     assert.match(css, /\.preview-thumb \{[\s\S]*width: var\(--thumb-w, 88px\)/);
@@ -127,7 +127,7 @@ describe("#53 개요 추가·수정·삭제", () => {
     assert.match(css, /\.preview-toc-add \{[\s\S]*height: 32px/);
     assert.match(css, /\.preview-toc-row \{[\s\S]*height: 36px/);
     assert.match(css, /\.preview-toc-list \{[\s\S]*gap: 4px/);
-    assert.match(css, /\.preview-toc-delete \{[\s\S]*width: 32px;[\s\S]*height: 32px/);
+    assert.match(css, /\.preview-toc-row \{[\s\S]*touch-action: none/);
     assert.equal(BAR_TOOLS.length, 10, '#106: 미리보기 칸이 늘었다');
     const cells = toolbar.slice(toolbar.indexOf("toolbar-cells"));
     assert.equal((cells.match(/<button/g) || []).length, 10);
@@ -159,27 +159,24 @@ describe("#53 개요 추가·수정·삭제", () => {
     assert.match(main, /setOutlineTitleText/);
   });
 
-  it("title tap edits, remaining row jumps, x deletes", () => {
+  it("tap jumps, hold renames or deletes (#114)", () => {
+    // The row action helper still guards the title text field.
     assert.equal(tocRowAction("preview-toc-title"), "edit");
-    assert.equal(tocRowAction("preview-toc-edit"), "edit");
     assert.equal(tocRowAction("preview-toc-jump"), "jump");
-    assert.equal(tocRowAction("preview-toc-row"), "jump");
-    assert.equal(tocRowAction("preview-toc-delete"), "delete");
-    const tocUi = main.slice(main.indexOf("function renderTocList"), main.indexOf("async function renderPreviewList"));
+    const tocUi = main.slice(main.indexOf("function runTocMenu"), main.indexOf("async function renderPreviewList"));
     assert.match(tocUi, /preview-toc-title/);
     assert.match(tocUi, /preview-toc-jump/);
     assert.match(tocUi, /beginTocTitleEdit/);
     assert.match(tocUi, /goToPage\(dest\)/);
-    assert.match(tocUi, /removeTocEntry/);
-    assert.match(tocUi, /tocRowAction\(title\.className\) === "edit"/);
-    assert.match(tocUi, /tocRowAction\(event\.target\?\.className\) === "jump"/);
-    assert.match(tocUi, /tocRowAction\(del\.className\) === "delete"/);
+    assert.match(tocUi, /PAGE_HOLD_MS/);
+    assert.match(main, /function runTocMenu[\s\S]*removeTocEntry/);
+    assert.match(html, /data-toc-menu="rename">이름 변경/);
+    assert.match(html, /data-toc-menu="delete">삭제/);
     const titleCss = css.slice(css.indexOf(".preview-toc-title {"), css.indexOf(".preview-toc-jump {"));
     assert.match(titleCss, /flex: 0 1 auto/);
     assert.doesNotMatch(titleCss, /flex: 1;/);
     assert.match(css, /\.preview-toc-jump \{[\s\S]*flex: 1 1 auto/);
-    assert.match(css, /\.preview-toc-delete \{[\s\S]*width: 32px;[\s\S]*height: 32px/);
-    assert.doesNotMatch(main, /long-press delete|tocHold|holdDelete/);
+    assert.doesNotMatch(css, /\.preview-toc-delete/, "#114: 상시 x가 사라졌다");
   });
 });
 
@@ -226,5 +223,32 @@ describe("#107 목차는 잎을 가리킨다", () => {
   it("calls a blank page 빈 쪽 and the tab 목차", () => {
     assert.equal(PREVIEW_TAB_LABELS.toc, "목차");
     assert.equal(PREVIEW_FILTER_LABELS.outline, "빈 쪽");
+  });
+});
+
+describe("#113 길게 눌러 연 메뉴는 떼면 실행", () => {
+  const mainSrc = readFileSync(join(root, "src/main.js"), "utf8");
+
+  it("does not capture the pointer while a menu is open", () => {
+    const grab = mainSrc.slice(mainSrc.indexOf("const grab = () => {"), mainSrc.indexOf("row.addEventListener(\"pointerdown\""));
+    assert.doesNotMatch(grab, /setPointerCapture/, "capture would steal the click from the menu");
+    // Capture comes back only for the reorder drag.
+    assert.match(mainSrc, /row\.classList\.add\("is-dragging"\);[\s\S]{0,120}setPointerCapture/);
+  });
+
+  it("runs the item the finger was released over", () => {
+    assert.match(mainSrc, /function menuActionAtPoint[\s\S]*elementFromPoint/);
+    assert.match(mainSrc, /menuActionAtPoint\(els\.pageMenu, event, "pageMenu"\)/);
+    assert.match(mainSrc, /menuActionAtPoint\(els\.stickerMenu, event, "stickerMenu"\)/);
+    assert.match(mainSrc, /menuActionAtPoint\(els\.lockMenu, event, "lockMenu"\)/);
+    assert.match(mainSrc, /menuActionAtPoint\(els\.tocMenu, event, "tocMenu"\)/);
+  });
+
+  it("also fires on a plain tap, through the menu itself", () => {
+    assert.match(mainSrc, /function bindMenuRelease[\s\S]*addEventListener\("pointerup"/);
+    assert.match(mainSrc, /bindMenuRelease\(els\.pageMenu, "pageMenu", runPageMenu\)/);
+    assert.match(mainSrc, /bindMenuRelease\(els\.tocMenu, "tocMenu", runTocMenu\)/);
+    // A disabled row never runs.
+    assert.match(mainSrc, /if \(!button \|\| button\.disabled/);
   });
 });

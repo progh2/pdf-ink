@@ -239,7 +239,7 @@ describe("#104 배선", () => {
     // A still finger still emits pointermove, so cancelling on any move meant
     // the menu never appeared.
     assert.match(main, /function moveSelect\(event\) \{\s*cancelLockHoldIfMoved\(event\)/);
-    assert.match(main, /function endSelect\(event\) \{\s*cancelLockHold\(\)/);
+    assert.match(main, /function endSelect\(event\) \{[\s\S]{0,200}cancelLockHold\(\)/);
     assert.match(main, /function movePan\(event\) \{\s*cancelLockHold\(\)/);
     assert.match(main, /function cancelLockHoldIfMoved[\s\S]*> slopPx/);
     assert.match(main, /lockHoldFrom = at;/);
