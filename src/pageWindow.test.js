@@ -332,3 +332,25 @@ describe("#106 열린 채로 쓰기", () => {
     assert.match(main, /state\.leaves\.filter\(\(_, at\) => at !== index\)/);
   });
 });
+
+describe("#122 회전한 쪽의 썸", () => {
+  const here2 = dirname(fileURLToPath(import.meta.url));
+  const mainSrc = readFileSync(join(here2, "main.js"), "utf8");
+  const cssSrc = readFileSync(join(here2, "style.css"), "utf8");
+
+  it("bounds the thumb instead of forcing its size", () => {
+    assert.match(cssSrc, /\.preview-thumb \{[\s\S]*max-width: var\(--thumb-w, 88px\)/);
+    assert.match(cssSrc, /\.preview-thumb \{[\s\S]*max-height: var\(--thumb-h, 117px\)/);
+    assert.doesNotMatch(
+      cssSrc.slice(cssSrc.indexOf(".preview-thumb {"), cssSrc.indexOf(".preview-row.is-current")),
+      /aspect-ratio/,
+      "a turned page is not 3/4",
+    );
+  });
+
+  it("sizes the element from the bitmap it just painted", () => {
+    assert.match(mainSrc, /function fitThumbElement[\s\S]*Math\.min\(size\.width \/ w, size\.height \/ h\)/);
+    // Every paint path letterboxes: cache hit, blank page and pdf page.
+    assert.equal((mainSrc.match(/^\s+fitThumbElement\(canvas, size\);$/gm) || []).length, 3);
+  });
+});

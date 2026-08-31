@@ -901,6 +901,15 @@ async function blankPageCss(leaf) {
   }
 }
 
+/** Letterboxes the thumb in the row box, so a turned page is not stretched (#122). */
+function fitThumbElement(canvas, size) {
+  const w = canvas.width || 1;
+  const h = canvas.height || 1;
+  const scale = Math.min(size.width / w, size.height / h);
+  canvas.style.width = `${Math.max(1, Math.round(w * scale))}px`;
+  canvas.style.height = `${Math.max(1, Math.round(h * scale))}px`;
+}
+
 /** Thumb shape for a blank page: the neighbour page's aspect (#118). */
 async function blankThumbShape(leaf, size) {
   const wide = Math.round(size.width * 2);
@@ -3078,6 +3087,11 @@ function startRect(event, stage) {
   if (state.interactMode === "view") {
     return;
   }
+  // The area box and its menu own their own presses (#121).
+  if (event.target.closest?.("#marquee, #area-layer, #area-link-panel")) {
+    return;
+  }
+
   if (!state.pdf || (event.button !== undefined && event.button !== 0)) {
     return;
   }
@@ -3230,6 +3244,11 @@ function startSelect(event, stage) {
   if (state.interactMode === "view") {
     return;
   }
+  // The area box and its menu own their own presses (#121).
+  if (event.target.closest?.("#marquee, #area-layer, #area-link-panel")) {
+    return;
+  }
+
   const ink = stage.querySelector(".ink-canvas");
   if (!ink) {
     return;
@@ -3388,9 +3407,12 @@ function endSelect(event) {
     // #110: a box that caught nothing becomes an area, so the one select cell
     // does area capture too. A box that caught something is a selection.
     if (boxed && !state.selectIndices.length && view) {
+      // #121: the drag is over, the area stays until it is dismissed.
+      state.currentRect = null;
       state.pendingCapture = { page: drag.page, rect };
       hideMarqueeMenu();
       updateMarquee();
+      updateAreaHits();
       syncSelectHud();
       return;
     }
@@ -4496,6 +4518,7 @@ async function paintPreviewThumb(canvas, leaf) {
     canvas.height = hit.height;
     const blit = canvas.getContext("2d");
     blit.drawImage(hit.bitmap, 0, 0);
+    fitThumbElement(canvas, size);
     canvas.dataset.painted = key;
     return;
   }
@@ -4515,6 +4538,7 @@ async function paintPreviewThumb(canvas, leaf) {
     if (bitmap) {
       thumbCache.set(key, { width: canvas.width, height: canvas.height, bitmap });
     }
+    fitThumbElement(canvas, size);
     canvas.dataset.painted = key;
     return;
   }
@@ -4531,6 +4555,7 @@ async function paintPreviewThumb(canvas, leaf) {
     if (bitmap) {
       thumbCache.set(key, { width: canvas.width, height: canvas.height, bitmap });
     }
+    fitThumbElement(canvas, size);
     canvas.dataset.painted = key;
   } catch {
     // cream placeholder
@@ -6531,14 +6556,14 @@ if (els.marqueeMenu) {
   els.marqueeMenu.addEventListener("pointerdown", (event) => {
     event.stopPropagation();
   });
-  els.marqueeMenu.addEventListener("click", (event) => {
-    const btn = event.target.closest("[data-marquee]");
-    if (!btn) {
-      return;
-    }
-    event.preventDefault();
-    event.stopPropagation();
-    const action = btn.dataset.marquee;
+  bindMenuRelease(els.marqueeMenu, "marquee", runMarqueeAction);
+}
+
+function runMarqueeAction(action) {
+  if (!action) {
+    return;
+  }
+  {
     if (action === "copy") {
       copyRegion();
       return;
@@ -6562,7 +6587,7 @@ if (els.marqueeMenu) {
     if (action === "link") {
       showAreaLinkPanel();
     }
-  });
+  }
 }
 if (els.areaLinkPanel) {
   els.areaLinkPanel.addEventListener("pointerdown", (event) => {

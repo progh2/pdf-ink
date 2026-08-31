@@ -76,11 +76,8 @@ export function bindMarqueeHold(el, {
     timer = setTimeoutFn(() => {
       fire();
     }, holdMs);
-    try {
-      el.setPointerCapture?.(event.pointerId);
-    } catch {
-      // optional
-    }
+    // No pointer capture (#121): with it the release over the menu is retargeted
+    // to a common ancestor, so the menu item never hears the click.
   });
 
   el.addEventListener("pointermove", (event) => {
