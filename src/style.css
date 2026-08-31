@@ -164,7 +164,7 @@ body {
   left: 50%;
   transform: translateX(-50%);
   margin: 0;
-  max-width: min(42vw, calc(100% - 280px));
+  max-width: min(38vw, calc(100% - 320px));
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -173,6 +173,37 @@ body {
   letter-spacing: -0.02em;
   color: var(--title);
   pointer-events: none;
+}
+
+/* #119: 다른 PDF · 미리보기 · 보기/편집을 제목 왼편에 모은다. */
+.write-top-start {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.header-icon {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: #2c2a26;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+
+.header-icon svg {
+  width: 22px;
+  height: 22px;
+}
+
+.header-icon.is-selected {
+  background: var(--selected);
 }
 
 .write-top-end {

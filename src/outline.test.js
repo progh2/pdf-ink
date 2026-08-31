@@ -130,9 +130,9 @@ describe("#53 개요 추가·수정·삭제", () => {
     assert.match(css, /\.preview-toc-row \{[\s\S]*height: 36px/);
     assert.match(css, /\.preview-toc-list \{[\s\S]*gap: 4px/);
     assert.match(css, /\.preview-toc-row \{[\s\S]*touch-action: none/);
-    assert.equal(BAR_TOOLS.length, 10, '#106: 미리보기 칸이 늘었다');
+    assert.equal(BAR_TOOLS.length, 9, '#119: 미리보기는 헤더로 갔다');
     const cells = toolbar.slice(toolbar.indexOf("toolbar-cells"));
-    assert.equal((cells.match(/<button/g) || []).length, 10);
+    assert.equal((cells.match(/<button/g) || []).length, 9);
     assert.equal((html.match(/class="toolbar"/g) || []).length, 1);
     assert.doesNotMatch(toolbar, /개요|페이지|toc-add|preview-tab/);
     assert.doesNotMatch(more, /data-more="outline"|개요 추가/);

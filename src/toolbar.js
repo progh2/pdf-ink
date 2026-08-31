@@ -22,7 +22,7 @@ export const GRIP_DOT = "#D4CFC4";
 
 export const DOCK_BAND_PX = 72;
 
-/** #106: the preview gets its own cell, GoodNotes style. It left the ⋯ menu. */
+/** #119: 미리보기는 헤더 아이콘으로 갔다. 바는 다시 9칸. */
 export const BAR_TOOLS = [
   "pen",
   "highlighter",
@@ -30,7 +30,6 @@ export const BAR_TOOLS = [
   "eraser",
   "select",
   "stamp",
-  "preview",
   "undo",
   "redo",
   "more",
