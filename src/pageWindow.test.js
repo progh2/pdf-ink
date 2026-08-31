@@ -7,6 +7,10 @@ import { BAR_TOOLS } from "./toolbar.js";
 import {
   PAGE_BITMAP_LIMIT,
   PAGE_STACK_GAP,
+  PREVIEW_WIDTH_DEFAULT,
+  PREVIEW_WIDTH_MAX,
+  PREVIEW_WIDTH_MIN,
+  clampPreviewWidth,
   PREVIEW_LIST_GAP,
   PREVIEW_THUMB_WIDTH,
   THUMB_BITMAP_LIMIT,
@@ -18,6 +22,7 @@ import {
   previewListHeight,
   previewPaintsForPlan,
   previewRowStride,
+  previewThumbSize,
   previewUpdateOnPageChange,
   scrollStackMetrics,
   thumbCacheKey,
@@ -105,7 +110,7 @@ describe("#85 preview / page navigation speed", () => {
     assert.equal(cache.has("p0"), false);
     assert.equal(cache.has("p1:0:pdf"), false);
     assert.ok(cache.size <= THUMB_BITMAP_LIMIT);
-    assert.equal(thumbCacheKey({ id: "p3", rotate: 90, kind: "pdf" }), "p3:90:pdf");
+    assert.equal(thumbCacheKey({ id: "p3", rotate: 90, kind: "pdf" }), "p3:90:pdf:88:0");
   });
 
   it("reuses the page-mode stage and caches recent full-page bitmaps", () => {
@@ -180,8 +185,8 @@ describe("#85 preview / page navigation speed", () => {
     assert.match(main, /from "\.\/pageWindow\.js"/);
   });
 
-  it("does not add a toolbar cell or mix #73/#68/#71/#72", () => {
-    assert.equal(BAR_TOOLS.length, 9);
+  it("adds only the 미리보기 cell (#106) and does not mix #73/#68/#71/#72", () => {
+    assert.equal(BAR_TOOLS.length, 10, '#106: 미리보기 칸이 늘었다');
     assert.deepEqual(BAR_TOOLS, [
       "pen",
       "highlighter",
@@ -189,17 +194,18 @@ describe("#85 preview / page navigation speed", () => {
       "eraser",
       "select",
       "stamp",
+      "preview",
       "undo",
       "redo",
       "more",
     ]);
     const cells = toolbar.slice(toolbar.indexOf("toolbar-cells"));
-    assert.equal((cells.match(/<button/g) || []).length, 9);
-    assert.doesNotMatch(toolbar, /id="preview-btn"|data-tool="preview"/);
+    assert.equal((cells.match(/<button/g) || []).length, 10);
+    assert.match(toolbar, /id="preview-btn"/, "#106: 미리보기가 바 칸으로 나왔다");
     assert.doesNotMatch(html, /id="preview-speed"|id="nav-cache-btn"/);
-    assert.match(html, /data-more="preview">미리보기/);
-    assert.match(css, /\.preview-drawer \{[\s\S]*width: 120px/);
-    assert.match(css, /\.preview-thumb \{[\s\S]*width: 88px/);
+    assert.doesNotMatch(html, /data-more="preview"/, "#106: ⋯에서는 빠졌다");
+    assert.match(css, /\.preview-drawer \{[\s\S]*width: var\(--preview-w, 120px\)/);
+    assert.match(css, /\.preview-thumb \{[\s\S]*width: var\(--thumb-w, 88px\)/);
     assert.match(css, /\.preview-list \{[\s\S]*gap: 8px/);
     assert.match(css, /\.preview-list-window \{/);
     assert.match(css, /\.page-stack\.is-windowed \{/);
@@ -250,5 +256,79 @@ describe("#96 확대 렌더 캐시", () => {
     assert.match(main, /function scheduleZoomRender\(\)[\s\S]*view\.rendered = false/);
     // Ink thickness stays css-based (#32), so a sharper render keeps the width.
     assert.match(main, /inkCanvasScale\(canvas\.width, cssWidth\)/);
+  });
+});
+
+describe("#106 서랍 폭", () => {
+  it("clamps the width the reader drags to", () => {
+    assert.equal(clampPreviewWidth(120), 120);
+    assert.equal(clampPreviewWidth(10), PREVIEW_WIDTH_MIN);
+    assert.equal(clampPreviewWidth(9000), PREVIEW_WIDTH_MAX);
+    assert.equal(clampPreviewWidth("nonsense"), PREVIEW_WIDTH_DEFAULT);
+  });
+
+  it("grows the thumb and the row with the drawer", () => {
+    const narrow = previewThumbSize(120);
+    const wide = previewThumbSize(240);
+    assert.equal(narrow.width, 88, "the old 120 drawer keeps its 88 thumb");
+    assert.equal(narrow.height, 117);
+    assert.ok(wide.width > narrow.width && wide.height > narrow.height);
+    assert.ok(previewRowStride(240) > previewRowStride(120));
+    assert.ok(previewListHeight(10, 240) > previewListHeight(10, 120));
+    // Shape is kept, so a thumb never squashes.
+    assert.ok(Math.abs(wide.height / wide.width - narrow.height / narrow.width) < 0.01);
+  });
+
+  it("keys a thumb by size and ink, so a wider drawer or a new stroke repaints", () => {
+    const leaf = { id: "p1", rotate: 0, kind: "pdf" };
+    assert.notEqual(thumbCacheKey(leaf, 88, 0), thumbCacheKey(leaf, 176, 0));
+    assert.notEqual(thumbCacheKey(leaf, 88, 0), thumbCacheKey(leaf, 88, 3));
+    assert.equal(thumbCacheKey(leaf, 88, 0), thumbCacheKey(leaf, 88, 0));
+  });
+});
+
+describe("#106 열린 채로 쓰기", () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const main = readFileSync(join(here, "main.js"), "utf8");
+  const html = readFileSync(join(here, "..", "index.html"), "utf8");
+  const css = readFileSync(join(here, "style.css"), "utf8");
+
+  it("does not block ink or close on a paper tap", () => {
+    // The drawer is no longer an overlay that swallows the pointer.
+    const overlay = main.slice(main.indexOf("function overlayOpen"), main.indexOf("function hideShapeChips"));
+    assert.doesNotMatch(overlay, /previewDrawer/);
+    assert.doesNotMatch(html, /preview-backdrop/, "the dimmer is gone");
+    assert.doesNotMatch(main, /previewBackdrop/);
+    const closeAll = main.slice(main.indexOf("function closeAllPanels"), main.indexOf("function placePanel"));
+    assert.doesNotMatch(closeAll, /closePreview/);
+  });
+
+  it("toggles from the bar cell", () => {
+    assert.match(html, /id="preview-btn"/);
+    assert.match(main, /function togglePreview[\s\S]*closePreview\(\)/);
+    assert.match(main, /els\.previewBtn\?\.addEventListener/);
+  });
+
+  it("repaints only the edited page's thumb, after the hand settles", () => {
+    assert.match(main, /function refreshPageThumb[\s\S]*THUMB_REFRESH_MS/);
+    assert.match(main, /refreshPageThumb\(pageNum\)/);
+    // It bails out when the drawer is closed or on the 목차 tab.
+    assert.match(main, /function refreshPageThumb[\s\S]*previewDrawer\?\.hidden \|\| state\.previewTab === "toc"/);
+    // And it repaints one row, not the whole list.
+    const fn = main.slice(main.indexOf("function refreshPageThumb"), main.indexOf("function openPreview"));
+    assert.doesNotMatch(fn, /renderPreviewList|renderPreview\(\)/);
+  });
+
+  it("resizes by the grip and remembers the width", () => {
+    assert.match(css, /\.preview-grip \{[\s\S]*cursor: col-resize/);
+    assert.match(main, /savePreviewWidth\(state\.previewWidth\)/);
+    assert.match(main, /previewWidth: loadPreviewWidth\(\)/);
+    assert.match(main, /clampPreviewWidth\(event\.clientX - box\.left\)/);
+  });
+
+  it("deletes a page from the hold menu but never the last one", () => {
+    assert.match(html, /data-page-menu="delete">삭제/);
+    assert.match(main, /마지막 한 장은 지울 수 없습니다/);
+    assert.match(main, /state\.leaves\.filter\(\(_, at\) => at !== index\)/);
   });
 });

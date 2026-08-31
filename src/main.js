@@ -21,6 +21,7 @@ import {
   loadEraser,
   loadInkTools,
   loadInteractMode,
+  loadPreviewWidth,
   loadToolbarFloat,
   loadToolbarPosition,
   loadViewMode,
@@ -28,6 +29,7 @@ import {
   saveEraser,
   saveInkTools,
   saveInteractMode,
+  savePreviewWidth,
   saveToolbarFloat,
   saveToolbarPosition,
   saveViewMode,
@@ -200,6 +202,9 @@ import {
 import {
   PAGE_BITMAP_LIMIT,
   PAGE_STACK_GAP,
+  THUMB_REFRESH_MS,
+  clampPreviewWidth,
+  previewThumbSize,
   THUMB_BITMAP_LIMIT,
   createPaintCache,
   pageAtScrollMid,
@@ -309,8 +314,9 @@ const els = {
   stickerSave: document.querySelector("#sticker-save"),
   stickerDelete: document.querySelector("#sticker-delete"),
   previewDrop: document.querySelector("#preview-drop"),
-  previewBackdrop: document.querySelector("#preview-backdrop"),
   previewClose: document.querySelector("#preview-close"),
+  previewBtn: document.querySelector("#preview-btn"),
+  previewGrip: document.querySelector("#preview-grip"),
   previewList: document.querySelector("#preview-list"),
   previewPages: document.querySelector("#preview-pages"),
   previewToc: document.querySelector("#preview-toc"),
@@ -379,6 +385,8 @@ const state = {
   leaves: [],
   outline: [],
   previewFilter: "all",
+  previewWidth: loadPreviewWidth(),
+  inkStamp: 0,
   previewTab: "pages",
   pageClip: null,
   fileHandle: null,
@@ -610,6 +618,7 @@ function commitPageChange(pageNum, apply) {
   });
   persistStrokes();
   syncHistoryButtons();
+  refreshPageThumb(pageNum);
 }
 
 function resetEditorExtras() {
@@ -1593,7 +1602,6 @@ function overlayOpen() {
     !els.slotPanel.hidden ||
     !els.eraserPanel.hidden ||
     !els.morePanel.hidden ||
-    !els.previewDrawer.hidden ||
     !els.stickerSheet.hidden
   );
 }
@@ -2211,7 +2219,7 @@ function closePreview() {
     return;
   }
   els.previewDrawer.hidden = true;
-  els.previewBackdrop.hidden = true;
+  syncPreviewButton();
 }
 
 function hideSelectUi() {
@@ -3670,11 +3678,97 @@ function rotatePageAt(pageNum, delta) {
   rebuildPages();
 }
 
+/* ---- 서랍 폭 (#106) ---- */
+
+function applyPreviewWidth() {
+  if (!els.previewDrawer) {
+    return;
+  }
+  const width = clampPreviewWidth(state.previewWidth);
+  state.previewWidth = width;
+  els.previewDrawer.style.setProperty("--preview-w", `${width}px`);
+  const thumb = previewThumbSize(width);
+  els.previewDrawer.style.setProperty("--thumb-w", `${thumb.width}px`);
+  els.previewDrawer.style.setProperty("--thumb-h", `${thumb.height}px`);
+}
+
+function bindPreviewGrip(grip) {
+  if (!grip) {
+    return;
+  }
+  let drag = null;
+  grip.addEventListener("pointerdown", (event) => {
+    event.preventDefault();
+    drag = { id: event.pointerId };
+    try {
+      grip.setPointerCapture(event.pointerId);
+    } catch {
+      // optional
+    }
+  });
+  grip.addEventListener("pointermove", (event) => {
+    if (!drag || drag.id !== event.pointerId) {
+      return;
+    }
+    event.preventDefault();
+    const box = els.previewDrawer.getBoundingClientRect();
+    state.previewWidth = clampPreviewWidth(event.clientX - box.left);
+    applyPreviewWidth();
+  });
+  const stop = () => {
+    if (!drag) {
+      return;
+    }
+    drag = null;
+    savePreviewWidth(state.previewWidth);
+    // Thumbs are keyed by width, so the new size repaints once.
+    renderPreviewList();
+  };
+  grip.addEventListener("pointerup", stop);
+  grip.addEventListener("pointercancel", stop);
+}
+
+/**
+ * The drawer stays open while writing (#106), so a stroke has to refresh just
+ * that page's thumb, once the hand settles.
+ */
+let thumbRefreshTimer = 0;
+
+function refreshPageThumb(pageNum) {
+  if (els.previewDrawer?.hidden || state.previewTab === "toc") {
+    return;
+  }
+  window.clearTimeout(thumbRefreshTimer);
+  thumbRefreshTimer = window.setTimeout(() => {
+    thumbRefreshTimer = 0;
+    state.inkStamp += 1;
+    const leaf = leafAt(state.leaves, pageNum);
+    const row = els.previewList?.querySelector(`[data-leaf="${leaf?.id}"] .preview-thumb`);
+    if (!leaf || !row) {
+      return;
+    }
+    paintPreviewThumb(row, leaf);
+  }, THUMB_REFRESH_MS);
+}
+
 function openPreview() {
   closeAllPanels();
   els.previewDrawer.hidden = false;
-  els.previewBackdrop.hidden = false;
+  applyPreviewWidth();
   renderPreview();
+  syncPreviewButton();
+}
+
+function togglePreview() {
+  if (els.previewDrawer.hidden) {
+    openPreview();
+    return;
+  }
+  closePreview();
+}
+
+function syncPreviewButton() {
+  els.previewBtn?.classList.toggle("is-selected", !els.previewDrawer.hidden);
 }
 
 function setPreviewTab(tab) {
@@ -3877,6 +3971,19 @@ function runPageMenu(action) {
     afterPageOp(pageNum + delta);
     return;
   }
+  if (action === "delete") {
+    if (state.leaves.length <= 1) {
+      flashBanner("마지막 한 장은 지울 수 없습니다.");
+      return;
+    }
+    const key = inkKey(leaf);
+    commitLeafChange(key, () => {
+      state.leaves = state.leaves.filter((_, at) => at !== index);
+      delete state.pages[key];
+    });
+    afterPageOp(Math.min(pageNum, state.leaves.length));
+    return;
+  }
   if (action === "duplicate" || action === "paste") {
     const out =
       action === "duplicate"
@@ -3919,7 +4026,7 @@ function showDropLine(index) {
     return;
   }
   els.previewDrop.hidden = false;
-  els.previewDrop.style.top = `${dropLineTop(index, previewRowStride())}px`;
+  els.previewDrop.style.top = `${dropLineTop(index, previewRowStride(state.previewWidth))}px`;
 }
 
 /**
@@ -4032,7 +4139,7 @@ function dropIndexForEvent(event) {
     pointerY: event.clientY,
     listTop: list.top,
     scrollTop: els.previewList.scrollTop,
-    stride: previewRowStride(),
+    stride: previewRowStride(state.previewWidth),
     count: state.leaves.length,
   });
 }
@@ -4092,9 +4199,9 @@ function syncPreviewCurrent({ paintVisible = false } = {}) {
   const shown = filterLeaves(state.leaves, state.previewFilter);
   const index = shown.findIndex((leaf) => pageOfLeaf(state.leaves, leaf.id) === state.page);
   if (index >= 0) {
-    const top = index * previewRowStride();
+    const top = index * previewRowStride(state.previewWidth);
     const viewH = els.previewList.clientHeight;
-    const body = previewRowBody();
+    const body = previewRowBody(state.previewWidth);
     if (top < els.previewList.scrollTop || top + body > els.previewList.scrollTop + viewH) {
       els.previewList.scrollTop = Math.max(0, top - 8);
     }
@@ -4121,7 +4228,7 @@ async function paintVisiblePreviewRows() {
     viewportHeight: els.previewList.clientHeight || 640,
     count: shown.length,
   });
-  const stride = previewRowStride();
+  const stride = previewRowStride(state.previewWidth);
   windowEl.style.transform = `translateY(${Math.max(0, range.from) * stride}px)`;
   const needed = shown.slice(Math.max(0, range.from), range.to + 1);
   const have = new Map([...windowEl.children].map((row) => [row.dataset.leaf, row]));
@@ -4162,7 +4269,7 @@ async function renderPreviewList() {
   const shown = filterLeaves(state.leaves, state.previewFilter);
   const spacer = document.createElement("div");
   spacer.className = "preview-list-spacer";
-  spacer.style.height = `${previewListHeight(shown.length)}px`;
+  spacer.style.height = `${previewListHeight(shown.length, state.previewWidth)}px`;
   const windowEl = document.createElement("div");
   windowEl.className = "preview-list-window";
   els.previewList.replaceChildren(spacer, windowEl);
@@ -4170,7 +4277,8 @@ async function renderPreviewList() {
 }
 
 async function paintPreviewThumb(canvas, leaf) {
-  const key = thumbCacheKey(leaf);
+  const size = previewThumbSize(state.previewWidth);
+  const key = thumbCacheKey(leaf, size.width, state.inkStamp);
   if (canvas.dataset.painted === key) {
     return;
   }
@@ -4184,15 +4292,15 @@ async function paintPreviewThumb(canvas, leaf) {
     return;
   }
   const ctx = canvas.getContext("2d");
-  canvas.width = 180;
-  canvas.height = 240;
+  canvas.width = Math.round(size.width * 2);
+  canvas.height = Math.round(size.height * 2);
   ctx.fillStyle = "#F7F4EC";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   if (leaf.kind === "outline" || !state.pdf) {
     ctx.fillStyle = "#5C574E";
     ctx.textAlign = "center";
     ctx.font = "600 16px sans-serif";
-    ctx.fillText(leaf.title || "개요", 90, 40);
+    ctx.fillText(leaf.title || "빈 쪽", canvas.width / 2, 40);
     const bitmap = snapshotCanvas(canvas);
     if (bitmap) {
       thumbCache.set(key, { width: canvas.width, height: canvas.height, bitmap });
@@ -4204,7 +4312,7 @@ async function paintPreviewThumb(canvas, leaf) {
     const page = await state.pdf.getPage(leaf.pdfPage);
     const rotation = ((page.rotate || 0) + (leaf.rotate || 0)) % 360;
     const base = page.getViewport({ scale: 1, rotation });
-    const scale = Math.min(180 / base.width, 240 / base.height);
+    const scale = Math.min((size.width * 2) / base.width, (size.height * 2) / base.height);
     const viewport = page.getViewport({ scale, rotation });
     canvas.width = viewport.width;
     canvas.height = viewport.height;
@@ -5280,12 +5388,6 @@ function selectMoreAction(action) {
     els.imageInput.click();
     return;
   }
-  if (action === "preview") {
-    closeMorePanel();
-    ignoreAfterPanel = true;
-    openPreview();
-    return;
-  }
   if (action === "sticker") {
     closeMorePanel();
     ignoreAfterPanel = true;
@@ -5855,6 +5957,12 @@ for (const label of STAMP_LABELS) {
   els.stampPhrases.append(btn);
 }
 
+bindPreviewGrip(els.previewGrip);
+applyPreviewWidth();
+els.previewBtn?.addEventListener("click", () => {
+  closeAllPanels();
+  togglePreview();
+});
 els.lockMenu?.querySelectorAll("[data-lock-menu]").forEach((btn) => {
   btn.addEventListener("click", unlockFromMenu);
 });
@@ -6119,7 +6227,6 @@ els.imageInput.addEventListener("change", () => {
   }
 });
 els.previewClose.addEventListener("click", closePreview);
-els.previewBackdrop.addEventListener("click", closePreview);
 els.previewDrawer?.addEventListener("pointerdown", (event) => {
   if (!event.target.closest(".preview-row")) {
     hidePageMenu();

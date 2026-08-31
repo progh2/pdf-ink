@@ -121,21 +121,21 @@ describe("#53 개요 추가·수정·삭제", () => {
     assert.match(main, /textContent = "x"/);
     assert.doesNotMatch(main, /long-press delete|tocHold|holdDelete/);
     assert.doesNotMatch(main, /drag.*outline|outline.*draggable|hierarchy|parentId/);
-    assert.match(css, /\.preview-drawer \{[\s\S]*width: 120px/);
-    assert.match(css, /\.preview-thumb \{[\s\S]*width: 88px/);
+    assert.match(css, /\.preview-drawer \{[\s\S]*width: var\(--preview-w, 120px\)/);
+    assert.match(css, /\.preview-thumb \{[\s\S]*width: var\(--thumb-w, 88px\)/);
     assert.match(css, /\.preview-list \{[\s\S]*gap: 8px/);
     assert.match(css, /\.preview-toc-add \{[\s\S]*height: 32px/);
     assert.match(css, /\.preview-toc-row \{[\s\S]*height: 36px/);
     assert.match(css, /\.preview-toc-list \{[\s\S]*gap: 4px/);
     assert.match(css, /\.preview-toc-delete \{[\s\S]*width: 32px;[\s\S]*height: 32px/);
-    assert.equal(BAR_TOOLS.length, 9);
+    assert.equal(BAR_TOOLS.length, 10, '#106: 미리보기 칸이 늘었다');
     const cells = toolbar.slice(toolbar.indexOf("toolbar-cells"));
-    assert.equal((cells.match(/<button/g) || []).length, 9);
+    assert.equal((cells.match(/<button/g) || []).length, 10);
     assert.equal((html.match(/class="toolbar"/g) || []).length, 1);
     assert.doesNotMatch(toolbar, /개요|페이지|toc-add|preview-tab/);
     assert.doesNotMatch(more, /data-more="outline"|개요 추가/);
-    assert.match(drawer, /개요 페이지 넣기/);
-    assert.match(drawer, /data-preview-filter="outline">개요/);
+    assert.match(drawer, /빈 쪽 넣기/);
+    assert.match(drawer, /data-preview-filter="outline">빈 쪽/);
   });
 
   it("keeps tag-looking title characters as textContent, never innerHTML", () => {

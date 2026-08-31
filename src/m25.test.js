@@ -36,13 +36,13 @@ describe("M4 #25 chrome", () => {
     assert.doesNotMatch(main, /selectFitsCapsule/);
   });
 
-  it("puts 이미지·회전(왼쪽/오른쪽)·미리보기 in the same overflow card", () => {
+  it("puts 이미지·회전(왼쪽/오른쪽) in the same overflow card, 미리보기는 바로 (#106)", () => {
     assert.deepEqual(M4_OVERFLOW_ITEMS, [
       "capture",
       "fullscreen",
       "image",
+      "sticker",
       "rotate",
-      "preview",
       "save",
       "export",
     ]);
@@ -54,18 +54,19 @@ describe("M4 #25 chrome", () => {
     assert.match(more, /data-rotate="-90">왼쪽/);
     assert.match(more, /data-rotate="90">오른쪽/);
     assert.match(more, /class="more-rotate"/);
-    assert.match(more, /미리보기/);
+    assert.doesNotMatch(more, /미리보기/);
+    assert.match(html, /id="preview-btn"/);
     assert.doesNotMatch(more, /data-more="rotate"/);
     assert.doesNotMatch(more, /책갈피|개요 페이지/);
-    assert.doesNotMatch(toolbar, /책갈피|개요|이미지|회전|미리보기/);
+    assert.doesNotMatch(toolbar, /책갈피|이미지|회전/);
     assert.match(drawer, /책갈피/);
     assert.match(drawer, /개요/);
-    assert.match(drawer, /개요 페이지 넣기/);
+    assert.match(drawer, /빈 쪽 넣기/);
     assert.match(css, /\.slot-panel \{[\s\S]*padding: 12px;[\s\S]*border: 1px solid #e6e1d6;[\s\S]*border-radius: 16px/);
     assert.match(css, /\.more-panel button \{[\s\S]*height: 44px/);
     assert.match(css, /\.more-rotate \{[\s\S]*height: 44px/);
-    assert.match(css, /\.preview-drawer \{[\s\S]*width: 120px/);
-    assert.match(css, /\.preview-thumb \{[\s\S]*width: 88px/);
+    assert.match(css, /\.preview-drawer \{[\s\S]*width: var\(--preview-w, 120px\)/);
+    assert.match(css, /\.preview-thumb \{[\s\S]*width: var\(--thumb-w, 88px\)/);
     assert.match(css, /\.preview-list \{[\s\S]*gap: 8px/);
     assert.match(css, /\.select-hud button,[\s\S]*\.float-bar button \{[\s\S]*height: 44px/);
     assert.equal(IMAGE_HANDLE_CSS, 8);

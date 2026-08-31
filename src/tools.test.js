@@ -147,7 +147,7 @@ describe("toolbar", () => {
     assert.match(more, /이미지/);
     assert.match(more, /왼쪽/);
     assert.match(more, /오른쪽/);
-    assert.match(more, /미리보기/);
+    assert.doesNotMatch(more, /미리보기/);
     assert.match(more, /data-more="save">저장/);
     assert.match(more, /data-more="export">내보내기/);
     assert.doesNotMatch(more, /책갈피/);

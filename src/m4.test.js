@@ -44,16 +44,16 @@ describe("M4 #31 chrome", () => {
       "capture",
       "fullscreen",
       "image",
+      "sticker",
       "rotate",
-      "preview",
       "save",
       "export",
     ]);
     assert.match(toolbar, /id="undo-btn"/);
-    assert.doesNotMatch(toolbar, /책갈피|개요|미리보기|이미지|회전/);
+    assert.doesNotMatch(toolbar, /책갈피|이미지|회전/);
     assert.match(html, /data-more="image">이미지/);
     assert.match(html, /data-rotate="-90">왼쪽/);
-    assert.match(html, /data-more="preview">미리보기/);
+    assert.match(html, /id="preview-btn"/);
     assert.doesNotMatch(html, /id="rotate-panel"|data-more="rotate"/);
     assert.match(html, /id="preview-drawer"/);
     assert.match(html, /data-preview-filter="bookmarks">책갈피/);

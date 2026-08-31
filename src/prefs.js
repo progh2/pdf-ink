@@ -1,4 +1,5 @@
 import { defaultToolbarPosition, slotLineWidth } from "./viewport.js";
+import { clampPreviewWidth, PREVIEW_WIDTH_DEFAULT } from "./pageWindow.js";
 import { defaultFloat, floatFromLegacySide, migrateDock } from "./toolbar.js";
 import {
   HIGHLIGHTER_OPACITY_DEFAULT,
@@ -13,6 +14,7 @@ import {
 } from "./tools.js";
 
 const TOOLBAR_POS_KEY = "pdf-ink:toolbar-pos";
+const PREVIEW_WIDTH_KEY = "pdf-ink:preview-width";
 const TOOLBAR_FLOAT_KEY = "pdf-ink:toolbar-float";
 const SLOTS_KEY = "pdf-ink:pen-slots";
 const SLOT_INDEX_KEY = "pdf-ink:slot-index";
@@ -246,4 +248,14 @@ export function loadEraser() {
 
 export function saveEraser(eraser) {
   writeRaw(ERASER_KEY, JSON.stringify(coerceEraser(eraser)));
+}
+
+/** Drawer width the reader dragged to (#106). */
+export function loadPreviewWidth() {
+  const raw = readRaw(PREVIEW_WIDTH_KEY);
+  return raw ? clampPreviewWidth(Number(raw)) : PREVIEW_WIDTH_DEFAULT;
+}
+
+export function savePreviewWidth(width) {
+  writeRaw(PREVIEW_WIDTH_KEY, String(clampPreviewWidth(width)));
 }

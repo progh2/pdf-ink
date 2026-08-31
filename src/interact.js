@@ -140,8 +140,8 @@ export const M4_OVERFLOW_ITEMS = [
   "capture",
   "fullscreen",
   "image",
+  "sticker",
   "rotate",
-  "preview",
   "save",
   "export",
 ];
@@ -149,6 +149,7 @@ export const M4_OVERFLOW_LABELS = {
   capture: "영역캡처",
   fullscreen: "전체화면",
   image: "이미지",
+  sticker: "스티커",
   rotate: "회전",
   preview: "미리보기",
   save: "저장",

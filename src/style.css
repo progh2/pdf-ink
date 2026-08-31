@@ -1081,7 +1081,7 @@ body {
   left: 0;
   bottom: 0;
   z-index: 9;
-  width: 120px;
+  width: var(--preview-w, 120px);
   padding: 8px 16px;
   border-right: 1px solid #e6e1d6;
   background: #fff;
@@ -1354,9 +1354,19 @@ body {
   opacity: 0.5;
 }
 
+.preview-grip {
+  position: absolute;
+  right: -6px;
+  top: 0;
+  bottom: 0;
+  width: 12px;
+  cursor: col-resize;
+  touch-action: none;
+}
+
 .preview-thumb {
-  width: 88px;
-  height: 117px;
+  width: var(--thumb-w, 88px);
+  height: var(--thumb-h, 117px);
   aspect-ratio: 3 / 4;
   border: 1px solid var(--line);
   border-radius: 8px;
