@@ -235,9 +235,38 @@ describe("#104 배선", () => {
     assert.match(main, /state\.selectIndices = \[spot\.index\]/);
   });
 
-  it("drops the hold as soon as the finger moves or lifts", () => {
-    assert.match(main, /function moveSelect\(event\) \{\s*cancelLockHold\(\)/);
+  it("drops the hold only once the finger really travels (#109)", () => {
+    // A still finger still emits pointermove, so cancelling on any move meant
+    // the menu never appeared.
+    assert.match(main, /function moveSelect\(event\) \{\s*cancelLockHoldIfMoved\(event\)/);
     assert.match(main, /function endSelect\(event\) \{\s*cancelLockHold\(\)/);
     assert.match(main, /function movePan\(event\) \{\s*cancelLockHold\(\)/);
+    assert.match(main, /function cancelLockHoldIfMoved[\s\S]*> slopPx/);
+    assert.match(main, /lockHoldFrom = at;/);
+  });
+});
+
+describe("#110 선택 칸이 영역캡처를 겸함", () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const main = readFileSync(join(here, "main.js"), "utf8");
+  const html = readFileSync(join(here, "..", "index.html"), "utf8");
+
+  it("leaves an area only when the box caught nothing", () => {
+    const end = main.slice(main.indexOf("function endSelect"), main.indexOf("function moveSelect"));
+    const marquee = main.slice(main.indexOf('if (drag.mode === "marquee")'));
+    assert.match(marquee, /boxed && !state\.selectIndices\.length/);
+    assert.match(marquee, /state\.pendingCapture = \{ page: drag\.page, rect \}/);
+    assert.ok(end.length >= 0);
+  });
+
+  it("keeps the ⋯ card free of 영역캡처 and adds no bar cell", () => {
+    assert.doesNotMatch(html, /data-more="capture"/);
+    assert.match(html, /data-tool="select"/);
+    assert.equal((html.match(/class="toolbar"/g) || []).length, 1);
+  });
+
+  it("still selects when the box catches something", () => {
+    const items = [stroke, stamp];
+    assert.deepEqual(pickItemsInRect(items, { x: 0.15, y: 0.15, w: 0.3, h: 0.2 }, 400, 600), [0]);
   });
 });

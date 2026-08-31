@@ -3098,6 +3098,7 @@ function endRect(event) {
 /* ---- 고정한 이미지 풀기 (#104) ---- */
 
 let lockHoldTimer = 0;
+let lockHoldFrom = null;
 
 function hideLockMenu() {
   if (els.lockMenu) {
@@ -3109,6 +3110,20 @@ function hideLockMenu() {
 function cancelLockHold() {
   window.clearTimeout(lockHoldTimer);
   lockHoldTimer = 0;
+  lockHoldFrom = null;
+}
+
+/**
+ * A finger that stays put still emits pointermove, so the hold may only die
+ * once it has really travelled (#109).
+ */
+function cancelLockHoldIfMoved(event, slopPx = PAGE_DRAG_SLOP_PX) {
+  if (!lockHoldTimer || !lockHoldFrom) {
+    return;
+  }
+  if (Math.hypot(event.clientX - lockHoldFrom.x, event.clientY - lockHoldFrom.y) > slopPx) {
+    cancelLockHold();
+  }
 }
 
 /** Select tool only: a locked image has no other way back (#104). */
@@ -3123,6 +3138,7 @@ function armLockHold(event, point, items, cssW, cssH) {
   }
   const page = state.drawPage;
   const at = { x: event.clientX, y: event.clientY };
+  lockHoldFrom = at;
   lockHoldTimer = window.setTimeout(() => {
     lockHoldTimer = 0;
     openLockMenu(page, index, at);
@@ -3244,7 +3260,7 @@ function startSelect(event, stage) {
 }
 
 function moveSelect(event) {
-  cancelLockHold();
+  cancelLockHoldIfMoved(event);
   const drag = state.selectDrag;
   if (!drag || !state.drawCanvas) {
     return;
@@ -3309,13 +3325,23 @@ function endSelect(event) {
     const rect = rectFromPoints(drag.a, drag.b);
     const cssW = view?.cssWidth || 400;
     const cssH = view?.cssHeight || 600;
-    if (rectBigEnough(rect)) {
+    const boxed = rectBigEnough(rect);
+    if (boxed) {
       state.selectIndices = pickItemsInRect(pageStrokes(drag.page), rect, cssW, cssH);
     } else {
       state.selectIndices = pickItemsAt(pageStrokes(drag.page), drag.a, cssW, cssH);
     }
-    hideMarquee();
     state.selectDrag = null;
+    // #110: a box that caught nothing becomes an area, so the one select cell
+    // does area capture too. A box that caught something is a selection.
+    if (boxed && !state.selectIndices.length && view) {
+      state.pendingCapture = { page: drag.page, rect };
+      hideMarqueeMenu();
+      updateMarquee();
+      syncSelectHud();
+      return;
+    }
+    hideMarquee();
     syncSelectHud();
     return;
   }

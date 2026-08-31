@@ -141,7 +141,7 @@ describe("toolbar", () => {
     assert.equal((html.match(/class="toolbar"/g) || []).length, 1);
     assert.doesNotMatch(html, /id="m4-bar"|id="m4-rail"/);
     assert.doesNotMatch(more, /마스킹\(모자이크\)|data-more="mosaic"/);
-    assert.match(more, /영역캡처/);
+    assert.doesNotMatch(more, /영역캡처/, "#110: 선택 칸이 겸한다");
     assert.match(more, /전체화면/);
     assert.doesNotMatch(more, /data-more="select"/);
     assert.match(more, /이미지/);

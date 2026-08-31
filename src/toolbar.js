@@ -39,7 +39,6 @@ export const BAR_TOOLS = [
 export const COLOR_DOT_TOOLS = ["pen", "highlighter", "pencil"];
 
 export const BAR_OVERFLOW_ITEMS = [
-  "capture",
   "fullscreen",
   "image",
   "sticker",

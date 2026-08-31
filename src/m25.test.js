@@ -38,7 +38,6 @@ describe("M4 #25 chrome", () => {
 
   it("puts 이미지·회전(왼쪽/오른쪽) in the same overflow card, 미리보기는 바로 (#106)", () => {
     assert.deepEqual(M4_OVERFLOW_ITEMS, [
-      "capture",
       "fullscreen",
       "image",
       "sticker",
@@ -47,7 +46,7 @@ describe("M4 #25 chrome", () => {
       "export",
     ]);
     assert.doesNotMatch(more, /마스킹\(모자이크\)|data-more="mosaic"/);
-    assert.match(more, /영역캡처/);
+    assert.doesNotMatch(more, /영역캡처/, "#110: 선택 칸이 겸한다");
     assert.match(more, /전체화면/);
     assert.doesNotMatch(more, /data-more="select"/);
     assert.match(more, /이미지/);

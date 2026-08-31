@@ -41,7 +41,6 @@ describe("M4 #31 chrome", () => {
     assert.doesNotMatch(header, /undo-btn|more-btn/);
     assert.match(header, /id="interact-btn"/);
     assert.deepEqual(M4_OVERFLOW_ITEMS, [
-      "capture",
       "fullscreen",
       "image",
       "sticker",
