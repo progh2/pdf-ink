@@ -4,7 +4,7 @@ export const PREVIEW_FILTERS = ["all", "bookmarks", "outline"];
 export const PREVIEW_FILTER_LABELS = {
   all: "전체",
   bookmarks: "책갈피",
-  outline: "개요",
+  outline: "빈 쪽",
 };
 
 export function makePdfLeaf(pdfPage, extras = {}) {
@@ -31,7 +31,7 @@ export function makeOutlineLeaf(id, extras = {}) {
     pdfPage: 0,
     bookmark: Boolean(extras.bookmark),
     rotate: normalizeRotation(extras.rotate || 0),
-    title: extras.title || "개요",
+    title: extras.title || "빈 쪽",
   };
 }
 
