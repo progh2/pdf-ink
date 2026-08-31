@@ -480,7 +480,7 @@ describe("#70 hold-end jitter must not turn ink into a triangle", () => {
     assert.notEqual(done.points.length, 3);
   });
 
-  it("long freehand plus hold does not grow a tail even on a large pointer jump", () => {
+  it("long freehand plus a finished hold does not grow a tail on a large pointer jump", () => {
     const clock = createClock();
     const hold = createShapeHold({
       holdMs: SHAPE_HOLD_MS,
@@ -509,22 +509,30 @@ describe("#70 hold-end jitter must not turn ink into a triangle", () => {
     const last = dragged[dragged.length - 1];
     assert.deepEqual(live, dragged);
     const heldCount = live.length;
+    // #116: a short pause is ordinary mouse drawing, so the stroke keeps going.
     clock.advance(80);
-    const tailClient = { x: endClient.x, y: endClient.y + 145 };
-    const tailNorm = { x: last.x, y: last.y + 0.22 };
-    live = recordHoldMove(hold, live, tailClient, tailNorm, onOffer);
-    assert.equal(live.length, heldCount);
-    assert.deepEqual(live, dragged);
-    assert.notEqual(live.at(-1)?.y, tailNorm.y);
+    const midNorm = { x: last.x, y: last.y + 0.02 };
+    live = recordHoldMove(hold, live, { x: endClient.x, y: endClient.y + 30 }, midNorm, onOffer);
+    assert.equal(live.length, heldCount + 1, "a pause must not cut the stroke");
+    // The hold itself is what freezes it: after 400ms still, the chips come up.
     clock.advance(400);
     assert.equal(hold.isOffering(), true);
     assert.ok(offered);
     assert.ok(offered.chips.line);
     assert.ok(offered.chips.rect);
     assert.ok(offered.chips.circle);
+    const frozenCount = live.length;
+    const tailClient = { x: endClient.x, y: endClient.y + 175 };
+    const tailNorm = { x: last.x, y: last.y + 0.22 };
+    live = recordHoldMove(hold, live, tailClient, tailNorm, onOffer);
+    assert.equal(live.length, frozenCount, "a jump under the chips must not grow a tail");
+    assert.notEqual(live.at(-1)?.y, tailNorm.y);
+    // Moving on dismisses the chips: that is the #116 thaw, not a new tail.
+    assert.equal(offered, null);
+    assert.equal(hold.isOffering(), false);
     const done = hold.finish([...live, tailNorm]);
     assert.equal(done.snapped, false);
-    assert.deepEqual(done.points, dragged);
+    assert.equal(done.points.length, frozenCount);
   });
 
   it("a 145px downward client jump during an active hold/offer does not grow the stroke if chips remain", () => {
@@ -860,5 +868,65 @@ describe("#51 chrome lock", () => {
     assert.match(main, /event\.type === "pointercancel" && state\.drawing && event\.buttons > 0/);
     assert.match(main, /Number\.isInteger\(state\.shapeOffer\.index\)/);
     assert.doesNotMatch(main, /currentStroke\.points = (?:next|result|snapped)/);
+  });
+});
+
+describe("#116 마우스로 그릴 때 획이 안 끊긴다", () => {
+  function drawing() {
+    const clock = createClock();
+    const hold = createShapeHold({
+      holdMs: SHAPE_HOLD_MS,
+      now: clock.now,
+      setTimeoutFn: clock.setTimeoutFn,
+      clearTimeoutFn: clock.clearTimeoutFn,
+    });
+    let live = [{ x: 0.1, y: 0.5 }];
+    hold.begin({ tool: "pen", client: { x: 20, y: 100 }, getPoints: () => live, onOffer: () => {} });
+    hold.rememberPoints(live);
+    return { clock, hold, live };
+  }
+
+  it("keeps drawing through the pauses a mouse makes", () => {
+    const { clock, hold } = drawing();
+    let live = [{ x: 0.1, y: 0.5 }];
+    let x = 20;
+    // Ten segments, each after a 60~120ms gap: this used to lock at 50ms.
+    for (let step = 0; step < 10; step += 1) {
+      clock.advance(60 + step * 6);
+      x += 40;
+      const append = hold.noteMove({ client: { x, y: 100 }, getPoints: () => live, onOffer: () => {} });
+      assert.equal(append, true, `segment ${step} must be drawn`);
+      live = [...live, { x: 0.1 + step * 0.05, y: 0.5 }];
+      hold.rememberPoints(live);
+    }
+    assert.equal(hold.isHoldLocked(), false);
+  });
+
+  it("thaws and keeps going after a real hold, instead of dying there", () => {
+    const { clock, hold } = drawing();
+    let live = [{ x: 0.1, y: 0.5 }];
+    hold.noteMove({ client: { x: 200, y: 100 }, getPoints: () => live, onOffer: () => {} });
+    live = [...live, { x: 0.5, y: 0.5 }];
+    hold.rememberPoints(live);
+    // Stand still past the hold: it freezes (that is #51/#70).
+    clock.advance(SHAPE_HOLD_MS);
+    hold.noteMove({ client: { x: 202, y: 100 }, getPoints: () => live, onOffer: () => {} });
+    assert.equal(hold.isFrozen(), true);
+    // Move on: the first move clears the chips, and the stroke lives again (#116).
+    hold.noteMove({ client: { x: 300, y: 140 }, getPoints: () => live, onOffer: () => {} });
+    assert.equal(hold.isFrozen(), false, "moving on must thaw the stroke");
+    const append = hold.noteMove({ client: { x: 360, y: 180 }, getPoints: () => live, onOffer: () => {} });
+    assert.equal(append, true, "the stroke keeps growing after the hold");
+    assert.equal(hold.isHoldLocked(), false);
+  });
+
+  it("still ignores tremor inside the slop", () => {
+    const { hold } = drawing();
+    let live = [{ x: 0.1, y: 0.5 }];
+    hold.noteMove({ client: { x: 200, y: 100 }, getPoints: () => live, onOffer: () => {} });
+    live = [...live, { x: 0.5, y: 0.5 }];
+    hold.rememberPoints(live);
+    const append = hold.noteMove({ client: { x: 205, y: 103 }, getPoints: () => live, onOffer: () => {} });
+    assert.equal(append, false, "a 6px wobble is not a stroke");
   });
 });

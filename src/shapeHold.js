@@ -470,12 +470,12 @@ export function createShapeHold({
         onOffer?.(null);
         return false;
       }
-      const still = drawn && now() - lastSignificantAt >= Math.min(50, holdMs);
-      const locking = Boolean(drawn && (frozen || still));
       if (isShapeHoldJitter(client, lastClient, moveSlopPx)) {
-        if (drawn) {
+        // Tremor inside the slop adds nothing, but it only freezes once the
+        // hold really completed. A mouse pauses mid-stroke all the time (#116).
+        if (drawn && now() - lastSignificantAt >= holdMs) {
           freezeFrom(lastGood || (typeof getPoints === "function" ? getPoints() : []));
-          if (!offer && now() - lastSignificantAt >= holdMs) {
+          if (!offer) {
             fire(getPoints, onOffer);
           }
         }
@@ -483,13 +483,9 @@ export function createShapeHold({
       }
       lastClient = client;
       lastSignificantAt = now();
-      if (locking) {
-        clearTimer();
-        timer = setTimeoutFn(() => fire(getPoints, onOffer), holdMs);
-        return false;
-      }
-      drawn = true;
+      // The hand moved on: thaw and keep drawing the same stroke (#116).
       frozen = null;
+      drawn = true;
       clearTimer();
       timer = setTimeoutFn(() => fire(getPoints, onOffer), holdMs);
       return true;
@@ -515,6 +511,7 @@ export function createShapeHold({
     isOffering: () => Boolean(offer),
     currentOffer: () => offer,
     isFrozen: () => Boolean(frozen),
-    isHoldLocked: () => Boolean(frozen || offer || (drawn && now() - lastSignificantAt >= Math.min(50, holdMs))),
+    // Locked only once the hold really completed, never after a 50ms gap (#116).
+    isHoldLocked: () => Boolean(frozen || offer || (drawn && now() - lastSignificantAt >= holdMs)),
   };
 }
