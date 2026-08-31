@@ -3,11 +3,12 @@ import { inkKey, makeOutlineLeaf, makePdfLeaf, setLeafRotate } from "./preview.j
 import { addRotation } from "./rotate.js";
 
 /** Preview drawer page menu (#55). Hold 400ms or right-click on a thumb. */
-export const PAGE_MENU_ACTIONS = ["copy", "paste", "duplicate", "up", "down", "left", "right"];
+export const PAGE_MENU_ACTIONS = ["copy", "paste", "duplicate", "delete", "up", "down", "left", "right"];
 export const PAGE_MENU_LABELS = {
   copy: "복사",
   paste: "붙여넣기",
   duplicate: "복제",
+  delete: "삭제",
   up: "위로",
   down: "아래로",
   left: "왼쪽 90°",

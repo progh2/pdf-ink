@@ -105,6 +105,7 @@ describe("#69 stamp ghost 40% 108×64", () => {
       "eraser",
       "select",
       "stamp",
+      "preview",
       "undo",
       "redo",
       "more",

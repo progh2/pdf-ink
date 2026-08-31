@@ -29,7 +29,7 @@ const stroke = { type: "pen", width: 2, points: [{ x: 0.2, y: 0.2 }] };
 
 describe("#55 미리보기 페이지 조작", () => {
   it("locks the menu to the issue list, no new bar cell", () => {
-    assert.deepEqual(PAGE_MENU_ACTIONS, ["copy", "paste", "duplicate", "up", "down", "left", "right"]);
+    assert.deepEqual(PAGE_MENU_ACTIONS, ["copy", "paste", "duplicate", "delete", "up", "down", "left", "right"]);
     assert.equal(PAGE_MENU_LABELS.duplicate, "복제");
     assert.equal(PAGE_HOLD_MS, 400);
   });
@@ -147,9 +147,9 @@ describe("#55 서랍 배선", () => {
   const css = readFileSync(join(here, "style.css"), "utf8");
   const html = readFileSync(join(here, "..", "index.html"), "utf8");
 
-  it("keeps the drawer at 120 / thumb 88 / gap 8 and adds no bar cell", () => {
-    assert.match(css, /\.preview-drawer \{[\s\S]*width: 120px/);
-    assert.match(css, /\.preview-thumb \{[\s\S]*width: 88px[\s\S]*height: 117px/);
+  it("keeps the drawer default 120 / thumb 88 / gap 8, and only the 미리보기 cell was added (#106)", () => {
+    assert.match(css, /\.preview-drawer \{[\s\S]*width: var\(--preview-w, 120px\)/);
+    assert.match(css, /\.preview-thumb \{[\s\S]*width: var\(--thumb-w, 88px\)[\s\S]*height: var\(--thumb-h, 117px\)/);
     assert.match(css, /\.preview-list-window \{[\s\S]*gap: 8px/);
     assert.equal((html.match(/class="toolbar"/g) || []).length, 1);
     assert.doesNotMatch(html, /data-tool="pageops"|data-more="pageops"/);

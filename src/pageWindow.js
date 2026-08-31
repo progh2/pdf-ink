@@ -3,6 +3,8 @@
 export const PAGE_BITMAP_LIMIT = 6;
 export const THUMB_BITMAP_LIMIT = 48;
 export const PREVIEW_OVERSCAN = 3;
+/** How long after the last stroke the open drawer repaints that thumb (#106). */
+export const THUMB_REFRESH_MS = 600;
 export const SCROLL_OVERSCAN = 2;
 export const PAGE_STACK_GAP = 16;
 
@@ -12,20 +14,37 @@ export const PREVIEW_META_HEIGHT = 44;
 export const PREVIEW_ROW_GAP = 6;
 export const PREVIEW_LIST_GAP = 8;
 
-export function previewRowBody() {
-  return PREVIEW_THUMB_HEIGHT + PREVIEW_ROW_GAP + PREVIEW_META_HEIGHT;
+/** Drawer width is adjustable (#106), so the thumb and the row grow with it. */
+export const PREVIEW_WIDTH_MIN = 96;
+export const PREVIEW_WIDTH_MAX = 360;
+export const PREVIEW_WIDTH_DEFAULT = 120;
+export const PREVIEW_SIDE_PAD = 32;
+export const PREVIEW_THUMB_RATIO = PREVIEW_THUMB_HEIGHT / PREVIEW_THUMB_WIDTH;
+
+export function clampPreviewWidth(width) {
+  const value = Math.round(Number(width) || PREVIEW_WIDTH_DEFAULT);
+  return Math.min(PREVIEW_WIDTH_MAX, Math.max(PREVIEW_WIDTH_MIN, value));
 }
 
-export function previewRowStride() {
-  return previewRowBody() + PREVIEW_LIST_GAP;
+export function previewThumbSize(drawerWidth = PREVIEW_WIDTH_DEFAULT) {
+  const width = Math.max(24, clampPreviewWidth(drawerWidth) - PREVIEW_SIDE_PAD);
+  return { width, height: Math.round(width * PREVIEW_THUMB_RATIO) };
 }
 
-export function previewListHeight(count) {
+export function previewRowBody(drawerWidth = PREVIEW_WIDTH_DEFAULT) {
+  return previewThumbSize(drawerWidth).height + PREVIEW_ROW_GAP + PREVIEW_META_HEIGHT;
+}
+
+export function previewRowStride(drawerWidth = PREVIEW_WIDTH_DEFAULT) {
+  return previewRowBody(drawerWidth) + PREVIEW_LIST_GAP;
+}
+
+export function previewListHeight(count, drawerWidth = PREVIEW_WIDTH_DEFAULT) {
   const n = Math.max(0, Math.round(Number(count) || 0));
   if (n <= 0) {
     return 0;
   }
-  return n * previewRowBody() + Math.max(0, n - 1) * PREVIEW_LIST_GAP;
+  return n * previewRowBody(drawerWidth) + Math.max(0, n - 1) * PREVIEW_LIST_GAP;
 }
 
 export function visibleIndexRange({ scrollTop, viewportHeight, count, itemStride, overscan = 0 }) {
@@ -181,11 +200,13 @@ export function createPaintCache(limit = 8) {
   };
 }
 
-export function thumbCacheKey(leaf) {
+export function thumbCacheKey(leaf, thumbWidth = PREVIEW_THUMB_WIDTH, ink = 0) {
   if (!leaf) {
     return "empty";
   }
-  return `${leaf.id}:${leaf.rotate || 0}:${leaf.kind}`;
+  // Width and ink stamp are part of the key: a wider drawer or a new stroke
+  // must not reuse the old picture (#106).
+  return `${leaf.id}:${leaf.rotate || 0}:${leaf.kind}:${Math.round(thumbWidth)}:${ink}`;
 }
 
 export function pageBitmapKey(leaf, extras = {}) {

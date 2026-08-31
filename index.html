@@ -115,6 +115,12 @@
                     <ellipse cx="12" cy="12" rx="6.2" ry="3.4" fill="none" stroke="currentColor" stroke-width="1.2" />
                   </svg>
                 </button>
+                <button type="button" class="tool" id="preview-btn" aria-label="미리보기">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <rect x="3.5" y="4.5" width="7" height="15" rx="1.4" fill="none" stroke="currentColor" stroke-width="1.8" />
+                    <rect x="13.5" y="4.5" width="7" height="15" rx="1.4" fill="none" stroke="currentColor" stroke-width="1.8" />
+                  </svg>
+                </button>
                 <button type="button" class="tool" id="undo-btn" aria-label="되돌리기" disabled>
                   <svg viewBox="0 0 24 24" aria-hidden="true">
                     <path d="M8 8H5.5a.5.5 0 0 0-.5.5V11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
@@ -181,7 +187,6 @@
           <button type="button" data-rotate="-90">왼쪽</button>
           <button type="button" data-rotate="90">오른쪽</button>
         </div>
-        <button type="button" data-more="preview">미리보기</button>
         <button type="button" data-more="save">저장</button>
         <button type="button" data-more="export">내보내기</button>
         <button type="button" data-more="settings" id="settings-btn">설정</button>
@@ -190,6 +195,7 @@
       <input id="image-input" type="file" accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp" hidden />
 
       <aside class="preview-drawer" id="preview-drawer" hidden>
+        <div class="preview-grip" id="preview-grip" aria-hidden="true"></div>
         <div class="preview-head">
           <h2>미리보기</h2>
           <button type="button" class="preview-close" id="preview-close" aria-label="미리보기 닫기">닫기</button>
@@ -202,20 +208,18 @@
           <div class="preview-filters" id="preview-filters">
             <button type="button" data-preview-filter="all">전체</button>
             <button type="button" data-preview-filter="bookmarks">책갈피</button>
-            <button type="button" data-preview-filter="outline">개요</button>
+            <button type="button" data-preview-filter="outline">빈 쪽</button>
           </div>
           <div class="preview-list" id="preview-list">
             <div class="preview-drop" id="preview-drop" hidden></div>
           </div>
-          <button type="button" class="preview-insert" id="outline-insert">개요 페이지 넣기</button>
+          <button type="button" class="preview-insert" id="outline-insert">빈 쪽 넣기</button>
         </div>
         <div class="preview-toc" id="preview-toc" hidden>
           <button type="button" class="preview-toc-add" id="toc-add" aria-label="개요 추가">+</button>
           <div class="preview-toc-list" id="toc-list"></div>
         </div>
       </aside>
-      <button type="button" class="preview-backdrop" id="preview-backdrop" hidden aria-label="미리보기 닫기"></button>
-
       <div class="sticker-sheet" id="sticker-sheet" hidden>
         <div class="sticker-head">
           <p class="sticker-title">스티커</p>
@@ -278,6 +282,7 @@
         <button type="button" data-page-menu="copy">복사</button>
         <button type="button" data-page-menu="paste">붙여넣기</button>
         <button type="button" data-page-menu="duplicate">복제</button>
+        <button type="button" data-page-menu="delete">삭제</button>
         <button type="button" data-page-menu="up">위로</button>
         <button type="button" data-page-menu="down">아래로</button>
         <button type="button" data-page-menu="left">왼쪽 90°</button>

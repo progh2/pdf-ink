@@ -54,6 +54,7 @@ describe("#56 GoodNotes 4 utility bar", () => {
       "eraser",
       "select",
       "stamp",
+      "preview",
       "undo",
       "redo",
       "more",
@@ -143,8 +144,8 @@ describe("#56 GoodNotes 4 utility bar", () => {
       "capture",
       "fullscreen",
       "image",
+      "sticker",
       "rotate",
-      "preview",
       "save",
       "export",
     ]);
@@ -154,7 +155,7 @@ describe("#56 GoodNotes 4 utility bar", () => {
     assert.match(more, /이미지/);
     assert.match(more, /data-rotate="-90">왼쪽/);
     assert.match(more, /data-rotate="90">오른쪽/);
-    assert.match(more, /미리보기/);
+    assert.doesNotMatch(more, /미리보기/);
     assert.match(more, /data-more="save">저장/);
     assert.match(more, /data-more="export">내보내기/);
     assert.doesNotMatch(more, /data-more="select"/);
@@ -224,7 +225,10 @@ describe("#49 메뉴 위치 왼·오 이동", () => {
     assert.match(css, /\[data-toolbar="right"\] \.toolbar-rail \{[\s\S]*justify-content: flex-end/);
     assert.match(css, /\[data-toolbar="left"\] \.toolbar-cells,[\s\S]*flex-direction: column/);
     assert.equal((html.match(/class="toolbar"/g) || []).length, 1);
-    assert.equal((html.match(/data-tool=|id="undo-btn"|id="redo-btn"|id="more-btn"/g) || []).length, BAR_TOOLS.length);
+    assert.equal(
+      (html.match(/data-tool=|id="preview-btn"|id="undo-btn"|id="redo-btn"|id="more-btn"/g) || []).length,
+      BAR_TOOLS.length,
+    );
     const dockFn = main.slice(main.indexOf("async function setToolbarPosition"), main.indexOf("async function setViewMode"));
     assert.doesNotMatch(dockFn, /rebuildPages|applyPageSize/);
   });
