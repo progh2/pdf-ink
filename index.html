@@ -23,6 +23,7 @@
           <button type="button" class="dropzone" id="dropzone">
             PDF만 올려요
           </button>
+          <button type="button" class="dropbox-open" id="dropbox-open">드롭박스에서 열기</button>
           <ul class="recents" id="recents" hidden></ul>
         </div>
       </section>
@@ -219,6 +220,19 @@
           <div class="preview-toc-list" id="toc-list"></div>
         </div>
       </aside>
+      <div class="sticker-sheet dropbox-sheet" id="dropbox-sheet" hidden>
+        <div class="sticker-head">
+          <p class="sticker-title" id="dropbox-path">드롭박스</p>
+          <button type="button" class="sticker-close" id="dropbox-close" aria-label="닫기">✕</button>
+        </div>
+        <div class="sticker-body">
+          <button type="button" class="sticker-flat" id="dropbox-up" hidden>상위 폴더</button>
+          <div class="dropbox-list" id="dropbox-list"></div>
+          <button type="button" class="sticker-flat" id="dropbox-logout">연결 끊기</button>
+        </div>
+      </div>
+      <button type="button" class="sticker-backdrop" id="dropbox-backdrop" hidden aria-label="드롭박스 닫기"></button>
+
       <div class="sticker-sheet" id="sticker-sheet" hidden>
         <div class="sticker-head">
           <p class="sticker-title">스티커</p>

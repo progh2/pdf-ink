@@ -21,6 +21,8 @@ import {
   loadEraser,
   loadInkTools,
   loadInteractMode,
+  clearDropboxSession,
+  loadDropboxSession,
   loadPreviewWidth,
   loadToolbarFloat,
   loadToolbarPosition,
@@ -29,6 +31,7 @@ import {
   saveEraser,
   saveInkTools,
   saveInteractMode,
+  saveDropboxSession,
   savePreviewWidth,
   saveToolbarFloat,
   saveToolbarPosition,
@@ -116,6 +119,29 @@ import {
 } from "./shapeHold.js";
 import { MOSAIC_CELL_CSS, mosaicBoxesPx, mosaicItem } from "./mosaic.js";
 import { recentCardEntries } from "./recent.js";
+import {
+  DOWNLOAD_URL,
+  LIST_MORE_URL,
+  LIST_URL,
+  REVOKE_URL,
+  TOKEN_URL,
+  UPLOAD_URL,
+  asciiHeader,
+  authorizeUrl,
+  challengeFor,
+  docFromEntry,
+  downloadArg,
+  dropboxIdentity,
+  isConflict,
+  makeVerifier,
+  parentPath,
+  pdfEntries,
+  refreshBody,
+  sessionFromToken,
+  tokenBody,
+  tokenExpired,
+  uploadArg,
+} from "./dropbox.js";
 import {
   ensureWritePermission,
   pickerOptions,
@@ -292,6 +318,14 @@ const els = {
   imageInput: document.querySelector("#image-input"),
   previewDrawer: document.querySelector("#preview-drawer"),
   pageMenu: document.querySelector("#page-menu"),
+  dropboxOpen: document.querySelector("#dropbox-open"),
+  dropboxSheet: document.querySelector("#dropbox-sheet"),
+  dropboxBackdrop: document.querySelector("#dropbox-backdrop"),
+  dropboxClose: document.querySelector("#dropbox-close"),
+  dropboxList: document.querySelector("#dropbox-list"),
+  dropboxPath: document.querySelector("#dropbox-path"),
+  dropboxUp: document.querySelector("#dropbox-up"),
+  dropboxLogout: document.querySelector("#dropbox-logout"),
   stickerSheet: document.querySelector("#sticker-sheet"),
   stickerBackdrop: document.querySelector("#sticker-backdrop"),
   stickerClose: document.querySelector("#sticker-close"),
@@ -393,6 +427,9 @@ const state = {
   previewTab: "pages",
   pageClip: null,
   fileHandle: null,
+  dropbox: null,
+  dropboxDoc: null,
+  dropboxPath: "",
   stickers: [],
   stickerFolders: [],
   stickerFolder: DEFAULT_FOLDER_ID,
@@ -1538,6 +1575,9 @@ function placeStamp(view, point) {
 async function openPdfBuffer(buffer, { identity, name, page = 1, handle = null }) {
   // Always replace: a handle from the previous file must never write this one.
   state.fileHandle = handle;
+  if (!String(identity || "").startsWith("dbx::")) {
+    state.dropboxDoc = null;
+  }
   if (state.pdf) {
     await state.pdf.destroy();
     state.pdf = null;
@@ -4910,11 +4950,266 @@ async function withAnnotatedPdf(run, failMessage) {
   }
 }
 
+/* ---- 드롭박스 (#82) : 토큰은 이 브라우저에만 ---- */
+
+const DROPBOX_VERIFIER_KEY = "pdf-ink:dropbox-verifier";
+
+function dropboxConnected() {
+  return Boolean(state.dropbox?.refreshToken);
+}
+
+async function startDropboxLogin() {
+  const verifier = makeVerifier();
+  try {
+    sessionStorage.setItem(DROPBOX_VERIFIER_KEY, verifier);
+  } catch {
+    flashBanner("브라우저 저장을 쓸 수 없어 연결하지 못합니다.");
+    return;
+  }
+  const challenge = await challengeFor(verifier);
+  window.location.href = authorizeUrl({ challenge, origin: window.location.origin });
+}
+
+/** Runs on load: turns ?code=... into a session, then cleans the address bar. */
+async function finishDropboxLogin() {
+  const params = new URLSearchParams(window.location.search);
+  const code = params.get("code");
+  if (!code) {
+    return;
+  }
+  let verifier = "";
+  try {
+    verifier = sessionStorage.getItem(DROPBOX_VERIFIER_KEY) || "";
+    sessionStorage.removeItem(DROPBOX_VERIFIER_KEY);
+  } catch {
+    verifier = "";
+  }
+  window.history.replaceState({}, "", window.location.pathname);
+  if (!verifier) {
+    return;
+  }
+  try {
+    const reply = await fetch(TOKEN_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: tokenBody({ code, verifier, origin: window.location.origin }),
+    });
+    if (!reply.ok) {
+      throw new Error("token");
+    }
+    const session = sessionFromToken(await reply.json());
+    if (!session) {
+      throw new Error("token");
+    }
+    state.dropbox = session;
+    saveDropboxSession(session);
+    flashBanner("드롭박스에 연결했습니다.");
+    openDropboxSheet();
+  } catch {
+    flashBanner("드롭박스 연결에 실패했습니다.");
+  }
+}
+
+async function dropboxToken() {
+  if (!dropboxConnected()) {
+    return "";
+  }
+  if (!tokenExpired(state.dropbox)) {
+    return state.dropbox.accessToken;
+  }
+  const reply = await fetch(TOKEN_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: refreshBody({ refreshToken: state.dropbox.refreshToken }),
+  });
+  if (!reply.ok) {
+    throw new Error("refresh");
+  }
+  const next = sessionFromToken(await reply.json(), Date.now(), state.dropbox);
+  if (!next) {
+    throw new Error("refresh");
+  }
+  state.dropbox = next;
+  saveDropboxSession(next);
+  return next.accessToken;
+}
+
+async function dropboxRpc(url, body) {
+  const token = await dropboxToken();
+  const reply = await fetch(url, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!reply.ok) {
+    throw new Error(`rpc ${reply.status}`);
+  }
+  return reply.json();
+}
+
+async function openDropboxSheet() {
+  if (!els.dropboxSheet) {
+    return;
+  }
+  if (!dropboxConnected()) {
+    await startDropboxLogin();
+    return;
+  }
+  els.dropboxSheet.hidden = false;
+  els.dropboxBackdrop.hidden = false;
+  await showDropboxFolder(state.dropboxPath || "");
+}
+
+function closeDropboxSheet() {
+  if (!els.dropboxSheet) {
+    return;
+  }
+  els.dropboxSheet.hidden = true;
+  els.dropboxBackdrop.hidden = true;
+}
+
+async function showDropboxFolder(path) {
+  state.dropboxPath = path;
+  els.dropboxPath.textContent = path || "드롭박스";
+  els.dropboxUp.hidden = !path;
+  els.dropboxList.replaceChildren(loadingRow("여는 중…"));
+  try {
+    let data = await dropboxRpc(LIST_URL, { path, recursive: false, limit: 500 });
+    let entries = data.entries || [];
+    while (data.has_more) {
+      data = await dropboxRpc(LIST_MORE_URL, { cursor: data.cursor });
+      entries = entries.concat(data.entries || []);
+    }
+    renderDropboxList(pdfEntries(entries));
+  } catch {
+    els.dropboxList.replaceChildren(loadingRow("목록을 불러오지 못했습니다."));
+  }
+}
+
+function loadingRow(text) {
+  const note = document.createElement("p");
+  note.className = "dropbox-empty";
+  note.textContent = text;
+  return note;
+}
+
+function renderDropboxList(entries) {
+  if (!entries.length) {
+    els.dropboxList.replaceChildren(loadingRow("이 폴더에 PDF가 없습니다."));
+    return;
+  }
+  els.dropboxList.replaceChildren(
+    ...entries.map((entry) => {
+      const row = document.createElement("button");
+      row.type = "button";
+      row.className = "dropbox-row";
+      const name = document.createElement("span");
+      name.textContent = entry.name;
+      const kind = document.createElement("span");
+      kind.className = "dropbox-row-kind";
+      kind.textContent = entry[".tag"] === "folder" ? "폴더" : "PDF";
+      row.append(name, kind);
+      row.addEventListener("click", () => {
+        if (entry[".tag"] === "folder") {
+          showDropboxFolder(entry.path_lower || entry.path_display || "");
+          return;
+        }
+        openDropboxFile(entry);
+      });
+      return row;
+    }),
+  );
+}
+
+async function openDropboxFile(entry) {
+  const doc = docFromEntry(entry);
+  if (!doc) {
+    return;
+  }
+  showBanner("드롭박스에서 여는 중…");
+  try {
+    const token = await dropboxToken();
+    const reply = await fetch(DOWNLOAD_URL, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Dropbox-API-Arg": asciiHeader(downloadArg(doc.path)) },
+    });
+    if (!reply.ok) {
+      throw new Error("download");
+    }
+    const buffer = await reply.arrayBuffer();
+    const check = await validatePdfContents(new Blob([buffer]));
+    if (!check.ok) {
+      flashBanner(check.message);
+      return;
+    }
+    closeDropboxSheet();
+    state.dropboxDoc = doc;
+    showBanner("");
+    await openPdfBuffer(buffer, { identity: dropboxIdentity(doc), name: doc.name });
+  } catch {
+    flashBanner("드롭박스에서 열지 못했습니다.");
+  }
+}
+
+/** Writes the annotated PDF back to the same Dropbox file (#82). */
+async function saveToDropbox(blob) {
+  const doc = state.dropboxDoc;
+  const token = await dropboxToken();
+  const reply = await fetch(UPLOAD_URL, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/octet-stream",
+      "Dropbox-API-Arg": asciiHeader(uploadArg(doc.path, doc.rev)),
+    },
+    body: blob,
+  });
+  if (reply.ok) {
+    const meta = await reply.json();
+    state.dropboxDoc = { ...doc, rev: meta.rev || doc.rev };
+    return "saved";
+  }
+  let payload = null;
+  try {
+    payload = await reply.json();
+  } catch {
+    payload = null;
+  }
+  if (isConflict(payload)) {
+    // Someone else changed it: never win silently. Next save overwrites.
+    state.dropboxDoc = { ...doc, rev: "" };
+    return "conflict";
+  }
+  throw new Error("upload");
+}
+
+function disconnectDropbox() {
+  const token = state.dropbox?.accessToken;
+  state.dropbox = null;
+  state.dropboxDoc = null;
+  clearDropboxSession();
+  closeDropboxSheet();
+  flashBanner("드롭박스 연결을 끊었습니다.");
+  if (token) {
+    fetch(REVOKE_URL, { method: "POST", headers: { Authorization: `Bearer ${token}` } }).catch(() => {});
+  }
+}
+
 async function saveDocumentNow() {
   persistStrokes();
   persistSession();
   await withAnnotatedPdf(async (blob, fileName) => {
     // #82: the file the reader opened, not another copy in Downloads.
+    if (state.dropboxDoc && dropboxConnected()) {
+      const result = await saveToDropbox(blob);
+      flashBanner(
+        result === "conflict"
+          ? "드롭박스에서 파일이 바뀌었습니다. 다시 저장하면 덮어씁니다."
+          : `드롭박스에 저장했습니다. ${state.dropboxDoc.name}`,
+        2600,
+      );
+      return;
+    }
     if (await ensureWritePermission(state.fileHandle)) {
       try {
         await writeHandle(state.fileHandle, blob);
@@ -6195,6 +6490,13 @@ for (const label of STAMP_LABELS) {
   els.stampPhrases.append(btn);
 }
 
+els.dropboxOpen?.addEventListener("click", openDropboxSheet);
+els.dropboxClose?.addEventListener("click", closeDropboxSheet);
+els.dropboxBackdrop?.addEventListener("click", closeDropboxSheet);
+els.dropboxUp?.addEventListener("click", () => showDropboxFolder(parentPath(state.dropboxPath)));
+els.dropboxLogout?.addEventListener("click", disconnectDropbox);
+state.dropbox = loadDropboxSession();
+finishDropboxLogin();
 bindPreviewGrip(els.previewGrip);
 applyPreviewWidth();
 els.previewBtn?.addEventListener("click", () => {

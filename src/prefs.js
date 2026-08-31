@@ -15,6 +15,7 @@ import {
 
 const TOOLBAR_POS_KEY = "pdf-ink:toolbar-pos";
 const PREVIEW_WIDTH_KEY = "pdf-ink:preview-width";
+const DROPBOX_KEY = "pdf-ink:dropbox";
 const TOOLBAR_FLOAT_KEY = "pdf-ink:toolbar-float";
 const SLOTS_KEY = "pdf-ink:pen-slots";
 const SLOT_INDEX_KEY = "pdf-ink:slot-index";
@@ -258,4 +259,30 @@ export function loadPreviewWidth() {
 
 export function savePreviewWidth(width) {
   writeRaw(PREVIEW_WIDTH_KEY, String(clampPreviewWidth(width)));
+}
+
+/** Dropbox tokens stay in this browser (#82). Nothing is sent to a server of ours. */
+export function loadDropboxSession() {
+  try {
+    const raw = readRaw(DROPBOX_KEY);
+    const data = raw ? JSON.parse(raw) : null;
+    return data?.refreshToken ? data : null;
+  } catch {
+    return null;
+  }
+}
+
+export function saveDropboxSession(session) {
+  if (!session?.refreshToken) {
+    return;
+  }
+  writeRaw(DROPBOX_KEY, JSON.stringify(session));
+}
+
+export function clearDropboxSession() {
+  try {
+    localStorage.removeItem(DROPBOX_KEY);
+  } catch {
+    // best effort
+  }
 }
