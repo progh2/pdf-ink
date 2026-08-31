@@ -1902,3 +1902,50 @@ body {
 .sticker-angle {
   width: 100%;
 }
+
+/* #82 dropbox chooser. Same sheet as the sticker studio, different list. */
+.dropbox-open {
+  width: 320px;
+  max-width: 100%;
+  height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--paper);
+  color: var(--title);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.dropbox-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 80px;
+}
+
+.dropbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  color: var(--title);
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.dropbox-row-kind {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.dropbox-empty {
+  color: var(--muted);
+  font-size: 13px;
+}
