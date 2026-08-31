@@ -56,10 +56,11 @@ describe("M4 #25 chrome", () => {
     assert.doesNotMatch(more, /미리보기/);
     assert.match(html, /id="preview-btn"/);
     assert.doesNotMatch(more, /data-more="rotate"/);
-    assert.doesNotMatch(more, /책갈피|개요 페이지/);
+    assert.doesNotMatch(more, /책갈피|빈 쪽/);
     assert.doesNotMatch(toolbar, /책갈피|이미지|회전/);
     assert.match(drawer, /책갈피/);
-    assert.match(drawer, /개요/);
+    assert.match(drawer, /목차/, "#107: 탭은 목차");
+    assert.match(drawer, /빈 쪽/, "#107: 거르기·넣기는 빈 쪽");
     assert.match(drawer, /빈 쪽 넣기/);
     assert.match(css, /\.slot-panel \{[\s\S]*padding: 12px;[\s\S]*border: 1px solid #e6e1d6;[\s\S]*border-radius: 16px/);
     assert.match(css, /\.more-panel button \{[\s\S]*height: 44px/);

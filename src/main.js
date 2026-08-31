@@ -1499,7 +1499,7 @@ async function openPdfBuffer(buffer, { identity, name, page = 1, handle = null }
   state.pageCount = state.leaves.length;
   state.page = Math.min(Math.max(1, page), state.pageCount);
   state.pages = stored.pages;
-  state.outline = normalizeOutline(stored.outline);
+  state.outline = normalizeOutline(stored.outline, state.leaves);
   state.baseCss = { width: 0, height: 0 };
   resetEditorExtras();
   state.renderFactor = 1;
@@ -3821,7 +3821,7 @@ function renderPreview() {
 }
 
 function addTocEntry() {
-  state.outline = addOutlineEntry(state.outline, state.page);
+  state.outline = addOutlineEntry(state.outline, state.page, state.leaves);
   persistStrokes();
   renderTocList();
 }
@@ -3871,7 +3871,7 @@ function renderTocList() {
   }
   els.tocList.replaceChildren();
   for (const entry of state.outline) {
-    const dest = outlineDestPage(entry);
+    const dest = outlineDestPage(entry, state.leaves);
     const row = document.createElement("div");
     row.className = "preview-toc-row";
     if (dest === state.page) {
@@ -3930,6 +3930,8 @@ function commitLeafChange(key, apply) {
 
 function afterPageOp(nextPage) {
   state.pageCount = state.leaves.length;
+  // A deleted page takes its 목차 entry with it (#107).
+  state.outline = normalizeOutline(state.outline, state.leaves);
   state.page = Math.min(Math.max(1, nextPage), state.pageCount);
   state.selectIndices = [];
   rebuildPages();
@@ -4644,7 +4646,10 @@ async function annotatedPdfBlob() {
   const bytes = await buildAnnotatedPdf({
     buffer: state.buffer,
     leaves: state.leaves,
-    outline: state.outline,
+    outline: state.outline.map((entry) => ({
+      title: entry.title,
+      page: outlineDestPage(entry, state.leaves),
+    })),
     blankSize: { width: 595, height: 842 },
     strokesOf: (leaf) => state.pages[inkKey(leaf)] || [],
     renderOverlay: (leaf, pixels) =>

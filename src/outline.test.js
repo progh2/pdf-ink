@@ -18,7 +18,7 @@ import {
 } from "./outline.js";
 import { BAR_TOOLS } from "./toolbar.js";
 import { loadStrokes, saveStrokes } from "./storage.js";
-import { insertOutlineAfter, makeOutlineLeaf } from "./preview.js";
+import { PREVIEW_FILTER_LABELS, insertOutlineAfter, makeOutlineLeaf } from "./preview.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const html = readFileSync(join(root, "index.html"), "utf8");
@@ -89,9 +89,9 @@ describe("#53 개요 추가·수정·삭제", () => {
       assert.deepEqual(normalizeOutline(loadStrokes("doc::1::1").outline), []);
     });
     assert.match(main, /saveStrokes\(state\.identity, state\.pages, state\.leaves, state\.outline\)/);
-    assert.match(main, /state\.outline = normalizeOutline\(stored\.outline\)/);
+    assert.match(main, /state\.outline = normalizeOutline\(stored\.outline, state\.leaves\)/);
     // #54: 드로어 개요는 내보낸 PDF에 책갈피로 박힌다. 로컬 저장은 그대로.
-    assert.match(main, /outline: state\.outline/);
+    assert.match(main, /page: outlineDestPage\(entry, state\.leaves\)/);
   });
 
   it("jumps to the destination page and keeps 보기/편집 header", () => {
@@ -109,12 +109,12 @@ describe("#53 개요 추가·수정·삭제", () => {
     assert.doesNotMatch(header, /읽기/);
   });
 
-  it("puts 페이지/개요 tabs and +/x in the 120 drawer, not the bar", () => {
+  it("puts 페이지/목차 tabs and +/x in the drawer, not the bar", () => {
     assert.deepEqual(PREVIEW_TABS, ["pages", "toc"]);
     assert.equal(PREVIEW_TAB_LABELS.pages, "페이지");
-    assert.equal(PREVIEW_TAB_LABELS.toc, "개요");
+    assert.equal(PREVIEW_TAB_LABELS.toc, "목차", "#107: 탭은 목차");
     assert.match(drawer, /data-preview-tab="pages">페이지/);
-    assert.match(drawer, /data-preview-tab="toc">개요/);
+    assert.match(drawer, /data-preview-tab="toc">목차/);
     assert.match(drawer, /id="toc-add"[^>]*>\+/);
     assert.match(drawer, /id="toc-list"/);
     assert.match(main, /preview-toc-delete/);
@@ -180,5 +180,51 @@ describe("#53 개요 추가·수정·삭제", () => {
     assert.match(css, /\.preview-toc-jump \{[\s\S]*flex: 1 1 auto/);
     assert.match(css, /\.preview-toc-delete \{[\s\S]*width: 32px;[\s\S]*height: 32px/);
     assert.doesNotMatch(main, /long-press delete|tocHold|holdDelete/);
+  });
+});
+
+describe("#107 목차는 잎을 가리킨다", () => {
+  const leaves = [
+    { id: "p1", kind: "pdf", pdfPage: 1 },
+    { id: "p2", kind: "pdf", pdfPage: 2 },
+    { id: "p3", kind: "pdf", pdfPage: 3 },
+  ];
+
+  it("pins an old page-only entry to the leaf sitting there", () => {
+    const [entry] = normalizeOutline([{ id: "t:1", title: "본문", page: 2 }], leaves);
+    assert.equal(entry.leafId, "p2");
+    assert.equal(outlineDestPage(entry, leaves), 2);
+  });
+
+  it("follows the page when the order changes", () => {
+    const [entry] = normalizeOutline([{ id: "t:1", title: "본문", page: 2 }], leaves);
+    const moved = [leaves[1], leaves[0], leaves[2]];
+    assert.equal(outlineDestPage(entry, moved), 1, "the entry moved with its page");
+    // The stale stored number is not used when the leaf is known.
+    assert.equal(entry.page, 2);
+  });
+
+  it("drops an entry whose page is gone", () => {
+    const kept = normalizeOutline([{ id: "t:1", title: "본문", leafId: "p2" }], leaves);
+    assert.equal(kept.length, 1);
+    const gone = normalizeOutline([{ id: "t:1", title: "본문", leafId: "p9" }], leaves);
+    assert.deepEqual(gone, []);
+  });
+
+  it("adds a new entry pinned to the page it was made on", () => {
+    const [entry] = addOutlineEntry([], 3, leaves);
+    assert.equal(entry.leafId, "p3");
+    assert.equal(entry.title, "페이지 3");
+    assert.equal(outlineDestPage(entry, [leaves[2], leaves[0], leaves[1]]), 1);
+  });
+
+  it("still works with no leaves to hand (old callers)", () => {
+    const [entry] = normalizeOutline([{ id: "t:1", title: "본문", page: 2 }]);
+    assert.equal(outlineDestPage(entry), 2);
+  });
+
+  it("calls a blank page 빈 쪽 and the tab 목차", () => {
+    assert.equal(PREVIEW_TAB_LABELS.toc, "목차");
+    assert.equal(PREVIEW_FILTER_LABELS.outline, "빈 쪽");
   });
 });

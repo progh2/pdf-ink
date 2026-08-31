@@ -1,9 +1,12 @@
-/** PDF table-of-contents outline. Not GoodNotes blank outline pages (leaf.kind === "outline"). */
+/**
+ * 목차 (table of contents). Not 빈 쪽 (`leaf.kind === "outline"`), which is a
+ * blank inserted page. Both used to be called 개요, which read as one thing (#107).
+ */
 
 export const PREVIEW_TABS = ["pages", "toc"];
 export const PREVIEW_TAB_LABELS = {
   pages: "페이지",
-  toc: "개요",
+  toc: "목차",
 };
 
 export function outlineTitleForPage(page) {
@@ -13,18 +16,37 @@ export function outlineTitleForPage(page) {
 
 let outlineSeq = 0;
 
+/** An entry points at the leaf, so reordering pages cannot move it (#107). */
 export function makeOutlineEntry(page, extras = {}) {
   const dest = Math.max(1, Math.round(Number(page) || 1));
   outlineSeq += 1;
   const key = String(extras.id || `t:${Date.now().toString(36)}-${outlineSeq}`);
-  return {
+  const entry = {
     id: key.startsWith("t:") ? key : `t:${key}`,
     title: extras.title ? String(extras.title) : outlineTitleForPage(dest),
     page: dest,
   };
+  if (extras.leafId) {
+    entry.leafId = String(extras.leafId);
+  }
+  return entry;
 }
 
-export function normalizeOutline(entries) {
+function leafIdAtPage(leaves, page) {
+  const leaf = (leaves || [])[Math.max(1, Math.round(Number(page) || 1)) - 1];
+  return leaf?.id || "";
+}
+
+function pageOfLeafId(leaves, leafId) {
+  const index = (leaves || []).findIndex((leaf) => leaf.id === leafId);
+  return index < 0 ? 0 : index + 1;
+}
+
+/**
+ * Older files stored only a page number: those are pinned to whatever leaf sits
+ * there today. An entry whose leaf is gone drops out quietly.
+ */
+export function normalizeOutline(entries, leaves = null) {
   if (!Array.isArray(entries)) {
     return [];
   }
@@ -35,10 +57,25 @@ export function normalizeOutline(entries) {
       continue;
     }
     const page = Math.max(1, Math.round(Number(raw.page) || 0));
-    if (!page) {
+    if (!page && !raw.leafId) {
       continue;
     }
-    const entry = makeOutlineEntry(page, raw);
+    let leafId = raw.leafId ? String(raw.leafId) : "";
+    let dest = page;
+    if (leaves) {
+      if (leafId) {
+        dest = pageOfLeafId(leaves, leafId);
+        if (!dest) {
+          continue;
+        }
+      } else {
+        leafId = leafIdAtPage(leaves, page);
+        if (!leafId) {
+          continue;
+        }
+      }
+    }
+    const entry = makeOutlineEntry(dest || page, { ...raw, leafId });
     if (seen.has(entry.id)) {
       continue;
     }
@@ -48,8 +85,22 @@ export function normalizeOutline(entries) {
   return out;
 }
 
-export function addOutlineEntry(entries, page) {
-  return [...normalizeOutline(entries), makeOutlineEntry(page)];
+export function addOutlineEntry(entries, page, leaves = null) {
+  return [
+    ...normalizeOutline(entries, leaves),
+    makeOutlineEntry(page, { leafId: leaves ? leafIdAtPage(leaves, page) : "" }),
+  ];
+}
+
+/** Where the entry points today: the leaf's slot, not the stored number. */
+export function outlineDestPage(entry, leaves = null) {
+  if (leaves && entry?.leafId) {
+    const page = pageOfLeafId(leaves, entry.leafId);
+    if (page) {
+      return page;
+    }
+  }
+  return Math.max(1, Math.round(Number(entry?.page) || 1));
 }
 
 export function renameOutlineEntry(entries, id, title) {
@@ -67,10 +118,6 @@ export function renameOutlineEntry(entries, id, title) {
 
 export function deleteOutlineEntry(entries, id) {
   return normalizeOutline(entries).filter((entry) => entry.id !== id);
-}
-
-export function outlineDestPage(entry) {
-  return Math.max(1, Math.round(Number(entry?.page) || 1));
 }
 
 /** Plain text only. Callers must not use innerHTML for outline titles. */

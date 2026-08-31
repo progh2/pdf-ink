@@ -20,7 +20,7 @@ describe("미리보기 책갈피 개요", () => {
     const next = insertOutlineAfter(leaves, 0, "alpha");
     assert.equal(next.length, 3);
     assert.equal(next[1].kind, "outline");
-    assert.equal(next[1].title, "개요");
+    assert.equal(next[1].title, "빈 쪽", "#107: 빈 쪽은 목차가 아니다");
     assert.equal(inkKey(next[1]), "o:alpha");
     assert.equal(pageOfInkKey(next, "o:alpha"), 2);
   });
