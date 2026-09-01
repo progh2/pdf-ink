@@ -222,7 +222,7 @@ describe("#126 구운 뒤 두 겹 방지 · #127 변경 감지", () => {
   it("opens locked and checks the remote in that moment", () => {
     assert.match(main, /state\.interactMode = "view";\s*hideSyncNote\(\);\s*showDocumentUi\(\)/);
     assert.match(main, /startSyncWatch\(\)/);
-    assert.match(main, /window\.addEventListener\("focus", \(\) => checkDropboxRemote\(\)\)/);
+    assert.match(main, /window\.addEventListener\("focus", \(\) => checkRemote\(\)\)/);
     assert.match(main, /visibilitychange/);
   });
 
@@ -231,6 +231,6 @@ describe("#126 구운 뒤 두 겹 방지 · #127 변경 감지", () => {
     assert.match(check, /dropboxRpc\(META_URL/);
     assert.doesNotMatch(check, /DOWNLOAD_URL|openPdfBuffer/);
     assert.match(html, /id="sync-reload">새로 불러오기/);
-    assert.match(main, /els\.syncReload\?\.addEventListener\("click", reloadFromDropbox\)/);
+    assert.match(main, /els\.syncReload\?\.addEventListener\("click", \(\) => \(state\.driveDoc \? reloadFromDrive\(\) : reloadFromDropbox\(\)\)\)/);
   });
 });
