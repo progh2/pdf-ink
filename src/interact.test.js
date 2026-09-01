@@ -13,7 +13,10 @@ import {
   interactModeLabel,
   isReusedInkStart,
   allowsInkButton,
-  penButtonErases,
+  PEN_ACTIONS,
+  PEN_BUTTON_DEFAULTS,
+  normalizePenButtons,
+  penButtonAction,
   rectFromPoints,
   shouldNoticeViewMode,
   shouldPanPointer,
@@ -242,47 +245,80 @@ describe("보기 중 안내 (#86)", () => {
   });
 });
 
-describe("#137 펜 버튼", () => {
-  it("erases while the barrel button or the eraser end is down", () => {
-    assert.equal(penButtonErases({ pointerType: "pen", buttons: 3 }), true, "tip + barrel");
-    assert.equal(penButtonErases({ pointerType: "pen", buttons: 32 }), true, "eraser end");
-    assert.equal(penButtonErases({ pointerType: "pen", button: 5 }), true);
-    assert.equal(penButtonErases({ pointerType: "pen", buttons: 1 }), false, "plain tip draws");
+describe("#137·#139 펜 버튼", () => {
+  const erase = (extra) => penButtonAction({ pointerType: "pen", ...extra });
+
+  it("erases with the barrel and the eraser end by default", () => {
+    assert.equal(erase({ buttons: 3 }), "eraser", "tip + barrel");
+    assert.equal(erase({ buttons: 32 }), "eraser", "eraser end");
+    assert.equal(erase({ button: 5 }), "eraser");
+    assert.equal(erase({ buttons: 1 }), null, "plain tip draws");
+  });
+
+  it("tells the second button apart and follows the setting", () => {
+    assert.equal(erase({ buttons: 5 }), "select", "tip + second button, default 선택");
+    assert.equal(erase({ buttons: 5, buttonMap: { second: "eraser" } }), "eraser");
+    assert.equal(erase({ buttons: 3, buttonMap: { barrel: "select" } }), "select");
+    assert.equal(erase({ buttons: 3, buttonMap: { barrel: "none" } }), null, "없음 draws normally");
+  });
+
+  it("keeps the eraser end an eraser, whatever the buttons are set to", () => {
+    assert.equal(erase({ buttons: 32, buttonMap: { barrel: "none", second: "none" } }), "eraser");
   });
 
   it("never lets a mouse right-click draw or erase", () => {
-    assert.equal(penButtonErases({ pointerType: "mouse", buttons: 2, button: 2 }), false);
-    assert.equal(penButtonErases({ pointerType: "touch", buttons: 2 }), false);
+    assert.equal(penButtonAction({ pointerType: "mouse", buttons: 2, button: 2 }), null);
+    assert.equal(penButtonAction({ pointerType: "touch", buttons: 2 }), null);
     assert.equal(allowsInkButton({ pointerType: "mouse", button: 2 }), false);
     assert.equal(allowsInkButton({ pointerType: "mouse", button: 0 }), true);
     assert.equal(allowsInkButton({ pointerType: "touch" }), true);
   });
 
-  it("can be switched off for a pen that reports oddly", () => {
-    assert.equal(penButtonErases({ pointerType: "pen", buttons: 32, enabled: false }), false);
+  it("can be switched off entirely", () => {
+    assert.equal(erase({ buttons: 32, enabled: false }), null);
   });
 
-  it("lets a pen start a stroke on the button, which used to be dropped", () => {
-    assert.equal(allowsInkButton({ pointerType: "pen", button: 2 }), true);
-    assert.equal(allowsInkButton({ pointerType: "pen", button: 5 }), true);
-    assert.equal(allowsInkButton({ pointerType: "pen", button: 1 }), false, "middle click is not a pen");
+  it("lets a pen start a stroke on any of its buttons", () => {
+    for (const button of [1, 2, 5]) {
+      assert.equal(allowsInkButton({ pointerType: "pen", button }), true, `button ${button}`);
+    }
+    assert.equal(allowsInkButton({ pointerType: "pen", button: 3 }), false);
+  });
+
+  it("normalizes a stored map, falling back to the defaults", () => {
+    assert.deepEqual(normalizePenButtons(null), PEN_BUTTON_DEFAULTS);
+    assert.deepEqual(normalizePenButtons({ barrel: "nonsense", second: "none" }), {
+      barrel: "eraser",
+      second: "none",
+    });
+    assert.deepEqual(PEN_ACTIONS, ["eraser", "select", "none"]);
   });
 });
 
-describe("#137 배선", () => {
+describe("#137·#139 배선", () => {
   it("lets the pen button start a stroke and erase just that stroke", () => {
     assert.match(main, /allowsInkButton\(\{ pointerType: event\.pointerType, button: event\.button \}\)/);
-    assert.match(main, /newStroke\(\s*point,\s*penButtonErases\(\{/);
-    assert.match(main, /enabled: state\.penButtonErase/);
-    // The tool itself is untouched: no setTool in the stroke path.
+    assert.match(main, /penAction = penButtonAction\(\{/);
+    assert.match(main, /newStroke\(point, penAction === "eraser"\)/);
+    assert.match(main, /buttonMap: state\.penButtons/);
+    // The tool itself is untouched by the eraser action.
     const start = main.slice(main.indexOf("function startStroke"), main.indexOf("function moveStroke"));
     assert.doesNotMatch(start, /state\.tool = "eraser"/);
   });
 
-  it("keeps the switch, defaulting to on", () => {
-    assert.match(main, /penButtonErase: loadPenButtonErase\(\)/);
-    assert.match(main, /savePenButtonErase\(state\.penButtonErase\)/);
+  it("turns the select tool on for the select action, so handles appear", () => {
+    assert.match(main, /if \(penAction === "select"\) \{[\s\S]*selectSelectTool\(\);[\s\S]*startSelect\(event, stage\)/);
+  });
+
+  it("keeps the switch and the two mappings in settings", () => {
+    assert.match(main, /penButtons: loadPenButtons\(\)/);
+    assert.match(main, /savePenButtons\(state\.penButtons\)/);
     assert.match(html, /id="pen-button-btn"/);
+    assert.match(html, /data-pen-barrel="eraser"/);
+    assert.match(html, /data-pen-second="select"/);
+    assert.match(html, /data-pen-barrel="none"/);
+    // No new bar cell for any of it.
+    assert.equal((html.match(/class="toolbar"/g) || []).length, 1);
   });
 
   it("swallows the context menu on the paper", () => {

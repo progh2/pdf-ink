@@ -51,28 +51,52 @@ export function shouldNoticeViewMode({ interactMode, tool, rectTool, now = 0, la
   return Number(now) - Number(lastAt) >= cooldownMs;
 }
 
-/** Pointer Events bits: 2 is the barrel button, 32 the inverted eraser tip. */
+/** Pointer Events bits: 2 barrel, 4 second (middle), 32 the inverted eraser tip. */
 export const PEN_BARREL_BIT = 2;
+export const PEN_SECOND_BIT = 4;
 export const PEN_ERASER_BIT = 32;
 export const PEN_BARREL_BUTTON = 2;
+export const PEN_SECOND_BUTTON = 1;
 export const PEN_ERASER_BUTTON = 5;
 
-/**
- * A pen button (or the eraser end) erases for the length of that stroke (#137).
- * Only for a pen: a mouse right-click must never draw.
- */
-export function penButtonErases({ pointerType, buttons, button, enabled = true } = {}) {
-  if (!enabled || pointerType !== "pen") {
-    return false;
-  }
-  const bits = Number(buttons) || 0;
-  if (bits & PEN_ERASER_BIT || bits & PEN_BARREL_BIT) {
-    return true;
-  }
-  return button === PEN_BARREL_BUTTON || button === PEN_ERASER_BUTTON;
+export const PEN_ACTIONS = ["eraser", "select", "none"];
+export const PEN_ACTION_LABELS = { eraser: "지우개", select: "선택", none: "없음" };
+export const PEN_BUTTON_DEFAULTS = { barrel: "eraser", second: "select" };
+
+export function normalizePenAction(value, fallback = "eraser") {
+  return PEN_ACTIONS.includes(value) ? value : fallback;
 }
 
-/** Which buttons may start a stroke: a pen also comes in on 2 and 5. */
+export function normalizePenButtons(map) {
+  return {
+    barrel: normalizePenAction(map?.barrel, PEN_BUTTON_DEFAULTS.barrel),
+    second: normalizePenAction(map?.second, PEN_BUTTON_DEFAULTS.second),
+  };
+}
+
+/**
+ * What this pen gesture should do (#139). The eraser end always erases: it is a
+ * physical eraser, not a button to assign. A mouse never gets here.
+ */
+export function penButtonAction({ pointerType, buttons, button, buttonMap, enabled = true } = {}) {
+  if (!enabled || pointerType !== "pen") {
+    return null;
+  }
+  const map = normalizePenButtons(buttonMap);
+  const bits = Number(buttons) || 0;
+  if (bits & PEN_ERASER_BIT || button === PEN_ERASER_BUTTON) {
+    return "eraser";
+  }
+  let action = null;
+  if (bits & PEN_SECOND_BIT || button === PEN_SECOND_BUTTON) {
+    action = map.second;
+  } else if (bits & PEN_BARREL_BIT || button === PEN_BARREL_BUTTON) {
+    action = map.barrel;
+  }
+  return action && action !== "none" ? action : null;
+}
+
+/** Which buttons may start a stroke: a pen also comes in on 1, 2 and 5. */
 export function allowsInkButton({ pointerType, button } = {}) {
   if (button === undefined || button === 0) {
     return true;
@@ -80,7 +104,7 @@ export function allowsInkButton({ pointerType, button } = {}) {
   if (pointerType !== "pen") {
     return false;
   }
-  return button === PEN_BARREL_BUTTON || button === PEN_ERASER_BUTTON;
+  return [PEN_SECOND_BUTTON, PEN_BARREL_BUTTON, PEN_ERASER_BUTTON].includes(button);
 }
 
 /** Pixel slop for "this pointerdown reused the last pointerup coordinate". */
