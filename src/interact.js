@@ -51,6 +51,38 @@ export function shouldNoticeViewMode({ interactMode, tool, rectTool, now = 0, la
   return Number(now) - Number(lastAt) >= cooldownMs;
 }
 
+/** Pointer Events bits: 2 is the barrel button, 32 the inverted eraser tip. */
+export const PEN_BARREL_BIT = 2;
+export const PEN_ERASER_BIT = 32;
+export const PEN_BARREL_BUTTON = 2;
+export const PEN_ERASER_BUTTON = 5;
+
+/**
+ * A pen button (or the eraser end) erases for the length of that stroke (#137).
+ * Only for a pen: a mouse right-click must never draw.
+ */
+export function penButtonErases({ pointerType, buttons, button, enabled = true } = {}) {
+  if (!enabled || pointerType !== "pen") {
+    return false;
+  }
+  const bits = Number(buttons) || 0;
+  if (bits & PEN_ERASER_BIT || bits & PEN_BARREL_BIT) {
+    return true;
+  }
+  return button === PEN_BARREL_BUTTON || button === PEN_ERASER_BUTTON;
+}
+
+/** Which buttons may start a stroke: a pen also comes in on 2 and 5. */
+export function allowsInkButton({ pointerType, button } = {}) {
+  if (button === undefined || button === 0) {
+    return true;
+  }
+  if (pointerType !== "pen") {
+    return false;
+  }
+  return button === PEN_BARREL_BUTTON || button === PEN_ERASER_BUTTON;
+}
+
 /** Pixel slop for "this pointerdown reused the last pointerup coordinate". */
 export const REUSED_INK_START_SLOP_PX = 2;
 
