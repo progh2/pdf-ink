@@ -16,6 +16,7 @@ import {
 const TOOLBAR_POS_KEY = "pdf-ink:toolbar-pos";
 const PREVIEW_WIDTH_KEY = "pdf-ink:preview-width";
 const DROPBOX_KEY = "pdf-ink:dropbox";
+const PEN_BUTTON_KEY = "pdf-ink:pen-button";
 const TOOLBAR_FLOAT_KEY = "pdf-ink:toolbar-float";
 const SLOTS_KEY = "pdf-ink:pen-slots";
 const SLOT_INDEX_KEY = "pdf-ink:slot-index";
@@ -285,4 +286,13 @@ export function clearDropboxSession() {
   } catch {
     // best effort
   }
+}
+
+/** 펜 버튼 지우개 (#137). Default on; a pen that reports oddly can turn it off. */
+export function loadPenButtonErase() {
+  return readRaw(PEN_BUTTON_KEY) !== "0";
+}
+
+export function savePenButtonErase(on) {
+  writeRaw(PEN_BUTTON_KEY, on ? "1" : "0");
 }

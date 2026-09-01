@@ -6,12 +6,14 @@ import {
   listDocuments,
   loadDocument,
   loadLastSession,
+  loadPenButtonErase,
   loadPenOnly,
   loadStickerFolders,
   loadStickers,
   loadStrokes,
   migrateLastIntoFiles,
   saveDocument,
+  savePenButtonErase,
   savePenOnly,
   saveStickerFolders,
   saveStickers,
@@ -61,11 +63,13 @@ import {
 import { applyEraserToInk, isPixelErase, isStrokeErase, paintGhost, paintItem, paintStamp, removeHitItems, removeHitStamps, stampInkItem, stampTilt } from "./ink.js";
 import { followStampGhost, stampGhostItem, stampPlaceFromGhost } from "./stampGhost.js";
 import {
+  allowsInkButton,
   appendInkPoint,
   beginInkPoints,
   canCreateInk,
   finishInkPoints,
   interactModeLabel,
+  penButtonErases,
   rectBigEnough,
   rectFromPoints,
   shouldPanPointer,
@@ -309,6 +313,7 @@ const els = {
   recents: document.querySelector("#recents"),
   otherPdf: document.querySelector("#other-pdf"),
   penOnlyBtn: document.querySelector("#pen-only-btn"),
+  penButtonBtn: document.querySelector("#pen-button-btn"),
   docTitle: document.querySelector("#doc-title"),
   workspace: document.querySelector("#workspace"),
   writeSplit: document.querySelector("#write-split"),
@@ -440,6 +445,7 @@ const state = {
   inkTools: loadInkTools(),
   editingKind: null,
   penOnly: loadPenOnly(),
+  penButtonErase: loadPenButtonErase(),
   toolbarPos: loadToolbarPosition(window.innerWidth, window.innerHeight),
   toolbarFloat: loadToolbarFloat(window.innerWidth, window.innerHeight),
   viewMode: loadViewMode(),
@@ -1645,8 +1651,8 @@ function displayName(fileName) {
   return (fileName || "문서.pdf").replace(/\.pdf$/i, "") || "문서";
 }
 
-function newStroke(point) {
-  if (state.tool === "eraser") {
+function newStroke(point, forceEraser = false) {
+  if (forceEraser || state.tool === "eraser") {
     return {
       type: "erase",
       points: [point],
@@ -2034,7 +2040,8 @@ function startStroke(event, stage) {
     noticeViewMode();
     return;
   }
-  if (!state.pdf || (event.button !== undefined && event.button !== 0)) {
+  // #137: a pen also arrives on button 2 (barrel) and 5 (eraser end).
+  if (!state.pdf || !allowsInkButton({ pointerType: event.pointerType, button: event.button })) {
     return;
   }
   if (!allowsInkPointer(event) || overlayOpen() || ignoreAfterPanel) {
@@ -2076,7 +2083,16 @@ function startStroke(event, stage) {
   lockedStrokePoints = null;
   frozenEndClient = null;
   state.drawing = true;
-  state.currentStroke = newStroke(point);
+  // The button erases for this stroke only: the chosen tool stays chosen (#137).
+  state.currentStroke = newStroke(
+    point,
+    penButtonErases({
+      pointerType: event.pointerType,
+      buttons: event.buttons,
+      button: event.button,
+      enabled: state.penButtonErase,
+    }),
+  );
   state.currentStroke.points = beginInkPoints(point, client, lastInkUpClient);
   if (canShapeHold(state.currentStroke.type)) {
     shapeHold.begin({
@@ -2298,6 +2314,8 @@ function syncInkTools() {
 function syncPenOnly() {
   els.penOnlyBtn.classList.toggle("is-on", state.penOnly);
   els.penOnlyBtn.setAttribute("aria-pressed", state.penOnly ? "true" : "false");
+  els.penButtonBtn?.classList.toggle("is-on", state.penButtonErase);
+  els.penButtonBtn?.setAttribute("aria-pressed", state.penButtonErase ? "true" : "false");
 }
 
 function syncZoomLock() {
@@ -7205,6 +7223,11 @@ document.querySelectorAll("#view-mode-choices [data-view]").forEach((btn) => {
   btn.addEventListener("click", () => setViewMode(btn.dataset.view));
 });
 
+els.penButtonBtn?.addEventListener("click", () => {
+  state.penButtonErase = !state.penButtonErase;
+  savePenButtonErase(state.penButtonErase);
+  applyChrome();
+});
 els.penOnlyBtn.addEventListener("click", () => {
   setPenOnly(!state.penOnly);
 });
@@ -7474,6 +7497,12 @@ els.fileInput.addEventListener("change", () => {
 els.prevBtn.addEventListener("click", () => goToPage(state.page - 1));
 els.nextBtn.addEventListener("click", () => goToPage(state.page + 1));
 
+// #137: the pen barrel often fires a context menu; the paper never wants one.
+els.workspace.addEventListener("contextmenu", (event) => {
+  if (event.target.closest(".page-stage")) {
+    event.preventDefault();
+  }
+});
 els.workspace.addEventListener("pointerdown", onWorkspacePointerDown);
 els.workspace.addEventListener("pointermove", onWorkspacePointerMove);
 els.workspace.addEventListener("pointerup", onWorkspacePointerUp);

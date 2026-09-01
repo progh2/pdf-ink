@@ -12,6 +12,8 @@ import {
   INTERACT_UNLOCKED_LABEL,
   interactModeLabel,
   isReusedInkStart,
+  allowsInkButton,
+  penButtonErases,
   rectFromPoints,
   shouldNoticeViewMode,
   shouldPanPointer,
@@ -237,5 +239,53 @@ describe("보기 중 안내 (#86)", () => {
       assert.equal(shouldNoticeViewMode({ interactMode: "view", tool, now: 0, lastAt: null }), true, tool);
     }
     assert.equal(VIEW_NOTICE_TEXT, "보기 중");
+  });
+});
+
+describe("#137 펜 버튼", () => {
+  it("erases while the barrel button or the eraser end is down", () => {
+    assert.equal(penButtonErases({ pointerType: "pen", buttons: 3 }), true, "tip + barrel");
+    assert.equal(penButtonErases({ pointerType: "pen", buttons: 32 }), true, "eraser end");
+    assert.equal(penButtonErases({ pointerType: "pen", button: 5 }), true);
+    assert.equal(penButtonErases({ pointerType: "pen", buttons: 1 }), false, "plain tip draws");
+  });
+
+  it("never lets a mouse right-click draw or erase", () => {
+    assert.equal(penButtonErases({ pointerType: "mouse", buttons: 2, button: 2 }), false);
+    assert.equal(penButtonErases({ pointerType: "touch", buttons: 2 }), false);
+    assert.equal(allowsInkButton({ pointerType: "mouse", button: 2 }), false);
+    assert.equal(allowsInkButton({ pointerType: "mouse", button: 0 }), true);
+    assert.equal(allowsInkButton({ pointerType: "touch" }), true);
+  });
+
+  it("can be switched off for a pen that reports oddly", () => {
+    assert.equal(penButtonErases({ pointerType: "pen", buttons: 32, enabled: false }), false);
+  });
+
+  it("lets a pen start a stroke on the button, which used to be dropped", () => {
+    assert.equal(allowsInkButton({ pointerType: "pen", button: 2 }), true);
+    assert.equal(allowsInkButton({ pointerType: "pen", button: 5 }), true);
+    assert.equal(allowsInkButton({ pointerType: "pen", button: 1 }), false, "middle click is not a pen");
+  });
+});
+
+describe("#137 배선", () => {
+  it("lets the pen button start a stroke and erase just that stroke", () => {
+    assert.match(main, /allowsInkButton\(\{ pointerType: event\.pointerType, button: event\.button \}\)/);
+    assert.match(main, /newStroke\(\s*point,\s*penButtonErases\(\{/);
+    assert.match(main, /enabled: state\.penButtonErase/);
+    // The tool itself is untouched: no setTool in the stroke path.
+    const start = main.slice(main.indexOf("function startStroke"), main.indexOf("function moveStroke"));
+    assert.doesNotMatch(start, /state\.tool = "eraser"/);
+  });
+
+  it("keeps the switch, defaulting to on", () => {
+    assert.match(main, /penButtonErase: loadPenButtonErase\(\)/);
+    assert.match(main, /savePenButtonErase\(state\.penButtonErase\)/);
+    assert.match(html, /id="pen-button-btn"/);
+  });
+
+  it("swallows the context menu on the paper", () => {
+    assert.match(main, /addEventListener\("contextmenu", \(event\) => \{\s*if \(event\.target\.closest\("\.page-stage"\)\)/);
   });
 });
