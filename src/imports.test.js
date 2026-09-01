@@ -97,3 +97,26 @@ describe("모듈 배선", () => {
     assert.deepEqual(problems, []);
   });
 });
+
+describe("모듈 배선: 어디서 들여오는지", () => {
+  it("imports each name from the module that actually exports it", () => {
+    const sources = new Map(files.map((name) => [name, read(name)]));
+    const problems = [];
+    for (const [name, code] of sources) {
+      for (const match of code.matchAll(/import\s*\{([^}]*)\}\s*from\s*"\.\/([\w.]+)"/g)) {
+        const from = match[2];
+        const exported = exportedNames(sources.get(from) || "");
+        if (!sources.has(from)) {
+          continue;
+        }
+        for (const piece of match[1].split(",")) {
+          const wanted = piece.trim().split(/\s+as\s+/)[0].trim();
+          if (wanted && !exported.has(wanted)) {
+            problems.push(`${name}: ${wanted} is not exported by ${from}`);
+          }
+        }
+      }
+    }
+    assert.deepEqual(problems, []);
+  });
+});
