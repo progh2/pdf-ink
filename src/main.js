@@ -24,6 +24,7 @@ import {
   clearDropboxSession,
   loadDropboxSession,
   loadPenButtonErase,
+  loadPenButtons,
   loadPreviewWidth,
   loadToolbarFloat,
   loadToolbarPosition,
@@ -34,6 +35,7 @@ import {
   saveInteractMode,
   saveDropboxSession,
   savePenButtonErase,
+  savePenButtons,
   savePreviewWidth,
   saveToolbarFloat,
   saveToolbarPosition,
@@ -69,7 +71,7 @@ import {
   canCreateInk,
   finishInkPoints,
   interactModeLabel,
-  penButtonErases,
+  penButtonAction,
   rectBigEnough,
   rectFromPoints,
   shouldPanPointer,
@@ -446,6 +448,7 @@ const state = {
   editingKind: null,
   penOnly: loadPenOnly(),
   penButtonErase: loadPenButtonErase(),
+  penButtons: loadPenButtons(),
   toolbarPos: loadToolbarPosition(window.innerWidth, window.innerHeight),
   toolbarFloat: loadToolbarFloat(window.innerWidth, window.innerHeight),
   viewMode: loadViewMode(),
@@ -2040,8 +2043,21 @@ function startStroke(event, stage) {
     noticeViewMode();
     return;
   }
-  // #137: a pen also arrives on button 2 (barrel) and 5 (eraser end).
+  // #137·#139: a pen also arrives on button 1 (second), 2 (barrel), 5 (eraser).
   if (!state.pdf || !allowsInkButton({ pointerType: event.pointerType, button: event.button })) {
+    return;
+  }
+  const penAction = penButtonAction({
+    pointerType: event.pointerType,
+    buttons: event.buttons,
+    button: event.button,
+    buttonMap: state.penButtons,
+    enabled: state.penButtonErase,
+  });
+  if (penAction === "select") {
+    // Picking needs the tool on, or the selection has no handles to work with.
+    selectSelectTool();
+    startSelect(event, stage);
     return;
   }
   if (!allowsInkPointer(event) || overlayOpen() || ignoreAfterPanel) {
@@ -2083,16 +2099,8 @@ function startStroke(event, stage) {
   lockedStrokePoints = null;
   frozenEndClient = null;
   state.drawing = true;
-  // The button erases for this stroke only: the chosen tool stays chosen (#137).
-  state.currentStroke = newStroke(
-    point,
-    penButtonErases({
-      pointerType: event.pointerType,
-      buttons: event.buttons,
-      button: event.button,
-      enabled: state.penButtonErase,
-    }),
-  );
+  // 지우개는 그 획만 지우고 도구는 그대로 (#137).
+  state.currentStroke = newStroke(point, penAction === "eraser");
   state.currentStroke.points = beginInkPoints(point, client, lastInkUpClient);
   if (canShapeHold(state.currentStroke.type)) {
     shapeHold.begin({
@@ -2316,6 +2324,12 @@ function syncPenOnly() {
   els.penOnlyBtn.setAttribute("aria-pressed", state.penOnly ? "true" : "false");
   els.penButtonBtn?.classList.toggle("is-on", state.penButtonErase);
   els.penButtonBtn?.setAttribute("aria-pressed", state.penButtonErase ? "true" : "false");
+  document.querySelectorAll("#pen-barrel-choices [data-pen-barrel]").forEach((btn) => {
+    btn.classList.toggle("is-selected", btn.dataset.penBarrel === state.penButtons.barrel);
+  });
+  document.querySelectorAll("#pen-second-choices [data-pen-second]").forEach((btn) => {
+    btn.classList.toggle("is-selected", btn.dataset.penSecond === state.penButtons.second);
+  });
 }
 
 function syncZoomLock() {
@@ -7223,6 +7237,20 @@ document.querySelectorAll("#view-mode-choices [data-view]").forEach((btn) => {
   btn.addEventListener("click", () => setViewMode(btn.dataset.view));
 });
 
+document.querySelectorAll("#pen-barrel-choices [data-pen-barrel]").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    state.penButtons = { ...state.penButtons, barrel: btn.dataset.penBarrel };
+    savePenButtons(state.penButtons);
+    applyChrome();
+  });
+});
+document.querySelectorAll("#pen-second-choices [data-pen-second]").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    state.penButtons = { ...state.penButtons, second: btn.dataset.penSecond };
+    savePenButtons(state.penButtons);
+    applyChrome();
+  });
+});
 els.penButtonBtn?.addEventListener("click", () => {
   state.penButtonErase = !state.penButtonErase;
   savePenButtonErase(state.penButtonErase);
