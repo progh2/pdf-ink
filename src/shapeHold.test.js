@@ -650,7 +650,7 @@ describe("#70 hold-end jitter must not turn ink into a triangle", () => {
     assert.match(main, /restoreFrozenStroke\(\)/);
     assert.match(main, /lockStrokeBeforeChips\(\)/);
     assert.match(main, /append = shapeHold\.noteMove/);
-    assert.match(main, /if \(append\) \{\s*state\.currentStroke\.points = appendInkPoint/);
+    assert.match(main, /if \(append\) \{[\s\S]{0,400}state\.currentStroke\.points = appendInkPoint/);
     assert.match(main, /placeShapeChipMenu/);
     assert.match(main, /SHAPE_HOLD_CHIP_GAP_PX/);
     assert.match(main, /clientHitsShapeChipMenu/);

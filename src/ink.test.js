@@ -200,3 +200,42 @@ describe("획 지우개", () => {
     assert.deepEqual(applyEraserToInk([stamp], eraser, 400, 600), []);
   });
 });
+
+describe("#135 부드럽고 빠른 펜", () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const main = readFileSync(join(here, "main.js"), "utf8");
+  const css = readFileSync(join(here, "style.css"), "utf8");
+  const src = readFileSync(join(here, "ink.js"), "utf8");
+
+  it("joins samples with curves, not straight bits", () => {
+    assert.match(src, /quadraticCurveTo/);
+    // Two points is still a straight line, one point is still a dot.
+    assert.match(src, /if \(points\.length === 2\)[\s\S]*lineTo/);
+    assert.match(src, /if \(points\.length === 1\)[\s\S]*0\.15 \* scale/);
+  });
+
+  it("draws the stroke in progress on its own layer", () => {
+    assert.match(main, /liveCanvas\.className = "live-canvas"/);
+    assert.match(main, /stage\.append\(pdfCanvas, underCanvas, inkCanvas, liveCanvas, overCanvas, maskCanvas\)/);
+    assert.match(main, /function drawLiveLayer[\s\S]*paintItem\(ctx, stroke, strokeScale\(view\), canvas\)/);
+    // A full repaint always wipes the live layer, so nothing is drawn twice.
+    assert.match(main, /function drawStrokesOn\(view, liveStroke = null\) \{\s*clearLiveLayer\(view\)/);
+    assert.match(css, /\.live-canvas,?\n?[\s\S]{0,40}\.over-canvas \{|\.live-canvas/);
+  });
+
+  it("keeps the whole-page repaint where the result depends on it", () => {
+    const live = main.slice(main.indexOf("function drawLive()"), main.indexOf("function fitScale"));
+    assert.match(live, /isPixelErase\(stroke\)/);
+    assert.match(live, /isStrokeErase\(stroke\)/);
+    assert.match(live, /!state\.shapeOffer/);
+    assert.match(live, /!state\.stampGhost/);
+    assert.match(live, /drawStrokesOn\(view, stroke\)/);
+  });
+
+  it("paints once per frame and takes every pen sample", () => {
+    assert.match(main, /livePaintPending/);
+    assert.match(main, /window\.requestAnimationFrame\(\(\) => \{[\s\S]*drawLiveLayer/);
+    assert.match(main, /getCoalescedEvents/);
+    assert.match(main, /for \(const sample of samples\.length > 1 \? samples\.slice\(0, -1\) : \[\]\)/);
+  });
+});

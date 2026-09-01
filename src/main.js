@@ -766,7 +766,28 @@ function canvas2d(canvas) {
   return canvas.getContext("2d", { willReadFrequently: true });
 }
 
+function clearLiveLayer(view) {
+  const canvas = view?.liveCanvas;
+  if (canvas) {
+    canvas2d(canvas).clearRect(0, 0, canvas.width, canvas.height);
+  }
+}
+
+/** Only the stroke in progress, on its own layer: cost does not grow with the page. */
+function drawLiveLayer(view, stroke) {
+  const canvas = view?.liveCanvas;
+  if (!canvas) {
+    return;
+  }
+  const ctx = canvas2d(canvas);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  if (stroke?.points?.length) {
+    paintItem(ctx, stroke, strokeScale(view), canvas);
+  }
+}
+
 function drawStrokesOn(view, liveStroke = null) {
+  clearLiveLayer(view);
   const canvas = view.inkCanvas;
   const ctx = canvas2d(canvas);
   ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -888,11 +909,39 @@ function paintMosaicOverlay(view) {
   }
 }
 
+let livePaintPending = false;
+
+/**
+ * One paint per frame (#135). A plain pen/highlighter/pencil stroke only
+ * repaints the live layer; the eraser and the shape chips still need the whole
+ * page, because what they show depends on the committed items.
+ */
 function drawLive() {
   const view = state.pageViews.find((item) => item.pageNum === state.drawPage);
-  if (view) {
-    drawStrokesOn(view, state.currentStroke);
+  if (!view) {
+    return;
   }
+  const stroke = state.currentStroke;
+  const simple =
+    stroke &&
+    !isPixelErase(stroke) &&
+    !isStrokeErase(stroke) &&
+    !state.shapeOffer &&
+    !state.stampGhost;
+  if (!simple) {
+    drawStrokesOn(view, stroke);
+    return;
+  }
+  if (livePaintPending) {
+    return;
+  }
+  livePaintPending = true;
+  window.requestAnimationFrame(() => {
+    livePaintPending = false;
+    if (state.drawing && state.currentStroke) {
+      drawLiveLayer(view, state.currentStroke);
+    }
+  });
 }
 
 function fitScale(page, mode = state.viewMode, rotation = 0) {
@@ -926,14 +975,28 @@ function makeStage(pageNum) {
   pdfCanvas.className = "pdf-canvas";
   const inkCanvas = document.createElement("canvas");
   inkCanvas.className = "ink-canvas";
+  // #135: the stroke in progress lives here, so a page full of ink stays cheap.
+  const liveCanvas = document.createElement("canvas");
+  liveCanvas.className = "live-canvas";
   const maskCanvas = document.createElement("canvas");
   maskCanvas.className = "mask-canvas";
   const underCanvas = document.createElement("canvas");
   underCanvas.className = "under-canvas";
   const overCanvas = document.createElement("canvas");
   overCanvas.className = "over-canvas";
-  stage.append(pdfCanvas, underCanvas, inkCanvas, overCanvas, maskCanvas);
-  return { pageNum, stage, pdfCanvas, inkCanvas, maskCanvas, underCanvas, overCanvas, rendered: false, token: 0 };
+  stage.append(pdfCanvas, underCanvas, inkCanvas, liveCanvas, overCanvas, maskCanvas);
+  return {
+    pageNum,
+    stage,
+    pdfCanvas,
+    inkCanvas,
+    liveCanvas,
+    maskCanvas,
+    underCanvas,
+    overCanvas,
+    rendered: false,
+    token: 0,
+  };
 }
 
 function applyPageSize(view, cssWidth, cssHeight, pixelWidth, pixelHeight) {
@@ -941,7 +1004,14 @@ function applyPageSize(view, cssWidth, cssHeight, pixelWidth, pixelHeight) {
   view.cssHeight = cssHeight;
   view.stage.style.width = `${cssWidth}px`;
   view.stage.style.height = `${cssHeight}px`;
-  for (const canvas of [view.pdfCanvas, view.underCanvas, view.inkCanvas, view.overCanvas, view.maskCanvas]) {
+  for (const canvas of [
+    view.pdfCanvas,
+    view.underCanvas,
+    view.inkCanvas,
+    view.liveCanvas,
+    view.overCanvas,
+    view.maskCanvas,
+  ]) {
     canvas.width = pixelWidth;
     canvas.height = pixelHeight;
     canvas.style.width = `${cssWidth}px`;
@@ -2030,6 +2100,8 @@ function moveStroke(event) {
     return;
   }
   event.preventDefault();
+  // #135: a pen reports faster than the screen refreshes, so take every sample.
+  const samples = typeof event.getCoalescedEvents === "function" ? event.getCoalescedEvents() : [];
   const client = { x: event.clientX, y: event.clientY };
   const chipsUp = Boolean(els.shapeChips && !els.shapeChips.hidden);
   const chipHit = Boolean(ignoreChipMountMoves) || eventHitsShapeChips(event);
@@ -2048,6 +2120,14 @@ function moveStroke(event) {
     append = false;
   }
   if (append) {
+    for (const sample of samples.length > 1 ? samples.slice(0, -1) : []) {
+      state.currentStroke.points = appendInkPoint(
+        state.currentStroke.points,
+        eventToNorm(sample, state.drawCanvas),
+        { x: sample.clientX, y: sample.clientY },
+        lastInkUpClient,
+      );
+    }
     state.currentStroke.points = appendInkPoint(
       state.currentStroke.points,
       eventToNorm(event, state.drawCanvas),

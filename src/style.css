@@ -755,6 +755,7 @@ body {
 
 .mask-canvas,
 .under-canvas,
+.live-canvas,
 .over-canvas {
   position: absolute;
   inset: 0;

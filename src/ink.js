@@ -180,24 +180,43 @@ export function stampTilt(x, y) {
   return -0.16 + hashUnit(x, y, 3) * 0.12;
 }
 
+/**
+ * Samples are joined with quadratic curves through their midpoints, so a hand
+ * stroke reads as a curve instead of a chain of little straight bits (#135).
+ * Same path for live and stored ink, so nothing changes shape on commit.
+ */
 function tracePath(ctx, points, canvas, scale, jitter = 0, salt = 0) {
-  ctx.beginPath();
-  points.forEach((point, index) => {
+  const at = (point) => {
     const jx = jitter ? (hashUnit(point.x, point.y, salt) - 0.5) * jitter * 2 : 0;
     const jy = jitter ? (hashUnit(point.y, point.x, salt + 9) - 0.5) * jitter * 2 : 0;
-    const x = point.x * canvas.width + jx;
-    const y = point.y * canvas.height + jy;
-    if (index === 0) {
-      ctx.moveTo(x, y);
-    } else {
-      ctx.lineTo(x, y);
-    }
-  });
-  if (points.length === 1) {
-    const x = points[0].x * canvas.width;
-    const y = points[0].y * canvas.height;
-    ctx.lineTo(x + 0.15 * scale, y);
+    return { x: point.x * canvas.width + jx, y: point.y * canvas.height + jy };
+  };
+  ctx.beginPath();
+  if (!points.length) {
+    return;
   }
+  const first = at(points[0]);
+  ctx.moveTo(first.x, first.y);
+  if (points.length === 1) {
+    ctx.lineTo(first.x + 0.15 * scale, first.y);
+    ctx.stroke();
+    return;
+  }
+  if (points.length === 2) {
+    const only = at(points[1]);
+    ctx.lineTo(only.x, only.y);
+    ctx.stroke();
+    return;
+  }
+  let prev = first;
+  for (let index = 1; index < points.length - 1; index += 1) {
+    const current = at(points[index]);
+    const mid = { x: (prev.x + current.x) / 2, y: (prev.y + current.y) / 2 };
+    ctx.quadraticCurveTo(prev.x, prev.y, mid.x, mid.y);
+    prev = current;
+  }
+  const last = at(points[points.length - 1]);
+  ctx.quadraticCurveTo(prev.x, prev.y, last.x, last.y);
   ctx.stroke();
 }
 
