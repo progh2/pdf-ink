@@ -7,6 +7,10 @@
       content="width=device-width, initial-scale=1.0, viewport-fit=cover"
     />
     <title>필기웹</title>
+    <meta name="theme-color" content="#F3F0E8" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="필기웹" />
     <link
       rel="icon"
       href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%232f6f5e'/%3E%3Cpath d='M18 40c8-14 20-14 28 0' fill='none' stroke='%23fff' stroke-width='5' stroke-linecap='round'/%3E%3C/svg%3E"
@@ -222,6 +226,12 @@
           <div class="preview-toc-list" id="toc-list"></div>
         </div>
       </aside>
+      <div class="sync-note" id="update-note" hidden>
+        <span>새 버전이 있습니다.</span>
+        <button type="button" id="update-reload">새로고침</button>
+        <button type="button" id="update-dismiss" aria-label="닫기">✕</button>
+      </div>
+
       <div class="sync-note" id="sync-note" hidden>
         <span id="sync-note-text">다른 기기에서 바뀌었습니다</span>
         <button type="button" id="sync-reload">새로 불러오기</button>

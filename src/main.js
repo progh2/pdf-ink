@@ -322,6 +322,9 @@ const els = {
   imageInput: document.querySelector("#image-input"),
   previewDrawer: document.querySelector("#preview-drawer"),
   pageMenu: document.querySelector("#page-menu"),
+  updateNote: document.querySelector("#update-note"),
+  updateReload: document.querySelector("#update-reload"),
+  updateDismiss: document.querySelector("#update-dismiss"),
   syncNote: document.querySelector("#sync-note"),
   syncNoteText: document.querySelector("#sync-note-text"),
   syncReload: document.querySelector("#sync-reload"),
@@ -1620,6 +1623,7 @@ async function openPdfBuffer(buffer, { identity, name, page = 1, handle = null }
   await rebuildPages();
   await persistSession();
   startSyncWatch();
+  askPersistentStorage();
 }
 
 async function openSelectedFile(file, handle = null) {
@@ -5207,6 +5211,54 @@ function disconnectDropbox() {
   }
 }
 
+/* ---- PWA (#131) ---- */
+
+/**
+ * A service worker can keep serving yesterday's bundle, so the reader is told
+ * and refreshes on their own. Never silently.
+ */
+async function registerServiceWorker() {
+  if (!("serviceWorker" in navigator)) {
+    return;
+  }
+  try {
+    const { registerSW } = await import("virtual:pwa-register");
+    const updateSW = registerSW({
+      immediate: true,
+      onNeedRefresh() {
+        if (!els.updateNote) {
+          return;
+        }
+        els.updateNote.hidden = false;
+        els.updateReload?.addEventListener("click", () => updateSW(true), { once: true });
+      },
+    });
+  } catch {
+    // dev server without the plugin, or a browser that refuses: keep going
+  }
+}
+
+/**
+ * Ink lives in this browser only, and browsers evict "temporary" storage.
+ * Asked once, when a document is actually open (#131).
+ */
+let persistAsked = false;
+
+async function askPersistentStorage() {
+  if (persistAsked || !navigator.storage?.persist) {
+    return;
+  }
+  persistAsked = true;
+  try {
+    if (await navigator.storage.persisted()) {
+      return;
+    }
+    await navigator.storage.persist();
+  } catch {
+    // best effort
+  }
+}
+
 /* ---- 다른 기기의 변경 알아채기 (#127) ---- */
 
 let syncTimer = 0;
@@ -6607,6 +6659,12 @@ for (const label of STAMP_LABELS) {
   els.stampPhrases.append(btn);
 }
 
+els.updateDismiss?.addEventListener("click", () => {
+  if (els.updateNote) {
+    els.updateNote.hidden = true;
+  }
+});
+registerServiceWorker();
 els.syncReload?.addEventListener("click", reloadFromDropbox);
 els.syncDismiss?.addEventListener("click", hideSyncNote);
 window.addEventListener("focus", () => checkDropboxRemote());
