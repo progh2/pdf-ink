@@ -120,6 +120,25 @@ import {
 import { MOSAIC_CELL_CSS, mosaicBoxesPx, mosaicItem } from "./mosaic.js";
 import { recentCardEntries } from "./recent.js";
 import {
+  DRIVE_SCOPE,
+  FILE_FIELDS,
+  GAPI_SRC,
+  GIS_SRC,
+  GOOGLE_API_KEY,
+  GOOGLE_CLIENT_ID,
+  docFromPicked,
+  downloadUrl as driveDownloadUrl,
+  driveConfigured,
+  driveIdentity,
+  metadataUrl as driveMetadataUrl,
+  pdfFromPickerResult,
+  pickerViewConfig,
+  remoteChanged as driveRemoteChanged,
+  tokenClientConfig,
+  tokenRequestOptions,
+  updateUrl as driveUpdateUrl,
+} from "./gdrive.js";
+import {
   DOWNLOAD_URL,
   LIST_MORE_URL,
   LIST_URL,
@@ -330,6 +349,7 @@ const els = {
   syncReload: document.querySelector("#sync-reload"),
   syncDismiss: document.querySelector("#sync-dismiss"),
   dropboxOpen: document.querySelector("#dropbox-open"),
+  gdriveOpen: document.querySelector("#gdrive-open"),
   dropboxSheet: document.querySelector("#dropbox-sheet"),
   dropboxBackdrop: document.querySelector("#dropbox-backdrop"),
   dropboxClose: document.querySelector("#dropbox-close"),
@@ -440,6 +460,8 @@ const state = {
   fileHandle: null,
   dropbox: null,
   dropboxDoc: null,
+  driveDoc: null,
+  driveToken: "",
   dropboxPath: "",
   stickers: [],
   stickerFolders: [],
@@ -1588,6 +1610,9 @@ async function openPdfBuffer(buffer, { identity, name, page = 1, handle = null }
   state.fileHandle = handle;
   if (!String(identity || "").startsWith("dbx::")) {
     state.dropboxDoc = null;
+  }
+  if (!String(identity || "").startsWith("gdrive::")) {
+    state.driveDoc = null;
   }
   if (state.pdf) {
     await state.pdf.destroy();
@@ -5259,6 +5284,198 @@ async function askPersistentStorage() {
   }
 }
 
+/* ---- 구글 드라이브 (#133) : 시크릿 없음, drive.file만 ---- */
+
+let driveTokenClient = null;
+
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    const found = document.querySelector(`script[src="${src}"]`);
+    if (found) {
+      if (found.dataset.loaded === "1") {
+        resolve();
+        return;
+      }
+      found.addEventListener("load", () => resolve(), { once: true });
+      found.addEventListener("error", () => reject(new Error(src)), { once: true });
+      return;
+    }
+    const tag = document.createElement("script");
+    tag.src = src;
+    tag.async = true;
+    tag.addEventListener("load", () => {
+      tag.dataset.loaded = "1";
+      resolve();
+    });
+    tag.addEventListener("error", () => reject(new Error(src)));
+    document.head.append(tag);
+  });
+}
+
+/** A token, not a secret. Google keeps the grant, we keep it in memory only. */
+function requestDriveToken() {
+  return new Promise((resolve, reject) => {
+    if (!driveTokenClient) {
+      reject(new Error("gis"));
+      return;
+    }
+    driveTokenClient.callback = (reply) => {
+      if (reply?.access_token) {
+        state.driveToken = reply.access_token;
+        resolve(reply.access_token);
+        return;
+      }
+      reject(new Error("token"));
+    };
+    driveTokenClient.requestAccessToken(tokenRequestOptions(Boolean(state.driveToken)));
+  });
+}
+
+async function driveToken() {
+  if (!driveTokenClient) {
+    await loadScript(GIS_SRC);
+    driveTokenClient = window.google?.accounts?.oauth2?.initTokenClient(
+      tokenClientConfig(() => {}, GOOGLE_CLIENT_ID),
+    );
+  }
+  return state.driveToken || requestDriveToken();
+}
+
+/** drive.file only shows what the reader picks, so the picker is the list. */
+async function openDrivePicker() {
+  if (!driveConfigured()) {
+    return;
+  }
+  showBanner("구글 드라이브를 여는 중…");
+  try {
+    const token = await driveToken();
+    await loadScript(GAPI_SRC);
+    await new Promise((resolve) => window.gapi.load("picker", resolve));
+    showBanner("");
+    const view = new window.google.picker.DocsView(window.google.picker.ViewId.PDFS);
+    const config = pickerViewConfig();
+    view.setMimeTypes(config.mimeTypes);
+    view.setIncludeFolders(config.includeFolders);
+    const picker = new window.google.picker.PickerBuilder()
+      .addView(view)
+      .setOAuthToken(token)
+      .setDeveloperKey(GOOGLE_API_KEY)
+      .setCallback((result) => {
+        const doc = pdfFromPickerResult(result);
+        if (doc) {
+          openDriveFile(doc);
+        }
+      })
+      .build();
+    picker.setVisible(true);
+  } catch {
+    flashBanner("구글 드라이브를 열지 못했습니다.");
+  }
+}
+
+async function driveFetch(url, options = {}) {
+  const token = await driveToken();
+  const reply = await fetch(url, {
+    ...options,
+    headers: { ...(options.headers || {}), Authorization: `Bearer ${token}` },
+  });
+  if (reply.status === 401) {
+    // The hour is up: ask Google again, silently if it still remembers us.
+    state.driveToken = "";
+    const fresh = await driveToken();
+    return fetch(url, {
+      ...options,
+      headers: { ...(options.headers || {}), Authorization: `Bearer ${fresh}` },
+    });
+  }
+  return reply;
+}
+
+async function openDriveFile(picked) {
+  showBanner("구글 드라이브에서 여는 중…");
+  try {
+    const meta = await (await driveFetch(driveMetadataUrl(picked.id))).json();
+    const doc = docFromPicked({ ...picked, ...meta });
+    const reply = await driveFetch(driveDownloadUrl(doc.id));
+    if (!reply.ok) {
+      throw new Error("download");
+    }
+    const buffer = await reply.arrayBuffer();
+    const check = await validatePdfContents(new Blob([buffer]));
+    if (!check.ok) {
+      flashBanner(check.message);
+      return;
+    }
+    state.driveDoc = doc;
+    showBanner("");
+    await openPdfBuffer(buffer, { identity: driveIdentity(doc), name: doc.name });
+  } catch {
+    flashBanner("구글 드라이브에서 열지 못했습니다.");
+  }
+}
+
+/**
+ * Drive has no If-Match for a binary update, so we look before writing (#133).
+ * Not atomic like Dropbox's rev, but it will not bury someone else's work.
+ */
+async function saveToDrive(blob) {
+  const doc = state.driveDoc;
+  const meta = await (await driveFetch(driveMetadataUrl(doc.id))).json();
+  if (driveRemoteChanged(doc, meta)) {
+    state.driveDoc = { ...doc, version: "" };
+    return "conflict";
+  }
+  const reply = await driveFetch(driveUpdateUrl(doc.id, FILE_FIELDS), {
+    method: "PATCH",
+    headers: { "Content-Type": "application/pdf" },
+    body: blob,
+  });
+  if (!reply.ok) {
+    throw new Error("upload");
+  }
+  const saved = await reply.json();
+  state.driveDoc = { ...doc, version: saved.version ? String(saved.version) : "" };
+  return "saved";
+}
+
+/** Takes the newer file, keeps the ink this browser has not saved yet. */
+async function reloadFromDrive() {
+  const doc = state.driveDoc;
+  hideSyncNote();
+  if (!doc) {
+    return;
+  }
+  showBanner("새로 불러오는 중…");
+  try {
+    const meta = await (await driveFetch(driveMetadataUrl(doc.id))).json();
+    const reply = await driveFetch(driveDownloadUrl(doc.id));
+    if (!reply.ok) {
+      throw new Error("download");
+    }
+    const buffer = await reply.arrayBuffer();
+    state.driveDoc = { ...doc, version: meta.version ? String(meta.version) : doc.version };
+    showBanner("");
+    await openPdfBuffer(buffer, { identity: driveIdentity(doc), name: doc.name, page: state.page });
+    flashBanner("새로 불러왔습니다.");
+  } catch {
+    flashBanner("새로 불러오지 못했습니다.");
+  }
+}
+
+async function checkDriveRemote() {
+  if (!state.driveDoc || els.writeScreen.hidden || !state.driveToken) {
+    return;
+  }
+  try {
+    const meta = await (await driveFetch(driveMetadataUrl(state.driveDoc.id))).json();
+    if (driveRemoteChanged(state.driveDoc, meta)) {
+      showSyncNote(Object.keys(state.pages || {}).length > 0);
+    }
+  } catch {
+    // offline or the token lapsed: the save path will say so
+  }
+}
+
 /* ---- 다른 기기의 변경 알아채기 (#127) ---- */
 
 let syncTimer = 0;
@@ -5294,15 +5511,20 @@ async function checkDropboxRemote() {
   }
 }
 
+function checkRemote() {
+  checkDropboxRemote();
+  checkDriveRemote();
+}
+
 function startSyncWatch() {
   window.clearInterval(syncTimer);
   syncTimer = 0;
   hideSyncNote();
-  if (!state.dropboxDoc) {
+  if (!state.dropboxDoc && !state.driveDoc) {
     return;
   }
-  checkDropboxRemote();
-  syncTimer = window.setInterval(checkDropboxRemote, SYNC_POLL_MS);
+  checkRemote();
+  syncTimer = window.setInterval(checkRemote, SYNC_POLL_MS);
 }
 
 /** Takes the newer file, keeps the ink this browser has not saved yet. */
@@ -5366,6 +5588,17 @@ async function saveDocumentNow() {
   persistSession();
   await withAnnotatedPdf(async (blob, fileName) => {
     // #82: the file the reader opened, not another copy in Downloads.
+    if (state.driveDoc) {
+      const result = await saveToDrive(blob);
+      if (result === "conflict") {
+        flashBanner("드라이브에서 파일이 바뀌었습니다. 다시 저장하면 덮어씁니다.", 2600);
+        return;
+      }
+      const name = state.driveDoc.name;
+      await flattenAfterWriteBack(blob);
+      flashBanner(`드라이브에 저장했습니다. ${name}`, 2600);
+      return;
+    }
     if (state.dropboxDoc && dropboxConnected()) {
       const result = await saveToDropbox(blob);
       if (result === "conflict") {
@@ -6665,12 +6898,16 @@ els.updateDismiss?.addEventListener("click", () => {
   }
 });
 registerServiceWorker();
-els.syncReload?.addEventListener("click", reloadFromDropbox);
+els.syncReload?.addEventListener("click", () => (state.driveDoc ? reloadFromDrive() : reloadFromDropbox()));
+els.gdriveOpen?.addEventListener("click", openDrivePicker);
+if (els.gdriveOpen && driveConfigured()) {
+  els.gdriveOpen.hidden = false;
+}
 els.syncDismiss?.addEventListener("click", hideSyncNote);
-window.addEventListener("focus", () => checkDropboxRemote());
+window.addEventListener("focus", () => checkRemote());
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden) {
-    checkDropboxRemote();
+    checkRemote();
   }
 });
 els.dropboxOpen?.addEventListener("click", openDropboxSheet);
