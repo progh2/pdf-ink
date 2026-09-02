@@ -145,6 +145,7 @@ describe("#56 GoodNotes 4 utility bar", () => {
       "sticker",
       "rotate",
       "save",
+      "bake",
       "export",
     ]);
     assert.doesNotMatch(more, /마스킹\(모자이크\)|data-more="mosaic"/);

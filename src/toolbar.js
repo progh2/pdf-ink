@@ -43,6 +43,7 @@ export const BAR_OVERFLOW_ITEMS = [
   "sticker",
   "rotate",
   "save",
+  "bake",
   "export",
 ];
 
