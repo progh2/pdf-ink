@@ -8,6 +8,7 @@ import {
   loadLastSession,
   loadPenOnly,
   loadStickerFolders,
+  listThumbKeys,
   loadThumb,
   loadStickers,
   loadStrokes,
@@ -4045,6 +4046,7 @@ function rotatePageAt(pageNum, delta) {
   });
   closeMorePanel();
   rebuildPages();
+  warmThumbs();
 }
 
 /* ---- 서랍 폭 (#106) ---- */
@@ -4366,6 +4368,7 @@ function afterPageOp(nextPage) {
   state.page = Math.min(Math.max(1, nextPage), state.pageCount);
   state.selectIndices = [];
   rebuildPages();
+  warmThumbs();
   if (!els.previewDrawer.hidden) {
     renderPreview();
   }
@@ -5513,7 +5516,12 @@ function idle(fn) {
   window.setTimeout(fn, 32);
 }
 
-function warmThumbs() {
+/**
+ * Draws what is missing, in page order, while the reader is busy (#141·#151).
+ * The stored key list is the record of what is already done: a rotated page
+ * gets a new key, so it simply reads as missing and is drawn again.
+ */
+async function warmThumbs() {
   stopThumbWarming();
   const token = warmToken;
   const identity = state.identity;
@@ -5521,28 +5529,34 @@ function warmThumbs() {
     return;
   }
   const size = previewThumbSize(state.previewWidth);
+  const done = await listThumbKeys(identity);
+  if (token !== warmToken || identity !== state.identity) {
+    return;
+  }
+  const pending = state.leaves
+    .map((leaf) => ({ leaf, key: pageThumbKey(leaf, size.width) }))
+    .filter(({ key }) => !done.has(key) && !pageThumbCache.get(key));
+  if (!pending.length) {
+    return;
+  }
   const canvas = document.createElement("canvas");
   let index = 0;
   const step = () => {
     if (token !== warmToken || identity !== state.identity) {
       return;
     }
-    const leaf = state.leaves[index];
+    const next = pending[index];
     index += 1;
-    if (!leaf) {
+    if (!next) {
       return;
     }
     if (state.drawing) {
+      // The pen comes first; try this one again in a moment.
+      index -= 1;
       idle(step);
       return;
     }
-    const key = thumbCacheKey(leaf, size.width, inkSignature(state.pages[inkKey(leaf)] || []));
-    if (thumbCache.get(key)) {
-      idle(step);
-      return;
-    }
-    loadThumb(identity, key)
-      .then((found) => (found ? null : paintPreviewThumb(canvas, leaf)))
+    paintPreviewThumb(canvas, next.leaf)
       .catch(() => null)
       .finally(() => {
         if (token === warmToken) {

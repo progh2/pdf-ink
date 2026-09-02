@@ -259,3 +259,27 @@ export async function saveThumb(identity, key, blob) {
     // thumbs are a cache: losing one costs a repaint, nothing more
   }
 }
+
+/**
+ * Which thumbs this document already has (#151). One read instead of one
+ * question per page, and the answer doubles as the "what still needs drawing"
+ * list: anything not in here is missing or was invalidated by a new key.
+ */
+export async function listThumbKeys(identity) {
+  try {
+    const db = await openDb();
+    const keys = await new Promise((resolve, reject) => {
+      const tx = db.transaction(THUMB_STORE, "readonly");
+      const request = tx.objectStore(THUMB_STORE).getAllKeys();
+      request.onsuccess = () => resolve(request.result || []);
+      request.onerror = () => reject(request.error);
+    });
+    db.close();
+    const prefix = `${identity || "?"}::`;
+    return new Set(
+      keys.filter((key) => typeof key === "string" && key.startsWith(prefix)).map((key) => key.slice(prefix.length)),
+    );
+  } catch {
+    return new Set();
+  }
+}
