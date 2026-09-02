@@ -153,6 +153,7 @@ import {
   parseInkFile,
   pickNewer,
   serializeInkFile,
+  sidecarName,
   sidecarPath,
 } from "./inkFile.js";
 import {
@@ -163,20 +164,25 @@ import {
 } from "./pdfOutline.js";
 import {
   DRIVE_SCOPE,
+  FILES_URL,
   FILE_FIELDS,
   GAPI_SRC,
   GIS_SRC,
   GOOGLE_API_KEY,
   GOOGLE_CLIENT_ID,
   appIdFromClientId,
+  createFileBody,
   docFromPicked,
   downloadUrl as driveDownloadUrl,
   driveConfigured,
   driveIdentity,
+  mediaUrl as driveMediaUrl,
   metadataUrl as driveMetadataUrl,
   pdfFromPickerResult,
   pickerViewConfig,
   remoteChanged as driveRemoteChanged,
+  searchUrl as driveSearchUrl,
+  sidecarQuery,
   tokenClientConfig,
   tokenRequestOptions,
   updateUrl as driveUpdateUrl,
@@ -525,6 +531,7 @@ const state = {
   shareThumbs: false,
   thumbPackKeys: null,
   driveDoc: null,
+  driveSidecarId: "",
   driveToken: "",
   dropboxPath: "",
   dropboxMode: "open",
@@ -1801,6 +1808,7 @@ async function openPdfBuffer(buffer, { identity, name, page = 1, handle = null }
   }
   if (!String(identity || "").startsWith("gdrive::")) {
     state.driveDoc = null;
+    state.driveSidecarId = "";
   }
   if (state.pdf) {
     await state.pdf.destroy();
@@ -6042,8 +6050,11 @@ async function openDriveFile(picked) {
       return;
     }
     state.driveDoc = doc;
+    state.driveSidecarId = "";
     showBanner("");
     await openPdfBuffer(buffer, { identity: driveIdentity(doc), name: doc.name });
+    await loadDriveSidecar(doc);
+    await rebuildPages();
   } catch (error) {
     // The status tells us whether it was the grant, the scope or the network.
     const why = error?.message ? ` (${error.message})` : "";
@@ -6198,14 +6209,108 @@ async function saveCopyToDropbox() {
   }
 }
 
+/* ---- 드라이브 사이드카 (#169) ---- */
+
+async function findDriveSidecar(doc) {
+  if (state.driveSidecarId) {
+    return state.driveSidecarId;
+  }
+  const query = sidecarQuery(sidecarName(doc.name), doc.parent);
+  const reply = await driveFetch(driveSearchUrl(query));
+  if (!reply.ok) {
+    return "";
+  }
+  const found = (await reply.json()).files || [];
+  state.driveSidecarId = found[0]?.id || "";
+  return state.driveSidecarId;
+}
+
+/** Same shape as the Dropbox one: a few KB beside the document (#147·#169). */
+async function saveDriveSidecar() {
+  const doc = state.driveDoc;
+  if (!doc) {
+    return false;
+  }
+  const text = serializeInkFile({
+    pages: state.pages,
+    leaves: state.leaves,
+    outline: state.outline,
+    name: state.fileName,
+    shareThumbs: state.shareThumbs,
+    savedAt: Date.now(),
+  });
+  let id = await findDriveSidecar(doc);
+  if (!id) {
+    // We create it, so drive.file keeps letting us write it later.
+    const made = await driveFetch(`${FILES_URL}?fields=id`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(createFileBody(sidecarName(doc.name), doc.parent)),
+    });
+    if (!made.ok) {
+      throw new Error(String(made.status));
+    }
+    id = (await made.json()).id;
+    state.driveSidecarId = id;
+  }
+  const put = await driveFetch(driveMediaUrl(id), {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: text,
+  });
+  if (!put.ok) {
+    throw new Error(String(put.status));
+  }
+  state.inkSavedAt = Date.now();
+  return true;
+}
+
+async function loadDriveSidecar(doc) {
+  if (!doc) {
+    return;
+  }
+  let remote = null;
+  try {
+    const id = await findDriveSidecar(doc);
+    if (!id) {
+      return;
+    }
+    const reply = await driveFetch(driveDownloadUrl(id));
+    if (!reply.ok) {
+      return;
+    }
+    remote = parseInkFile(await reply.text());
+  } catch {
+    return;
+  }
+  if (!remote) {
+    return;
+  }
+  const local = { savedAt: state.inkSavedAt || 0, pages: state.pages };
+  if (pickNewer(local, remote) !== "remote") {
+    return;
+  }
+  state.pages = remote.pages;
+  state.leaves = normalizeLeaves(remote.leaves, state.pageCount || remote.leaves.length);
+  state.pageCount = state.leaves.length;
+  state.outline = normalizeOutline(remote.outline, state.leaves);
+  state.inkSavedAt = remote.savedAt;
+  state.shareThumbs = Boolean(remote.shareThumbs);
+  persistStrokes();
+}
+
 /* ---- 자동 저장 (#167) ---- */
 
 let autosaveTimer = 0;
 let autosaveRunning = false;
 
 /** Called on every change: the upload is a few KB, so it can be quiet. */
+function cloudDocOpen() {
+  return Boolean(state.driveDoc || (state.dropboxDoc && dropboxConnected()));
+}
+
 function scheduleInkAutosave() {
-  if (!state.dropboxDoc || !dropboxConnected()) {
+  if (!cloudDocOpen()) {
     return;
   }
   window.clearTimeout(autosaveTimer);
@@ -6216,7 +6321,7 @@ function scheduleInkAutosave() {
 }
 
 async function runInkAutosave() {
-  if (autosaveRunning || !state.dropboxDoc || !dropboxConnected()) {
+  if (autosaveRunning || !cloudDocOpen()) {
     return;
   }
   if (state.drawing) {
@@ -6226,7 +6331,7 @@ async function runInkAutosave() {
   }
   autosaveRunning = true;
   try {
-    await saveInkSidecar();
+    await (state.driveDoc ? saveDriveSidecar() : saveInkSidecar());
   } catch {
     flashBanner("필기를 자동으로 저장하지 못했습니다.", 2400);
   } finally {
@@ -6534,11 +6639,11 @@ async function flattenAfterWriteBack(blob) {
 async function saveDocumentNow() {
   persistStrokes();
   persistSession();
-  if (state.dropboxDoc && dropboxConnected()) {
+  if (cloudDocOpen()) {
     showBanner("저장하는 중…");
     try {
-      await saveInkSidecar();
-      flashBanner(`저장했습니다. ${state.dropboxDoc.name} (필기는 옆 파일에)`, 2400);
+      await (state.driveDoc ? saveDriveSidecar() : saveInkSidecar());
+      flashBanner(`저장했습니다. ${(state.driveDoc || state.dropboxDoc).name} (필기는 옆 파일에)`, 2400);
     } catch {
       flashBanner("필기를 저장하지 못했습니다.");
     }
