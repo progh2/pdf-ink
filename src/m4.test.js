@@ -47,6 +47,7 @@ describe("M4 #31 chrome", () => {
       "rotate",
       "save",
       "bake",
+      "saveas",
       "export",
     ]);
     assert.match(toolbar, /id="undo-btn"/);

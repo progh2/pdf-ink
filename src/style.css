@@ -2022,3 +2022,21 @@ body {
   background: transparent;
   color: var(--muted);
 }
+
+/* #149 save-as controls inside the same dropbox sheet. */
+.dropbox-save {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dropbox-name {
+  height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  color: var(--title);
+  font: inherit;
+  font-size: 14px;
+}

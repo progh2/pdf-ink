@@ -199,6 +199,7 @@ export const M4_OVERFLOW_ITEMS = [
   "rotate",
   "save",
   "bake",
+  "saveas",
   "export",
 ];
 export const M4_OVERFLOW_LABELS = {
@@ -210,5 +211,6 @@ export const M4_OVERFLOW_LABELS = {
   preview: "미리보기",
   save: "저장",
   bake: "PDF에 굽기",
+  saveas: "다른 이름으로 저장",
   export: "내보내기",
 };

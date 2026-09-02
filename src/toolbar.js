@@ -44,6 +44,7 @@ export const BAR_OVERFLOW_ITEMS = [
   "rotate",
   "save",
   "bake",
+  "saveas",
   "export",
 ];
 
