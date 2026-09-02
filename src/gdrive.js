@@ -12,7 +12,7 @@ export const GAPI_SRC = "https://apis.google.com/js/api.js";
 export const FILES_URL = "https://www.googleapis.com/drive/v3/files";
 export const UPLOAD_URL = "https://www.googleapis.com/upload/drive/v3/files";
 /** What we ask Drive to tell us about a file. Small on purpose. */
-export const FILE_FIELDS = "id,name,version,modifiedTime,mimeType,size";
+export const FILE_FIELDS = "id,name,version,modifiedTime,mimeType,size,parents";
 
 export function driveConfigured(clientId = GOOGLE_CLIENT_ID, apiKey = GOOGLE_API_KEY) {
   return Boolean(clientId && apiKey);
@@ -39,6 +39,29 @@ export function updateUrl(id, fields = FILE_FIELDS) {
   return `${UPLOAD_URL}/${encodeURIComponent(id)}?uploadType=media&fields=${encodeURIComponent(fields)}`;
 }
 
+/**
+ * The sidecar sits in the same folder as the PDF (#169). We create it, so
+ * `drive.file` keeps letting us read and write it afterwards.
+ */
+export function sidecarQuery(name, parentId) {
+  const safe = String(name || "").replace(/'/g, "\\'");
+  const parent = parentId ? ` and '${parentId}' in parents` : "";
+  return `name = '${safe}' and trashed = false${parent}`;
+}
+
+export function searchUrl(query, fields = "files(id,name,modifiedTime)") {
+  const params = new URLSearchParams({ q: query, fields, spaces: "drive", pageSize: "5" });
+  return `${FILES_URL}?${params.toString()}`;
+}
+
+export function createFileBody(name, parentId, mimeType = "application/json") {
+  return parentId ? { name, mimeType, parents: [parentId] } : { name, mimeType };
+}
+
+export function mediaUrl(id) {
+  return `${UPLOAD_URL}/${encodeURIComponent(id)}?uploadType=media`;
+}
+
 export function docFromPicked(picked) {
   if (!picked?.id) {
     return null;
@@ -47,6 +70,7 @@ export function docFromPicked(picked) {
     id: String(picked.id),
     name: picked.name || "문서.pdf",
     version: picked.version ? String(picked.version) : "",
+    parent: Array.isArray(picked.parents) && picked.parents[0] ? String(picked.parents[0]) : "",
   };
 }
 

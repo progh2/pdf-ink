@@ -79,7 +79,7 @@ describe("#147 배선", () => {
 
   it("saves the ink beside the document, not by rewriting the pdf", () => {
     const save = main.slice(main.indexOf("async function saveDocumentNow"), main.indexOf("async function bakeIntoPdf"));
-    assert.match(save, /await saveInkSidecar\(\)/);
+    assert.match(save, /await \(state\.driveDoc \? saveDriveSidecar\(\) : saveInkSidecar\(\)\)/);
     assert.doesNotMatch(save, /withAnnotatedPdf|buildAnnotatedPdf/, "저장 must stay cheap");
     assert.match(main, /uploadArg\(sidecarPath\(doc\.path\), ""\)/);
   });
@@ -118,11 +118,12 @@ describe("#167 자동 저장", () => {
     assert.match(main, /function persistStrokes[\s\S]{0,120}scheduleInkAutosave\(\)/);
     const run = main.slice(main.indexOf("async function runInkAutosave"), main.indexOf("function flushInkAutosave"));
     assert.match(run, /if \(state\.drawing\)[\s\S]{0,140}scheduleInkAutosave\(\)/, "never mid-stroke");
-    assert.match(run, /await saveInkSidecar\(\)/);
+    assert.match(run, /await \(state\.driveDoc \? saveDriveSidecar\(\) : saveInkSidecar\(\)\)/);
   });
 
   it("only for a cloud document, and never bakes the pdf", () => {
-    assert.match(main, /function scheduleInkAutosave\(\) \{\s*if \(!state\.dropboxDoc \|\| !dropboxConnected\(\)\)/);
+    assert.match(main, /function scheduleInkAutosave\(\) \{\s*if \(!cloudDocOpen\(\)\)/);
+    assert.match(main, /function cloudDocOpen[\s\S]{0,140}state\.driveDoc \|\| \(state\.dropboxDoc && dropboxConnected\(\)\)/);
     const run = main.slice(main.indexOf("async function runInkAutosave"), main.indexOf("function flushInkAutosave"));
     assert.doesNotMatch(run, /bakeIntoPdf|withAnnotatedPdf/);
   });

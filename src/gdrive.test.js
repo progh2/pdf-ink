@@ -7,14 +7,18 @@ import {
   DRIVE_SCOPE,
   FILE_FIELDS,
   appIdFromClientId,
+  createFileBody,
   docFromPicked,
   downloadUrl,
   driveConfigured,
   driveIdentity,
+  mediaUrl,
   metadataUrl,
   pdfFromPickerResult,
   pickerViewConfig,
   remoteChanged,
+  searchUrl,
+  sidecarQuery,
   tokenClientConfig,
   tokenRequestOptions,
   updateUrl,
@@ -64,15 +68,15 @@ describe("#133 구글 드라이브", () => {
         { id: "f2", name: "노트.pdf", mimeType: "application/pdf" },
       ],
     };
-    assert.deepEqual(pdfFromPickerResult(picked), { id: "f2", name: "노트.pdf", version: "" });
+    assert.deepEqual(pdfFromPickerResult(picked), { id: "f2", name: "노트.pdf", version: "", parent: "" });
     assert.equal(pdfFromPickerResult({ action: "cancel" }), null);
     assert.equal(pdfFromPickerResult({ action: "picked", docs: [picked.docs[0]] }), null);
     assert.equal(pickerViewConfig().mimeTypes, "application/pdf");
   });
 
   it("keeps ink per document", () => {
-    const doc = docFromPicked({ id: "f2", name: "노트.pdf", version: "7" });
-    assert.deepEqual(doc, { id: "f2", name: "노트.pdf", version: "7" });
+    const doc = docFromPicked({ id: "f2", name: "노트.pdf", version: "7", parents: ["folder1"] });
+    assert.deepEqual(doc, { id: "f2", name: "노트.pdf", version: "7", parent: "folder1" });
     assert.equal(driveIdentity(doc), "gdrive::f2");
     assert.notEqual(driveIdentity(doc), driveIdentity({ id: "f3" }));
     assert.equal(docFromPicked(null), null);
@@ -157,5 +161,70 @@ describe("#165 배선", () => {
     assert.match(open, /throw new Error\(String\(metaReply\.status\)\)/);
     assert.match(open, /throw new Error\(String\(reply\.status\)\)/);
     assert.match(open, /구글 드라이브에서 열지 못했습니다\.\$\{why\}/);
+  });
+});
+
+describe("#169 드라이브 사이드카", () => {
+  it("looks for it by name in the same folder", () => {
+    const q = sidecarQuery("노트.pdf.ink", "folder1");
+    assert.match(q, /name = '노트\.pdf\.ink'/);
+    assert.match(q, /'folder1' in parents/);
+    assert.match(q, /trashed = false/, "a deleted sidecar must not come back");
+    assert.doesNotMatch(sidecarQuery("노트.pdf.ink", ""), /in parents/, "root is fine too");
+  });
+
+  it("escapes a quote in the name instead of breaking the query", () => {
+    assert.match(sidecarQuery("it's.pdf.ink", ""), /name = 'it\\'s\.pdf\.ink'/);
+  });
+
+  it("creates it beside the document", () => {
+    assert.deepEqual(createFileBody("노트.pdf.ink", "folder1"), {
+      name: "노트.pdf.ink",
+      mimeType: "application/json",
+      parents: ["folder1"],
+    });
+    assert.deepEqual(createFileBody("노트.pdf.ink", ""), {
+      name: "노트.pdf.ink",
+      mimeType: "application/json",
+    });
+  });
+
+  it("writes the bytes to the file it made", () => {
+    assert.equal(mediaUrl("id1"), "https://www.googleapis.com/upload/drive/v3/files/id1?uploadType=media");
+    assert.match(searchUrl("q"), /^https:\/\/www\.googleapis\.com\/drive\/v3\/files\?/);
+    assert.match(searchUrl("q"), /spaces=drive/);
+  });
+
+  it("remembers which folder the document lives in", () => {
+    assert.match(FILE_FIELDS, /parents/);
+  });
+});
+
+describe("#169 배선", () => {
+  const main = readFileSync(join(root, "src/main.js"), "utf8");
+
+  it("finds the sidecar once and reuses its id", () => {
+    const find = main.slice(main.indexOf("async function findDriveSidecar"), main.indexOf("/** Same shape as the Dropbox one"));
+    assert.match(find, /if \(state\.driveSidecarId\) \{\s*return state\.driveSidecarId;/, "no repeat search");
+    assert.match(find, /sidecarQuery\(sidecarName\(doc\.name\), doc\.parent\)/);
+  });
+
+  it("creates it beside the pdf, then writes the bytes", () => {
+    const save = main.slice(main.indexOf("async function saveDriveSidecar"), main.indexOf("async function loadDriveSidecar"));
+    assert.match(save, /createFileBody\(sidecarName\(doc\.name\), doc\.parent\)/);
+    assert.match(save, /driveMediaUrl\(id\)/);
+    assert.match(save, /method: "PATCH"/);
+    assert.doesNotMatch(save, /annotatedPdfBlob|bakeIntoPdf/, "the pdf is not touched");
+  });
+
+  it("reads it on open and takes the newer save", () => {
+    const load = main.slice(main.indexOf("async function loadDriveSidecar"), main.indexOf("/* ---- 자동 저장"));
+    assert.match(load, /pickNewer\(local, remote\) !== "remote"/);
+    assert.match(main, /await loadDriveSidecar\(doc\)/);
+  });
+
+  it("autosaves a drive document the same way as a dropbox one", () => {
+    assert.match(main, /await \(state\.driveDoc \? saveDriveSidecar\(\) : saveInkSidecar\(\)\)/);
+    assert.match(main, /state\.driveSidecarId = ""/, "a new document forgets the old sidecar");
   });
 });
