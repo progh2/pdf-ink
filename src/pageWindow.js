@@ -205,6 +205,24 @@ export function createPaintCache(limit = 8) {
   };
 }
 
+/**
+ * A stable stand-in for "the ink on this page" (#143). Survives a reload, so a
+ * stored thumb still matches, and changes when the ink really changes.
+ */
+export function inkSignature(items) {
+  const list = items || [];
+  let points = 0;
+  let sum = 0;
+  for (const item of list) {
+    const pts = item?.points || [];
+    points += pts.length;
+    const first = pts[0];
+    const last = pts[pts.length - 1];
+    sum += Math.round(((first?.x || item?.x || 0) + (last?.y || item?.y || 0)) * 1000);
+  }
+  return `${list.length}.${points}.${sum}`;
+}
+
 export function thumbCacheKey(leaf, thumbWidth = PREVIEW_THUMB_WIDTH, ink = 0) {
   if (!leaf) {
     return "empty";
