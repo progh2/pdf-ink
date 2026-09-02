@@ -64,7 +64,17 @@ export function remoteChanged(doc, meta) {
 }
 
 export function pickerViewConfig() {
-  return { mimeTypes: "application/pdf", includeFolders: true, selectFolderEnabled: false };
+  return { mimeTypes: "application/pdf", includeFolders: true, selectFolderEnabled: false, parent: "root" };
+}
+
+/**
+ * The picker needs the Cloud project number so that `drive.file` access is
+ * granted for what the reader picked (#165). It is the digits in front of the
+ * client id, so we do not ask for another value.
+ */
+export function appIdFromClientId(clientId = GOOGLE_CLIENT_ID) {
+  const match = /^(\d+)-/.exec(String(clientId || ""));
+  return match ? match[1] : "";
 }
 
 /** Only PDFs come back, whatever the reader clicks in the picker. */
