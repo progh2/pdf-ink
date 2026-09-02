@@ -165,7 +165,7 @@ describe("#53 개요 추가·수정·삭제", () => {
     // The row action helper still guards the title text field.
     assert.equal(tocRowAction("preview-toc-title"), "edit");
     assert.equal(tocRowAction("preview-toc-jump"), "jump");
-    const tocUi = main.slice(main.indexOf("function runTocMenu"), main.indexOf("async function renderPreviewList"));
+    const tocUi = main.slice(main.indexOf("function renameTocRow"), main.indexOf("async function renderPreviewList"));
     assert.match(tocUi, /preview-toc-title/);
     assert.match(tocUi, /preview-toc-jump/);
     assert.match(tocUi, /beginTocTitleEdit/);
@@ -304,5 +304,36 @@ describe("#126 구운 뒤 목차 다시 붙이기", () => {
     const [entry] = normalizeOutline(flat, fresh);
     assert.equal(entry.leafId, "p3");
     assert.equal(outlineDestPage(entry, fresh), 3);
+  });
+});
+
+describe("#155 서랍이 밀고, 목차는 더블탭으로 이름 변경", () => {
+  const mainSrc = readFileSync(join(root, "src/main.js"), "utf8");
+  const cssSrc = readFileSync(join(root, "src/style.css"), "utf8");
+
+  it("pushes the page instead of covering it", () => {
+    assert.match(cssSrc, /\[data-preview="open"\] \{[\s\S]*padding-left: var\(--preview-w, 120px\)/);
+    assert.match(mainSrc, /els\.writeScreen\.dataset\.preview = "open"/);
+    assert.match(mainSrc, /els\.writeScreen\.dataset\.preview = ""/);
+    assert.match(mainSrc, /els\.writeScreen\.style\.setProperty\("--preview-w"/);
+  });
+
+  it("re-fits the paper when the space changes, but not mid-drag", () => {
+    assert.match(mainSrc, /function refitPages[\s\S]*rebuildPages\(\)/);
+    const grip = mainSrc.slice(mainSrc.indexOf("function bindPreviewGrip"), mainSrc.indexOf("/**\n * The drawer stays open"));
+    assert.doesNotMatch(grip.slice(0, grip.indexOf("const stop =")), /refitPages/, "not on every move");
+    assert.match(grip, /savePreviewWidth\(state\.previewWidth\);[\s\S]{0,200}refitPages\(\)/);
+  });
+
+  it("keeps the toolbar rail an overlay (#49 unchanged)", () => {
+    const rail = cssSrc.slice(cssSrc.indexOf(".toolbar-rail {"), cssSrc.indexOf(".toolbar {"));
+    assert.match(rail, /position: absolute/);
+    assert.doesNotMatch(rail, /padding-left: var\(--preview-w/);
+  });
+
+  it("renames on a double tap or double click, and still jumps on one", () => {
+    assert.match(mainSrc, /isDoubleTap\(now, lastTapAt, away\)/);
+    assert.match(mainSrc, /row\.addEventListener\("dblclick"[\s\S]{0,120}renameTocRow\(row, entry\)/);
+    assert.match(mainSrc, /lastTapAt = now;[\s\S]{0,120}goToPage\(dest\)/);
   });
 });

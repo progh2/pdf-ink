@@ -1107,6 +1107,11 @@ body {
   cursor: pointer;
 }
 
+/* #155: the drawer pushes the page instead of covering it. */
+.write-screen[data-preview="open"] {
+  padding-left: var(--preview-w, 120px);
+}
+
 .preview-drawer {
   position: fixed;
   top: 0;

@@ -59,6 +59,17 @@ export const PEN_BARREL_BUTTON = 2;
 export const PEN_SECOND_BUTTON = 1;
 export const PEN_ERASER_BUTTON = 5;
 
+/** Two taps this close together mean "rename", not "go there twice" (#155). */
+export const DOUBLE_TAP_MS = 320;
+export const DOUBLE_TAP_SLOP_PX = 24;
+
+export function isDoubleTap(now, lastAt, distancePx, withinMs = DOUBLE_TAP_MS, slopPx = DOUBLE_TAP_SLOP_PX) {
+  if (!lastAt) {
+    return false;
+  }
+  return Number(now) - Number(lastAt) < withinMs && Number(distancePx) < slopPx;
+}
+
 export const PEN_ACTIONS = ["eraser", "select", "none"];
 export const PEN_ACTION_LABELS = { eraser: "지우개", select: "선택", none: "없음" };
 export const PEN_BUTTON_DEFAULTS = { barrel: "eraser", second: "select" };

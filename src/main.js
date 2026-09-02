@@ -69,8 +69,10 @@ import {
 import { applyEraserToInk, isPixelErase, isStrokeErase, paintGhost, paintItem, paintStamp, removeHitItems, removeHitStamps, stampInkItem, stampTilt } from "./ink.js";
 import { followStampGhost, stampGhostItem, stampPlaceFromGhost } from "./stampGhost.js";
 import {
+  DOUBLE_TAP_MS,
   allowsInkButton,
   appendInkPoint,
+  isDoubleTap,
   beginInkPoints,
   canCreateInk,
   finishInkPoints,
@@ -2560,7 +2562,9 @@ function closePreview() {
     return;
   }
   els.previewDrawer.hidden = true;
+  els.writeScreen.dataset.preview = "";
   syncPreviewButton();
+  refitPages();
 }
 
 function hideSelectUi() {
@@ -4067,6 +4071,15 @@ function rotatePageAt(pageNum, delta) {
 
 /* ---- 서랍 폭 (#106) ---- */
 
+/** The workspace changed size, so the page fit has to be recomputed (#155). */
+function refitPages() {
+  if (!state.pdf) {
+    return;
+  }
+  state.baseCss = { width: 0, height: 0 };
+  rebuildPages();
+}
+
 function applyPreviewWidth() {
   if (!els.previewDrawer) {
     return;
@@ -4074,6 +4087,8 @@ function applyPreviewWidth() {
   const width = clampPreviewWidth(state.previewWidth);
   state.previewWidth = width;
   els.previewDrawer.style.setProperty("--preview-w", `${width}px`);
+  // The screen is pushed by the same width, so the paper re-fits (#155).
+  els.writeScreen.style.setProperty("--preview-w", `${width}px`);
   const thumb = previewThumbSize(width);
   els.previewDrawer.style.setProperty("--thumb-w", `${thumb.width}px`);
   els.previewDrawer.style.setProperty("--thumb-h", `${thumb.height}px`);
@@ -4110,6 +4125,8 @@ function bindPreviewGrip(grip) {
     savePreviewWidth(state.previewWidth);
     // Thumbs are keyed by width, so the new size repaints once.
     renderPreviewList();
+    // Re-fit only on release: not once per frame while dragging (#155).
+    refitPages();
   };
   grip.addEventListener("pointerup", stop);
   grip.addEventListener("pointercancel", stop);
@@ -4140,9 +4157,11 @@ function refreshPageThumb(pageNum) {
 function openPreview() {
   closeAllPanels();
   els.previewDrawer.hidden = false;
+  els.writeScreen.dataset.preview = "open";
   applyPreviewWidth();
   renderPreview();
   syncPreviewButton();
+  refitPages();
 }
 
 function togglePreview() {
@@ -4245,6 +4264,15 @@ function openTocMenu(id, rect) {
   els.tocMenu.style.top = `${spot.top}px`;
 }
 
+/** Opens the in-place editor for that row (#114·#155). */
+function renameTocRow(row, entry) {
+  hideTocMenu();
+  const title = row?.querySelector(".preview-toc-title");
+  if (title && entry) {
+    beginTocTitleEdit(title, entry);
+  }
+}
+
 function runTocMenu(action) {
   const id = state.tocMenuAt;
   hideTocMenu();
@@ -4256,11 +4284,7 @@ function runTocMenu(action) {
     return;
   }
   if (action === "rename") {
-    const row = els.tocList?.querySelector(`[data-entry="${id}"] .preview-toc-title`);
-    const entry = state.outline.find((item) => item.id === id);
-    if (row && entry) {
-      beginTocTitleEdit(row, entry);
-    }
+    renameTocRow(els.tocList?.querySelector(`[data-entry="${id}"]`), state.outline.find((item) => item.id === id));
   }
 }
 
@@ -4269,6 +4293,9 @@ function bindTocRowGestures(row, entry, dest) {
   let timer = 0;
   let start = null;
   let held = false;
+  let lastTapAt = 0;
+  let lastTapX = 0;
+  let lastTapY = 0;
 
   const stop = () => {
     window.clearTimeout(timer);
@@ -4314,9 +4341,26 @@ function bindTocRowGestures(row, entry, dest) {
       runTocMenu(item);
       return;
     }
-    if (!wasHeld) {
-      goToPage(dest);
+    if (wasHeld) {
+      return;
     }
+    // #155: a second tap in the same spot renames, one tap still jumps.
+    const now = performance.now();
+    const away = Math.hypot(event.clientX - lastTapX, event.clientY - lastTapY);
+    if (isDoubleTap(now, lastTapAt, away)) {
+      lastTapAt = 0;
+      renameTocRow(row, entry);
+      return;
+    }
+    lastTapAt = now;
+    lastTapX = event.clientX;
+    lastTapY = event.clientY;
+    goToPage(dest);
+  });
+
+  row.addEventListener("dblclick", (event) => {
+    event.preventDefault();
+    renameTocRow(row, entry);
   });
 
   row.addEventListener("pointercancel", () => {
