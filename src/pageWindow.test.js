@@ -401,10 +401,10 @@ describe("#141 썸 저장과 미리 그리기", () => {
   });
 
   it("draws the rest while the reader is busy, and stops when the document changes", () => {
-    assert.match(mainSrc2, /function warmThumbs/);
+    assert.match(mainSrc2, /async function warmThumbs/);
     assert.match(mainSrc2, /requestIdleCallback/);
     assert.match(mainSrc2, /if \(token !== warmToken \|\| identity !== state\.identity\)/);
-    assert.match(mainSrc2, /if \(state\.drawing\) \{\s*idle\(step\);/, "never fights the pen");
+    assert.match(mainSrc2, /if \(state\.drawing\) \{[\s\S]{0,120}idle\(step\);/, "never fights the pen");
     assert.match(mainSrc2, /stopThumbWarming\(\)/);
   });
 
@@ -466,5 +466,34 @@ describe("#143 썸에 필기", () => {
   it("still repaints just that page after a stroke", () => {
     assert.match(src, /function refreshPageThumb[\s\S]*paintPreviewThumb\(row, leaf\)/);
     assert.match(src, /refreshPageThumb\(pageNum\)/);
+  });
+});
+
+describe("#151 이어서·바뀐 쪽만", () => {
+  const here5 = dirname(fileURLToPath(import.meta.url));
+  const src5 = readFileSync(join(here5, "main.js"), "utf8");
+  const storage5 = readFileSync(join(here5, "storage.js"), "utf8");
+
+  it("asks once what is already drawn, instead of page by page", () => {
+    assert.match(storage5, /export async function listThumbKeys[\s\S]*getAllKeys\(\)/);
+    assert.match(storage5, /key\.startsWith\(prefix\)/, "one document's list only");
+    assert.match(src5, /const done = await listThumbKeys\(identity\)/);
+    assert.match(src5, /\.filter\(\(\{ key \}\) => !done\.has\(key\) && !pageThumbCache\.get\(key\)\)/);
+  });
+
+  it("stops when there is nothing left, so a finished document costs nothing", () => {
+    assert.match(src5, /if \(!pending\.length\) \{\s*return;/);
+  });
+
+  it("looks again when a page is rotated or the order changes", () => {
+    const after = src5.slice(src5.indexOf("function afterPageOp"), src5.indexOf("function hidePageMenu"));
+    assert.match(after, /warmThumbs\(\)/);
+    const rotate = src5.slice(src5.indexOf("function rotatePageAt"), src5.indexOf("function openPreview"));
+    assert.match(rotate, /warmThumbs\(\)/);
+  });
+
+  it("keeps the pen ahead of the drawing queue", () => {
+    const warm = src5.slice(src5.indexOf("async function warmThumbs"), src5.indexOf("/* ---- PWA"));
+    assert.match(warm, /if \(state\.drawing\) \{[\s\S]{0,140}index -= 1;/, "retries that page later, never skips it");
   });
 });
