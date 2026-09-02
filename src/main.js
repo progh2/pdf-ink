@@ -128,6 +128,12 @@ import {
 import { MOSAIC_CELL_CSS, mosaicBoxesPx, mosaicItem } from "./mosaic.js";
 import { recentCardEntries } from "./recent.js";
 import {
+  parseInkFile,
+  pickNewer,
+  serializeInkFile,
+  sidecarPath,
+} from "./inkFile.js";
+import {
   applyBookmarkPages,
   bookmarkPagesFromItems,
   bookmarkPagesFromLeaves,
@@ -478,6 +484,7 @@ const state = {
   fileHandle: null,
   dropbox: null,
   dropboxDoc: null,
+  inkSavedAt: 0,
   driveDoc: null,
   driveToken: "",
   dropboxPath: "",
@@ -5420,6 +5427,8 @@ async function openDropboxFile(entry) {
     state.dropboxDoc = doc;
     showBanner("");
     await openPdfBuffer(buffer, { identity: dropboxIdentity(doc), name: doc.name });
+    await loadInkSidecar(doc);
+    await rebuildPages();
   } catch {
     flashBanner("드롭박스에서 열지 못했습니다.");
   }
@@ -5768,6 +5777,76 @@ async function checkDriveRemote() {
   }
 }
 
+/* ---- 필기 사이드카 (#147) ---- */
+
+/** Uploads just the ink: kilobytes, and the PDF is left untouched. */
+async function saveInkSidecar() {
+  const doc = state.dropboxDoc;
+  if (!doc || !dropboxConnected()) {
+    return false;
+  }
+  const text = serializeInkFile({
+    pages: state.pages,
+    leaves: state.leaves,
+    outline: state.outline,
+    name: state.fileName,
+    savedAt: Date.now(),
+  });
+  const token = await dropboxToken();
+  const reply = await fetch(UPLOAD_URL, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/octet-stream",
+      // The sidecar is ours alone, so last write wins is fine here.
+      "Dropbox-API-Arg": asciiHeader(uploadArg(sidecarPath(doc.path), "")),
+    },
+    body: new Blob([text], { type: "application/json" }),
+  });
+  if (!reply.ok) {
+    throw new Error("sidecar");
+  }
+  state.inkSavedAt = Date.now();
+  return true;
+}
+
+/** Reads the sidecar beside the document and takes whichever save is newer. */
+async function loadInkSidecar(doc) {
+  if (!doc || !dropboxConnected()) {
+    return;
+  }
+  let remote = null;
+  try {
+    const token = await dropboxToken();
+    const reply = await fetch(DOWNLOAD_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Dropbox-API-Arg": asciiHeader(downloadArg(sidecarPath(doc.path))),
+      },
+    });
+    if (!reply.ok) {
+      return;
+    }
+    remote = parseInkFile(await reply.text());
+  } catch {
+    return;
+  }
+  if (!remote) {
+    return;
+  }
+  const local = { savedAt: state.inkSavedAt || 0, pages: state.pages };
+  if (pickNewer(local, remote) !== "remote") {
+    return;
+  }
+  state.pages = remote.pages;
+  state.leaves = normalizeLeaves(remote.leaves, state.pageCount || remote.leaves.length);
+  state.pageCount = state.leaves.length;
+  state.outline = normalizeOutline(remote.outline, state.leaves);
+  state.inkSavedAt = remote.savedAt;
+  persistStrokes();
+}
+
 /* ---- 다른 기기의 변경 알아채기 (#127) ---- */
 
 let syncTimer = 0;
@@ -5875,7 +5954,29 @@ async function flattenAfterWriteBack(blob) {
   });
 }
 
+/**
+ * 저장 (#147): the ink goes beside the document as a small file, so it stays
+ * editable and a big PDF is not rewritten for one stroke. Baking it into the
+ * PDF is its own ⋯ action.
+ */
 async function saveDocumentNow() {
+  persistStrokes();
+  persistSession();
+  if (state.dropboxDoc && dropboxConnected()) {
+    showBanner("저장하는 중…");
+    try {
+      await saveInkSidecar();
+      flashBanner(`저장했습니다. ${state.dropboxDoc.name} (필기는 옆 파일에)`, 2400);
+    } catch {
+      flashBanner("필기를 저장하지 못했습니다.");
+    }
+    return;
+  }
+  await bakeIntoPdf();
+}
+
+/** Writes the annotated PDF itself. Slower, and the ink hardens (#126). */
+async function bakeIntoPdf() {
   persistStrokes();
   persistSession();
   await withAnnotatedPdf(async (blob, fileName) => {
@@ -6625,6 +6726,12 @@ function selectMoreAction(action) {
     closeMorePanel();
     ignoreAfterPanel = true;
     saveDocumentNow();
+    return;
+  }
+  if (action === "bake") {
+    closeMorePanel();
+    ignoreAfterPanel = true;
+    bakeIntoPdf();
     return;
   }
   if (action === "export") {
