@@ -63,17 +63,22 @@ export function visibleIndexRange({ scrollTop, viewportHeight, count, itemStride
   return { from: first, to: last, count: last - first + 1 };
 }
 
+/**
+ * The window, the spacer and the translate must agree on the row height, or a
+ * widened drawer scrolls into nothing (#141).
+ */
 export function visiblePreviewRows({
   scrollTop,
   viewportHeight,
   count,
   overscan = PREVIEW_OVERSCAN,
+  drawerWidth = PREVIEW_WIDTH_DEFAULT,
 } = {}) {
   return visibleIndexRange({
     scrollTop,
     viewportHeight,
     count,
-    itemStride: previewRowStride(),
+    itemStride: previewRowStride(drawerWidth),
     overscan,
   });
 }
