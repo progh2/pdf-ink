@@ -282,7 +282,7 @@ describe("#149 배선", () => {
 
   it("uploads a new file and never overwrites", () => {
     assert.match(main, /saveAsArg\(path\)/);
-    const save = main.slice(main.indexOf("async function saveCopyToDropbox"), main.indexOf("/* ---- 필기 사이드카"));
+    const save = main.slice(main.indexOf("async function saveCopyToDropbox"), main.indexOf("/* ---- 썸네일 묶음"));
     assert.doesNotMatch(save, /uploadArg\(/, "uploadArg would overwrite; saveAsArg renames");
   });
 
