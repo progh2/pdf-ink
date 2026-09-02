@@ -264,6 +264,7 @@ import {
   previewThumbSize,
   THUMB_BITMAP_LIMIT,
   createPaintCache,
+  inkSignature,
   pageAtScrollMid,
   pageBitmapKey,
   pageStackOffset,
@@ -465,7 +466,6 @@ const state = {
   outline: [],
   previewFilter: "all",
   previewWidth: loadPreviewWidth(),
-  inkStamp: 0,
   previewTab: "pages",
   pageClip: null,
   fileHandle: null,
@@ -522,6 +522,8 @@ let renderGen = 0;
 let paperScrollHold = null;
 const pageCache = createPaintCache(PAGE_BITMAP_LIMIT);
 const thumbCache = createPaintCache(THUMB_BITMAP_LIMIT);
+/** Page pictures without ink: one per page, worth keeping on disk (#143). */
+const pageThumbCache = createPaintCache(THUMB_BITMAP_LIMIT);
 const stagePool = [];
 
 const WRITE_CHROME =
@@ -4039,7 +4041,6 @@ function refreshPageThumb(pageNum) {
   window.clearTimeout(thumbRefreshTimer);
   thumbRefreshTimer = window.setTimeout(() => {
     thumbRefreshTimer = 0;
-    state.inkStamp += 1;
     const leaf = leafAt(state.leaves, pageNum);
     const row = els.previewList?.querySelector(`[data-leaf="${leaf?.id}"] .preview-thumb`);
     if (!leaf || !row) {
@@ -4704,24 +4705,13 @@ async function renderPreviewList() {
   await paintVisiblePreviewRows();
 }
 
-/** Draws a stored thumb without re-rendering the page. */
-async function paintStoredThumb(canvas, key, size) {
-  const blob = await loadThumb(state.identity, key);
-  if (!blob) {
-    return false;
-  }
-  try {
-    const bitmap = await createImageBitmap(blob);
-    canvas.width = bitmap.width;
-    canvas.height = bitmap.height;
-    canvas.getContext("2d").drawImage(bitmap, 0, 0);
-    thumbCache.set(key, { width: bitmap.width, height: bitmap.height, bitmap });
-    fitThumbElement(canvas, size);
-    canvas.dataset.painted = key;
-    return true;
-  } catch {
-    return false;
-  }
+/**
+ * Thumbs are made of two parts (#143): the page picture, which never changes
+ * and is worth storing, and the ink on top, which is cheap to redraw. Storing
+ * only the page keeps one entry per page instead of one per edit.
+ */
+function pageThumbKey(leaf, width) {
+  return thumbCacheKey(leaf, width, "page");
 }
 
 function storeThumb(canvas, key) {
@@ -4735,9 +4725,73 @@ function storeThumb(canvas, key) {
   }, "image/png");
 }
 
+async function drawStoredPage(canvas, key) {
+  const cached = pageThumbCache.get(key);
+  if (cached?.bitmap) {
+    canvas.width = cached.width;
+    canvas.height = cached.height;
+    canvas.getContext("2d").drawImage(cached.bitmap, 0, 0);
+    return true;
+  }
+  const blob = await loadThumb(state.identity, key);
+  if (!blob) {
+    return false;
+  }
+  try {
+    const bitmap = await createImageBitmap(blob);
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    canvas.getContext("2d").drawImage(bitmap, 0, 0);
+    pageThumbCache.set(key, { width: bitmap.width, height: bitmap.height, bitmap });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Thumb ink: the same layers as the page, scaled down. */
+async function paintThumbInk(canvas, leaf) {
+  const items = state.pages[inkKey(leaf)] || [];
+  if (!items.length) {
+    return;
+  }
+  const base = await basePageCss();
+  const layers = await exportInkCanvas(items, { width: canvas.width, height: canvas.height }, base.width);
+  canvas.getContext("2d").drawImage(layers, 0, 0);
+}
+
+async function renderThumbPage(canvas, leaf, size) {
+  const ctx = canvas.getContext("2d");
+  canvas.width = Math.round(size.width * 2);
+  canvas.height = Math.round(size.height * 2);
+  if (leaf.kind === "outline" || !state.pdf) {
+    const shape = await blankThumbShape(leaf, size);
+    canvas.width = shape.width;
+    canvas.height = shape.height;
+    ctx.fillStyle = "#FFFFFF";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    return;
+  }
+  ctx.fillStyle = "#F7F4EC";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  try {
+    const page = await state.pdf.getPage(leaf.pdfPage);
+    const rotation = ((page.rotate || 0) + (leaf.rotate || 0)) % 360;
+    const base = page.getViewport({ scale: 1, rotation });
+    const scale = Math.min((size.width * 2) / base.width, (size.height * 2) / base.height);
+    canvas.width = Math.max(1, Math.round(base.width * scale));
+    canvas.height = Math.max(1, Math.round(base.height * scale));
+    const viewport = page.getViewport({ scale, rotation });
+    await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
+  } catch {
+    // cream placeholder
+  }
+}
+
 async function paintPreviewThumb(canvas, leaf) {
   const size = previewThumbSize(state.previewWidth);
-  const key = thumbCacheKey(leaf, size.width, state.inkStamp);
+  const items = state.pages[inkKey(leaf)] || [];
+  const key = thumbCacheKey(leaf, size.width, inkSignature(items));
   if (canvas.dataset.painted === key) {
     return;
   }
@@ -4745,54 +4799,27 @@ async function paintPreviewThumb(canvas, leaf) {
   if (hit?.bitmap) {
     canvas.width = hit.width;
     canvas.height = hit.height;
-    const blit = canvas.getContext("2d");
-    blit.drawImage(hit.bitmap, 0, 0);
+    canvas.getContext("2d").drawImage(hit.bitmap, 0, 0);
     fitThumbElement(canvas, size);
     canvas.dataset.painted = key;
     return;
   }
-  if (leaf.kind !== "outline" && (await paintStoredThumb(canvas, key, size))) {
-    return;
-  }
-  const ctx = canvas.getContext("2d");
-  canvas.width = Math.round(size.width * 2);
-  canvas.height = Math.round(size.height * 2);
-  ctx.fillStyle = "#F7F4EC";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  if (leaf.kind === "outline" || !state.pdf) {
-    // White paper, no lettering, shaped like the page it sits next to (#118).
-    const shape = await blankThumbShape(leaf, size);
-    canvas.width = shape.width;
-    canvas.height = shape.height;
-    ctx.fillStyle = "#FFFFFF";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    const bitmap = snapshotCanvas(canvas);
-    if (bitmap) {
-      thumbCache.set(key, { width: canvas.width, height: canvas.height, bitmap });
+  const pageKey = pageThumbKey(leaf, size.width);
+  if (!(await drawStoredPage(canvas, pageKey))) {
+    await renderThumbPage(canvas, leaf, size);
+    const pageBitmap = snapshotCanvas(canvas);
+    if (pageBitmap) {
+      pageThumbCache.set(pageKey, { width: canvas.width, height: canvas.height, bitmap: pageBitmap });
     }
-    fitThumbElement(canvas, size);
-    canvas.dataset.painted = key;
-    return;
+    storeThumb(canvas, pageKey);
   }
-  try {
-    const page = await state.pdf.getPage(leaf.pdfPage);
-    const rotation = ((page.rotate || 0) + (leaf.rotate || 0)) % 360;
-    const base = page.getViewport({ scale: 1, rotation });
-    const scale = Math.min((size.width * 2) / base.width, (size.height * 2) / base.height);
-    const viewport = page.getViewport({ scale, rotation });
-    canvas.width = viewport.width;
-    canvas.height = viewport.height;
-    await page.render({ canvasContext: ctx, viewport }).promise;
-    const bitmap = snapshotCanvas(canvas);
-    if (bitmap) {
-      thumbCache.set(key, { width: canvas.width, height: canvas.height, bitmap });
-    }
-    fitThumbElement(canvas, size);
-    canvas.dataset.painted = key;
-    storeThumb(canvas, key);
-  } catch {
-    // cream placeholder
+  await paintThumbInk(canvas, leaf);
+  const bitmap = snapshotCanvas(canvas);
+  if (bitmap) {
+    thumbCache.set(key, { width: canvas.width, height: canvas.height, bitmap });
   }
+  fitThumbElement(canvas, size);
+  canvas.dataset.painted = key;
 }
 
 function insertOutlinePage() {
@@ -5426,11 +5453,11 @@ function warmThumbs() {
     if (!leaf) {
       return;
     }
-    if (leaf.kind === "outline" || state.drawing) {
+    if (state.drawing) {
       idle(step);
       return;
     }
-    const key = thumbCacheKey(leaf, size.width, 0);
+    const key = thumbCacheKey(leaf, size.width, inkSignature(state.pages[inkKey(leaf)] || []));
     if (thumbCache.get(key)) {
       idle(step);
       return;

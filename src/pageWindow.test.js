@@ -15,6 +15,7 @@ import {
   PREVIEW_THUMB_WIDTH,
   THUMB_BITMAP_LIMIT,
   createPaintCache,
+  inkSignature,
   markCurrentRows,
   pageAtScrollMid,
   pageBitmapKey,
@@ -351,7 +352,7 @@ describe("#122 회전한 쪽의 썸", () => {
   it("sizes the element from the bitmap it just painted", () => {
     assert.match(mainSrc, /function fitThumbElement[\s\S]*Math\.min\(size\.width \/ w, size\.height \/ h\)/);
     // Every paint path letterboxes: cache hit, blank page and pdf page.
-    assert.equal((mainSrc.match(/^\s+fitThumbElement\(canvas, size\);$/gm) || []).length, 4, "cache hit, stored, blank, pdf");
+    assert.equal((mainSrc.match(/^\s+fitThumbElement\(canvas, size\);$/gm) || []).length, 2, "cache hit and fresh paint");
   });
 });
 
@@ -393,15 +394,17 @@ describe("#141 썸 저장과 미리 그리기", () => {
     assert.match(storage, /export async function loadThumb/);
     assert.match(storage, /export async function saveThumb/);
     assert.match(storage, /thumbStoreKey\(identity, key\)/, "one document's thumbs never answer for another");
-    assert.match(mainSrc2, /storeThumb\(canvas, key\)/);
-    assert.match(mainSrc2, /await paintStoredThumb\(canvas, key, size\)/);
+    assert.match(mainSrc2, /storeThumb\(canvas, pageKey\)/);
+    assert.match(mainSrc2, /await drawStoredPage\(canvas, pageKey\)/);
+    // Only the page picture is stored, so edits do not pile up entries (#143).
+    assert.match(mainSrc2, /function pageThumbKey[\s\S]*thumbCacheKey\(leaf, width, "page"\)/);
   });
 
   it("draws the rest while the reader is busy, and stops when the document changes", () => {
     assert.match(mainSrc2, /function warmThumbs/);
     assert.match(mainSrc2, /requestIdleCallback/);
     assert.match(mainSrc2, /if \(token !== warmToken \|\| identity !== state\.identity\)/);
-    assert.match(mainSrc2, /leaf\.kind === "outline" \|\| state\.drawing/, "never fights the pen");
+    assert.match(mainSrc2, /if \(state\.drawing\) \{\s*idle\(step\);/, "never fights the pen");
     assert.match(mainSrc2, /stopThumbWarming\(\)/);
   });
 
@@ -409,5 +412,59 @@ describe("#141 썸 저장과 미리 그리기", () => {
     // The cache lives beside the document, never in the file (#141 lock).
     const warm = mainSrc2.slice(mainSrc2.indexOf("function warmThumbs"), mainSrc2.indexOf("/* ---- PWA"));
     assert.doesNotMatch(warm, /pdf-lib|PDFDocument|buildAnnotatedPdf/);
+  });
+});
+
+describe("#143 썸의 필기 서명", () => {
+  const stroke = (points) => ({ type: "pen", width: 2, points });
+
+  it("changes when a stroke is added, moved or erased", () => {
+    const a = [stroke([{ x: 0.1, y: 0.2 }, { x: 0.3, y: 0.4 }])];
+    const added = [...a, stroke([{ x: 0.5, y: 0.6 }])];
+    const moved = [stroke([{ x: 0.7, y: 0.2 }, { x: 0.9, y: 0.4 }])];
+    assert.notEqual(inkSignature(a), inkSignature(added));
+    assert.notEqual(inkSignature(a), inkSignature(moved), "a moved stroke is a different picture");
+    assert.notEqual(inkSignature(a), inkSignature([]));
+  });
+
+  it("is the same across a reload, unlike a session counter", () => {
+    const items = [stroke([{ x: 0.1, y: 0.2 }, { x: 0.3, y: 0.4 }])];
+    const copy = JSON.parse(JSON.stringify(items));
+    assert.equal(inkSignature(items), inkSignature(copy));
+    assert.equal(inkSignature([]), inkSignature(null));
+  });
+
+  it("keys the thumb, so ink and width both force a repaint", () => {
+    const leaf = { id: "p1", rotate: 0, kind: "pdf" };
+    const empty = inkSignature([]);
+    const drawn = inkSignature([stroke([{ x: 0.2, y: 0.2 }])]);
+    assert.notEqual(thumbCacheKey(leaf, 88, empty), thumbCacheKey(leaf, 88, drawn));
+    assert.notEqual(thumbCacheKey(leaf, 88, drawn), thumbCacheKey(leaf, 176, drawn));
+  });
+});
+
+describe("#143 썸에 필기", () => {
+  const here4 = dirname(fileURLToPath(import.meta.url));
+  const src = readFileSync(join(here4, "main.js"), "utf8");
+
+  it("draws the ink layers over the page picture", () => {
+    assert.match(src, /async function paintThumbInk[\s\S]*exportInkCanvas\(items/);
+    assert.match(src, /await paintThumbInk\(canvas, leaf\)/);
+    // Blank pages get their ink too, through the same path.
+    const paint = src.slice(src.indexOf("async function paintPreviewThumb"), src.indexOf("function insertOutlinePage"));
+    assert.match(paint, /renderThumbPage\(canvas, leaf, size\)/);
+    assert.match(paint, /await paintThumbInk\(canvas, leaf\)/);
+  });
+
+  it("keys the finished thumb by the ink, and stores only the page", () => {
+    assert.match(src, /thumbCacheKey\(leaf, size\.width, inkSignature\(items\)\)/);
+    assert.match(src, /storeThumb\(canvas, pageKey\)/);
+    assert.doesNotMatch(src, /storeThumb\(canvas, key\);/, "an edit must not add a stored entry");
+    assert.doesNotMatch(src, /inkStamp/, "the session counter is gone");
+  });
+
+  it("still repaints just that page after a stroke", () => {
+    assert.match(src, /function refreshPageThumb[\s\S]*paintPreviewThumb\(row, leaf\)/);
+    assert.match(src, /refreshPageThumb\(pageNum\)/);
   });
 });
