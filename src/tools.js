@@ -5,7 +5,29 @@ export const PEN_PALETTE = [
   { label: "빨강", hex: "#C42B2B" },
   { label: "세피아", hex: "#6B3A24" },
   { label: "녹", hex: "#1F6B45" },
+  { label: "흰색", hex: "#FFFFFF" },
 ];
+
+/** Custom colours the reader picked, newest first (#158). */
+export const RECENT_COLOR_LIMIT = 5;
+
+/** Light swatches need an edge to be visible on cream paper. */
+export function isLightHex(hex) {
+  const value = normalizeHex(hex, "#1A1A1A");
+  const r = Number.parseInt(value.slice(1, 3), 16);
+  const g = Number.parseInt(value.slice(3, 5), 16);
+  const b = Number.parseInt(value.slice(5, 7), 16);
+  return 0.299 * r + 0.587 * g + 0.114 * b > 200;
+}
+
+export function addRecentColor(list, hex) {
+  const value = normalizeHex(hex, "");
+  if (!value) {
+    return list || [];
+  }
+  const rest = (list || []).filter((item) => item.toLowerCase() !== value.toLowerCase());
+  return [value, ...rest].slice(0, RECENT_COLOR_LIMIT);
+}
 
 export const HIGHLIGHTER_PALETTE = [
   { label: "노랑", hex: "#FFE566" },

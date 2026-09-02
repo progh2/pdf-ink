@@ -5,6 +5,9 @@ import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import {
   HIGHLIGHTER_OPACITY_DEFAULT,
+  RECENT_COLOR_LIMIT,
+  addRecentColor,
+  isLightHex,
   HIGHLIGHTER_PALETTE,
   PEN_PALETTE,
   PENCIL_COLOR,
@@ -42,6 +45,7 @@ describe("pen palette", () => {
       "#C42B2B",
       "#6B3A24",
       "#1F6B45",
+      "#FFFFFF",
     ]);
   });
 });
@@ -187,5 +191,61 @@ describe("stamp erase path", () => {
     assert.match(main, /removeHitStamps/);
     assert.match(main, /paintStampPreview/);
     assert.match(main, /paintStamp\(/);
+  });
+});
+
+describe("#158 직접 고른 색", () => {
+  it("keeps the newest pick first, without duplicates", () => {
+    let list = addRecentColor([], "#123456");
+    list = addRecentColor(list, "#abcdef");
+    list = addRecentColor(list, "#123456");
+    assert.deepEqual(list, ["#123456", "#ABCDEF"]);
+  });
+
+  it("remembers only the last five", () => {
+    let list = [];
+    for (const hex of ["#111111", "#222222", "#333333", "#444444", "#555555", "#666666"]) {
+      list = addRecentColor(list, hex);
+    }
+    assert.equal(list.length, RECENT_COLOR_LIMIT);
+    assert.equal(list[0], "#666666");
+    assert.equal(list.includes("#111111"), false);
+  });
+
+  it("ignores junk", () => {
+    assert.deepEqual(addRecentColor([], "nope"), []);
+    assert.deepEqual(addRecentColor(["#111111"], ""), ["#111111"]);
+  });
+
+  it("knows a swatch that needs an edge", () => {
+    assert.equal(isLightHex("#FFFFFF"), true);
+    assert.equal(isLightHex("#FFE566"), true, "the highlighter yellow");
+    assert.equal(isLightHex("#1A1A1A"), false);
+    assert.equal(isLightHex("#C42B2B"), false);
+  });
+});
+
+describe("#158·#161 배선", () => {
+  const root2 = join(dirname(fileURLToPath(import.meta.url)), "..");
+  const mainSrc = readFileSync(join(root2, "src/main.js"), "utf8");
+  const htmlSrc = readFileSync(join(root2, "index.html"), "utf8");
+  const cssSrc = readFileSync(join(root2, "src/style.css"), "utf8");
+
+  it("opens the picker on a hold, and the tap still takes the swatch", () => {
+    assert.match(htmlSrc, /id="color-pick"/);
+    assert.match(mainSrc, /function bindColorHold[\s\S]*PAGE_HOLD_MS/);
+    assert.match(mainSrc, /openColorPicker\(hex\)/);
+    assert.match(mainSrc, /if \(fired\) \{\s*event\.preventDefault\(\)/, "a hold must not also pick the swatch");
+  });
+
+  it("remembers the mixed colour in the palette", () => {
+    assert.match(mainSrc, /function applyPickedColor[\s\S]*addRecentColor\(state\.recentColors, value\)/);
+    assert.match(mainSrc, /saveRecentColors\(state\.recentColors\)/);
+    assert.match(mainSrc, /function paletteWithRecents[\s\S]*state\.recentColors/);
+  });
+
+  it("gives a white swatch an edge", () => {
+    assert.match(cssSrc, /\.slot-color\[data-light="1"\][\s\S]*box-shadow: inset 0 0 0 1px/);
+    assert.match(mainSrc, /if \(isLightHex\(item\.hex\)\)/);
   });
 });

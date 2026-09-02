@@ -29,6 +29,7 @@ import {
   loadDropboxSession,
   loadPenButtonErase,
   loadPenButtons,
+  loadRecentColors,
   loadPreviewWidth,
   loadToolbarFloat,
   loadToolbarPosition,
@@ -40,6 +41,7 @@ import {
   saveDropboxSession,
   savePenButtonErase,
   savePenButtons,
+  saveRecentColors,
   savePreviewWidth,
   saveToolbarFloat,
   saveToolbarPosition,
@@ -320,6 +322,9 @@ import {
   tocRowAction,
 } from "./outline.js";
 import {
+  addRecentColor,
+  isLightHex,
+  normalizeHex,
   HIGHLIGHTER_OPACITY_DEFAULT,
   HIGHLIGHTER_PALETTE,
   PEN_PALETTE,
@@ -456,6 +461,7 @@ const els = {
   settingsDone: document.querySelector("#settings-done"),
   slotPanel: document.querySelector("#slot-panel"),
   slotPalette: document.querySelector("#slot-palette"),
+  colorPick: document.querySelector("#color-pick"),
   slotOpacity: document.querySelector("#slot-opacity"),
   slotOpacityRow: document.querySelector("#slot-opacity-row"),
   slotWidth: document.querySelector("#slot-width"),
@@ -486,6 +492,7 @@ const state = {
   penOnly: loadPenOnly(),
   penButtonErase: loadPenButtonErase(),
   penButtons: loadPenButtons(),
+  recentColors: loadRecentColors(),
   toolbarPos: loadToolbarPosition(window.innerWidth, window.innerHeight),
   toolbarFloat: loadToolbarFloat(window.innerWidth, window.innerHeight),
   viewMode: loadViewMode(),
@@ -2613,6 +2620,46 @@ function placePanel(panel, anchorBtn) {
   panel.style.top = `${top}px`;
 }
 
+/** A hold on the swatch opens the picker; a tap still just takes that colour. */
+function bindColorHold(btn, hex) {
+  let timer = 0;
+  let fired = false;
+  const stop = () => {
+    window.clearTimeout(timer);
+    timer = 0;
+  };
+  btn.addEventListener("pointerdown", () => {
+    fired = false;
+    timer = window.setTimeout(() => {
+      timer = 0;
+      fired = true;
+      openColorPicker(hex);
+    }, PAGE_HOLD_MS);
+  });
+  btn.addEventListener("pointermove", stop);
+  btn.addEventListener("pointerup", () => {
+    stop();
+    if (fired) {
+      // The picker is open: the tap must not also pick this swatch.
+      window.setTimeout(() => {
+        fired = false;
+      }, 0);
+    }
+  });
+  btn.addEventListener("pointercancel", stop);
+  btn.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+    stop();
+    openColorPicker(hex);
+  });
+  btn.addEventListener("click", (event) => {
+    if (fired) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+  }, true);
+}
+
 function paletteFor(kind) {
   if (kind === "highlighter") {
     return HIGHLIGHTER_PALETTE;
@@ -2623,11 +2670,44 @@ function paletteFor(kind) {
   return PEN_PALETTE;
 }
 
+/** Long-press a swatch to mix a colour; the pick is remembered (#158). */
+function openColorPicker(startHex) {
+  if (!els.colorPick || !state.editingKind) {
+    return;
+  }
+  els.colorPick.value = normalizeHex(startHex, "#1A1A1A");
+  els.colorPick.click();
+}
+
+function applyPickedColor(hex) {
+  const value = normalizeHex(hex, "");
+  if (!value || !state.editingKind) {
+    return;
+  }
+  state.inkTools[state.editingKind].color = value;
+  state.recentColors = addRecentColor(state.recentColors, value);
+  saveRecentColors(state.recentColors);
+  persistSlotChange();
+  renderPalette(state.inkTools[state.editingKind]);
+}
+
+function paletteWithRecents(kind) {
+  const base = paletteFor(kind);
+  if (kind === "pencil") {
+    return base;
+  }
+  const known = new Set(base.map((item) => item.hex.toLowerCase()));
+  const extra = state.recentColors
+    .filter((hex) => !known.has(String(hex).toLowerCase()))
+    .map((hex) => ({ label: `색 ${hex}`, hex }));
+  return [...base, ...extra];
+}
+
 function renderPalette(slot) {
   const root = els.slotPalette;
   root.replaceChildren();
   root.dataset.kind = slot.type;
-  const colors = paletteFor(slot.type);
+  const colors = paletteWithRecents(slot.type);
   for (const item of colors) {
     const btn = document.createElement("button");
     btn.type = "button";
@@ -2638,7 +2718,11 @@ function renderPalette(slot) {
     btn.dataset.color = item.hex;
     btn.setAttribute("aria-label", item.label);
     btn.style.setProperty("--swatch", item.hex);
+    if (isLightHex(item.hex)) {
+      btn.dataset.light = "1";
+    }
     btn.classList.toggle("is-selected", item.hex.toLowerCase() === slot.color.toLowerCase());
+    bindColorHold(btn, item.hex);
     if (slot.type !== "pencil") {
       btn.addEventListener("click", () => {
         if (!state.editingKind) {
@@ -7844,6 +7928,8 @@ els.shareThumbsBtn?.addEventListener("click", () => {
     uploadThumbPack();
   }
 });
+els.colorPick?.addEventListener("input", () => applyPickedColor(els.colorPick.value));
+els.colorPick?.addEventListener("change", () => applyPickedColor(els.colorPick.value));
 els.penButtonBtn?.addEventListener("click", () => {
   state.penButtonErase = !state.penButtonErase;
   savePenButtonErase(state.penButtonErase);
