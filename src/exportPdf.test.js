@@ -259,3 +259,68 @@ describe("내보낸 PDF 목차 (#53 → #54)", () => {
     assert.deepEqual(read.titles, ["없는 쪽"]);
   });
 });
+
+describe("#145 책갈피를 PDF 안에", () => {
+  async function outlineTree(bytes) {
+    const doc = await PDFDocument.load(bytes);
+    if (!doc.catalog.get(PDFName.of("Outlines"))) {
+      return null;
+    }
+    const root = doc.catalog.lookup(PDFName.of("Outlines"), PDFDict);
+    const walk = (ref) => {
+      const out = [];
+      let at = ref;
+      while (at) {
+        const node = doc.context.lookup(at, PDFDict);
+        const first = node.get(PDFName.of("First"));
+        out.push({
+          title: node.get(PDFName.of("Title")).decodeText(),
+          count: node.get(PDFName.of("Count"))?.asNumber?.() ?? 0,
+          children: first ? walk(first) : [],
+        });
+        at = node.get(PDFName.of("Next"));
+      }
+      return out;
+    };
+    return walk(root.get(PDFName.of("First")));
+  }
+
+  const leaves = [
+    { id: "p1", kind: "pdf", pdfPage: 1, rotate: 0 },
+    { id: "p2", kind: "pdf", pdfPage: 2, rotate: 0 },
+  ];
+
+  async function build(extra) {
+    return buildAnnotatedPdf({
+      buffer: await sourcePdf(),
+      leaves,
+      strokesOf: () => [],
+      renderOverlay: () => null,
+      renderRaster: () => null,
+      ...extra,
+    });
+  }
+
+  it("puts the stars in their own folded group", async () => {
+    const tree = await outlineTree(await build({ outline: [{ title: "표지", page: 1 }], bookmarkPages: [2] }));
+    assert.deepEqual(tree.map((node) => node.title), ["표지", "책갈피"]);
+    const group = tree[1];
+    assert.deepEqual(group.children.map((node) => node.title), ["2쪽"]);
+    assert.equal(group.count, -1, "folded, so it does not bury the contents");
+  });
+
+  it("writes bookmarks even with no table of contents", async () => {
+    const tree = await outlineTree(await build({ outline: [], bookmarkPages: [1, 2] }));
+    assert.deepEqual(tree.map((node) => node.title), ["책갈피"]);
+    assert.deepEqual(tree[0].children.map((node) => node.title), ["1쪽", "2쪽"]);
+  });
+
+  it("writes nothing when there is neither", async () => {
+    assert.equal(await outlineTree(await build({ outline: [], bookmarkPages: [] })), null);
+  });
+
+  it("drops duplicates and keeps the pages in order", async () => {
+    const tree = await outlineTree(await build({ outline: [], bookmarkPages: [2, 1, 2] }));
+    assert.deepEqual(tree[0].children.map((node) => node.title), ["1쪽", "2쪽"]);
+  });
+});

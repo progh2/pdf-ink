@@ -128,6 +128,12 @@ import {
 import { MOSAIC_CELL_CSS, mosaicBoxesPx, mosaicItem } from "./mosaic.js";
 import { recentCardEntries } from "./recent.js";
 import {
+  applyBookmarkPages,
+  bookmarkPagesFromItems,
+  bookmarkPagesFromLeaves,
+  flattenOutlineItems,
+} from "./pdfOutline.js";
+import {
   DRIVE_SCOPE,
   FILE_FIELDS,
   GAPI_SRC,
@@ -280,6 +286,7 @@ import {
 import {
   addOutlineEntry,
   deleteOutlineEntry,
+  makeOutlineEntry,
   normalizeOutline,
   flattenOutline,
   outlineDestPage,
@@ -1689,6 +1696,51 @@ function placeStamp(view, point) {
   drawStrokesOn(view);
 }
 
+/**
+ * The table of contents and the stars ride inside the file (#145), so another
+ * computer sees them. What the reader edited here wins: the file is only read
+ * when this browser has nothing for that document.
+ */
+async function importPdfOutline(pdf) {
+  let items = null;
+  try {
+    items = await pdf.getOutline();
+  } catch {
+    items = null;
+  }
+  if (!items?.length) {
+    return;
+  }
+  const pageOfDest = async (dest) => {
+    try {
+      const explicit = typeof dest === "string" ? await pdf.getDestination(dest) : dest;
+      const ref = explicit?.[0];
+      if (!ref) {
+        return 0;
+      }
+      return (await pdf.getPageIndex(ref)) + 1;
+    } catch {
+      return 0;
+    }
+  };
+  if (!state.outline.length) {
+    const entries = [];
+    for (const item of flattenOutlineItems(items)) {
+      const page = await pageOfDest(item.dest);
+      if (page) {
+        entries.push(makeOutlineEntry(page, { title: item.title }));
+      }
+    }
+    if (entries.length) {
+      state.outline = normalizeOutline(entries, state.leaves);
+    }
+  }
+  const marks = bookmarkPagesFromItems(items);
+  if (marks.length && !state.leaves.some((leaf) => leaf.bookmark)) {
+    state.leaves = applyBookmarkPages(state.leaves, marks);
+  }
+}
+
 async function openPdfBuffer(buffer, { identity, name, page = 1, handle = null }) {
   // Always replace: a handle from the previous file must never write this one.
   state.fileHandle = handle;
@@ -1715,6 +1767,7 @@ async function openPdfBuffer(buffer, { identity, name, page = 1, handle = null }
   state.page = Math.min(Math.max(1, page), state.pageCount);
   state.pages = stored.pages;
   state.outline = normalizeOutline(stored.outline, state.leaves);
+  await importPdfOutline(pdf);
   state.baseCss = { width: 0, height: 0 };
   resetEditorExtras();
   state.renderFactor = 1;
@@ -5117,6 +5170,7 @@ async function annotatedPdfBlob() {
       title: entry.title,
       page: outlineDestPage(entry, state.leaves),
     })),
+    bookmarkPages: bookmarkPagesFromLeaves(state.leaves),
     blankSize: { width: 595, height: 842 },
     strokesOf: (leaf) => state.pages[inkKey(leaf)] || [],
     renderOverlay: (leaf, pixels) =>
