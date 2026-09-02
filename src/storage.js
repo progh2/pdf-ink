@@ -1,12 +1,14 @@
 const STROKE_PREFIX = "pdf-ink:strokes:";
 const PEN_ONLY_KEY = "pdf-ink:pen-only";
 const DB_NAME = "pdf-ink";
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 const SESSION_STORE = "session";
 const FILES_STORE = "files";
 /** Stickers live in this browser only, never on a server (#79). */
 const STICKER_STORE = "stickers";
 const STICKER_FOLDER_STORE = "sticker-folders";
+/** Rendered page thumbs, so a reopened document shows its list at once (#141). */
+const THUMB_STORE = "thumbs";
 
 export function fileIdentity(file) {
   return `${file.name}::${file.size}::${file.lastModified}`;
@@ -82,6 +84,9 @@ function openDb() {
       }
       if (!db.objectStoreNames.contains(STICKER_FOLDER_STORE)) {
         db.createObjectStore(STICKER_FOLDER_STORE, { keyPath: "id" });
+      }
+      if (!db.objectStoreNames.contains(THUMB_STORE)) {
+        db.createObjectStore(THUMB_STORE);
       }
     };
     request.onsuccess = () => resolve(request.result);
@@ -218,4 +223,39 @@ export function loadStickerFolders() {
 
 export function saveStickerFolders(rows) {
   return writeAll(STICKER_FOLDER_STORE, rows);
+}
+
+export function thumbStoreKey(identity, key) {
+  return `${identity || "?"}::${key}`;
+}
+
+export async function loadThumb(identity, key) {
+  try {
+    const db = await openDb();
+    const blob = await new Promise((resolve, reject) => {
+      const tx = db.transaction(THUMB_STORE, "readonly");
+      const request = tx.objectStore(THUMB_STORE).get(thumbStoreKey(identity, key));
+      request.onsuccess = () => resolve(request.result || null);
+      request.onerror = () => reject(request.error);
+    });
+    db.close();
+    return blob;
+  } catch {
+    return null;
+  }
+}
+
+export async function saveThumb(identity, key, blob) {
+  try {
+    const db = await openDb();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(THUMB_STORE, "readwrite");
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.objectStore(THUMB_STORE).put(blob, thumbStoreKey(identity, key));
+    });
+    db.close();
+  } catch {
+    // thumbs are a cache: losing one costs a repaint, nothing more
+  }
 }

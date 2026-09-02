@@ -351,6 +351,63 @@ describe("#122 회전한 쪽의 썸", () => {
   it("sizes the element from the bitmap it just painted", () => {
     assert.match(mainSrc, /function fitThumbElement[\s\S]*Math\.min\(size\.width \/ w, size\.height \/ h\)/);
     // Every paint path letterboxes: cache hit, blank page and pdf page.
-    assert.equal((mainSrc.match(/^\s+fitThumbElement\(canvas, size\);$/gm) || []).length, 3);
+    assert.equal((mainSrc.match(/^\s+fitThumbElement\(canvas, size\);$/gm) || []).length, 4, "cache hit, stored, blank, pdf");
+  });
+});
+
+describe("#141 넓힌 서랍의 창 계산", () => {
+  it("uses the same row height as the spacer and the translate", () => {
+    const wide = 300;
+    const stride = previewRowStride(wide);
+    const range = visiblePreviewRows({ scrollTop: stride * 4, viewportHeight: 600, count: 40, drawerWidth: wide, overscan: 0 });
+    // The fifth row starts exactly at the scroll position.
+    assert.equal(range.from, 4);
+    assert.ok(range.to >= 4);
+    // The window is placed at from * stride, so the first visible row lands right.
+    assert.equal(range.from * stride, stride * 4);
+  });
+
+  it("would have gone wrong with the default width (the bug)", () => {
+    const wide = 300;
+    const narrow = visiblePreviewRows({ scrollTop: previewRowStride(wide) * 4, viewportHeight: 600, count: 40, overscan: 0 });
+    const right = visiblePreviewRows({ scrollTop: previewRowStride(wide) * 4, viewportHeight: 600, count: 40, drawerWidth: wide, overscan: 0 });
+    assert.notEqual(narrow.from, right.from, "this mismatch is what emptied the list");
+  });
+
+  it("still matches the list height it scrolls through", () => {
+    const wide = 300;
+    const count = 40;
+    const total = previewListHeight(count, wide);
+    const last = visiblePreviewRows({ scrollTop: total, viewportHeight: 600, count, drawerWidth: wide, overscan: 0 });
+    assert.equal(last.to, count - 1, "the end of the list is reachable");
+  });
+});
+
+describe("#141 썸 저장과 미리 그리기", () => {
+  const here3 = dirname(fileURLToPath(import.meta.url));
+  const mainSrc2 = readFileSync(join(here3, "main.js"), "utf8");
+  const storage = readFileSync(join(here3, "storage.js"), "utf8");
+
+  it("keeps a rendered thumb for the next time the document opens", () => {
+    assert.match(storage, /const THUMB_STORE = "thumbs"/);
+    assert.match(storage, /export async function loadThumb/);
+    assert.match(storage, /export async function saveThumb/);
+    assert.match(storage, /thumbStoreKey\(identity, key\)/, "one document's thumbs never answer for another");
+    assert.match(mainSrc2, /storeThumb\(canvas, key\)/);
+    assert.match(mainSrc2, /await paintStoredThumb\(canvas, key, size\)/);
+  });
+
+  it("draws the rest while the reader is busy, and stops when the document changes", () => {
+    assert.match(mainSrc2, /function warmThumbs/);
+    assert.match(mainSrc2, /requestIdleCallback/);
+    assert.match(mainSrc2, /if \(token !== warmToken \|\| identity !== state\.identity\)/);
+    assert.match(mainSrc2, /leaf\.kind === "outline" \|\| state\.drawing/, "never fights the pen");
+    assert.match(mainSrc2, /stopThumbWarming\(\)/);
+  });
+
+  it("does not put anything of ours inside the pdf", () => {
+    // The cache lives beside the document, never in the file (#141 lock).
+    const warm = mainSrc2.slice(mainSrc2.indexOf("function warmThumbs"), mainSrc2.indexOf("/* ---- PWA"));
+    assert.doesNotMatch(warm, /pdf-lib|PDFDocument|buildAnnotatedPdf/);
   });
 });

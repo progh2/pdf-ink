@@ -8,6 +8,7 @@ import {
   loadLastSession,
   loadPenOnly,
   loadStickerFolders,
+  loadThumb,
   loadStickers,
   loadStrokes,
   migrateLastIntoFiles,
@@ -15,6 +16,7 @@ import {
   savePenOnly,
   saveStickerFolders,
   saveStickers,
+  saveThumb,
   saveStrokes,
 } from "./storage.js";
 import {
@@ -1590,6 +1592,7 @@ async function showUploadScreen() {
   els.uploadScreen.hidden = false;
   showBanner("");
   await renderRecents();
+  stopThumbWarming();
   if (state.pdf) {
     await state.pdf.destroy();
     state.pdf = null;
@@ -1728,6 +1731,7 @@ async function openPdfBuffer(buffer, { identity, name, page = 1, handle = null }
   await persistSession();
   startSyncWatch();
   askPersistentStorage();
+  warmThumbs();
 }
 
 async function openSelectedFile(file, handle = null) {
@@ -4650,6 +4654,7 @@ async function paintVisiblePreviewRows() {
     scrollTop: els.previewList.scrollTop,
     viewportHeight: els.previewList.clientHeight || 640,
     count: shown.length,
+    drawerWidth: state.previewWidth,
   });
   const stride = previewRowStride(state.previewWidth);
   windowEl.style.transform = `translateY(${Math.max(0, range.from) * stride}px)`;
@@ -4699,6 +4704,37 @@ async function renderPreviewList() {
   await paintVisiblePreviewRows();
 }
 
+/** Draws a stored thumb without re-rendering the page. */
+async function paintStoredThumb(canvas, key, size) {
+  const blob = await loadThumb(state.identity, key);
+  if (!blob) {
+    return false;
+  }
+  try {
+    const bitmap = await createImageBitmap(blob);
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    canvas.getContext("2d").drawImage(bitmap, 0, 0);
+    thumbCache.set(key, { width: bitmap.width, height: bitmap.height, bitmap });
+    fitThumbElement(canvas, size);
+    canvas.dataset.painted = key;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function storeThumb(canvas, key) {
+  if (!state.identity || typeof canvas.toBlob !== "function") {
+    return;
+  }
+  canvas.toBlob((blob) => {
+    if (blob) {
+      saveThumb(state.identity, key, blob);
+    }
+  }, "image/png");
+}
+
 async function paintPreviewThumb(canvas, leaf) {
   const size = previewThumbSize(state.previewWidth);
   const key = thumbCacheKey(leaf, size.width, state.inkStamp);
@@ -4713,6 +4749,9 @@ async function paintPreviewThumb(canvas, leaf) {
     blit.drawImage(hit.bitmap, 0, 0);
     fitThumbElement(canvas, size);
     canvas.dataset.painted = key;
+    return;
+  }
+  if (leaf.kind !== "outline" && (await paintStoredThumb(canvas, key, size))) {
     return;
   }
   const ctx = canvas.getContext("2d");
@@ -4750,6 +4789,7 @@ async function paintPreviewThumb(canvas, leaf) {
     }
     fitThumbElement(canvas, size);
     canvas.dataset.painted = key;
+    storeThumb(canvas, key);
   } catch {
     // cream placeholder
   }
@@ -5346,6 +5386,65 @@ function disconnectDropbox() {
   if (token) {
     fetch(REVOKE_URL, { method: "POST", headers: { Authorization: `Bearer ${token}` } }).catch(() => {});
   }
+}
+
+/**
+ * Draws the thumbs quietly while the reader is looking at page one, so the
+ * drawer is already full when they open it (#141). Stops the moment the
+ * document changes, and never fights the pen for a frame.
+ */
+let warmToken = 0;
+
+function stopThumbWarming() {
+  warmToken += 1;
+}
+
+function idle(fn) {
+  if (typeof window.requestIdleCallback === "function") {
+    window.requestIdleCallback(fn, { timeout: 500 });
+    return;
+  }
+  window.setTimeout(fn, 32);
+}
+
+function warmThumbs() {
+  stopThumbWarming();
+  const token = warmToken;
+  const identity = state.identity;
+  if (!state.pdf || !identity) {
+    return;
+  }
+  const size = previewThumbSize(state.previewWidth);
+  const canvas = document.createElement("canvas");
+  let index = 0;
+  const step = () => {
+    if (token !== warmToken || identity !== state.identity) {
+      return;
+    }
+    const leaf = state.leaves[index];
+    index += 1;
+    if (!leaf) {
+      return;
+    }
+    if (leaf.kind === "outline" || state.drawing) {
+      idle(step);
+      return;
+    }
+    const key = thumbCacheKey(leaf, size.width, 0);
+    if (thumbCache.get(key)) {
+      idle(step);
+      return;
+    }
+    loadThumb(identity, key)
+      .then((found) => (found ? null : paintPreviewThumb(canvas, leaf)))
+      .catch(() => null)
+      .finally(() => {
+        if (token === warmToken) {
+          idle(step);
+        }
+      });
+  };
+  idle(step);
 }
 
 /* ---- PWA (#131) ---- */
