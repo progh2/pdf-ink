@@ -1,4 +1,5 @@
 import { PDFDocument, PDFHexString, PDFName, degrees } from "pdf-lib";
+import { BOOKMARK_GROUP_TITLE, bookmarkTitle, hasOutlineContent } from "./pdfOutline.js";
 import { normalizeRotation } from "./rotate.js";
 
 /** Annotated PDF: the page stays vector, the ink rides on top as one PNG (#54). */
@@ -83,6 +84,7 @@ export async function buildAnnotatedPdf({
   renderOverlay,
   renderRaster,
   outline = [],
+  bookmarkPages = [],
   blankSize = { width: 595, height: 842 },
 }) {
   const source = await PDFDocument.load(buffer, { ignoreEncryption: true });
@@ -136,7 +138,7 @@ export async function buildAnnotatedPdf({
     const image = await out.embedPng(png);
     page.drawImage(image, overlayPlacementArgs(rotation, size.width, size.height));
   }
-  setPdfOutline(out, outline);
+  setPdfOutline(out, outline, bookmarkPages);
   return out.save();
 }
 
@@ -155,48 +157,80 @@ function overlayPlacementArgs(rotation, width, height) {
  * Writes the drawer outline (#53) into the file as real PDF bookmarks, so the
  * reader's table of contents survives outside this browser.
  */
-export function setPdfOutline(doc, entries) {
+export function setPdfOutline(doc, entries, bookmarkPages = []) {
   const list = (entries || [])
     .filter((entry) => entry && String(entry.title ?? "").trim())
     .map((entry) => ({
       title: String(entry.title).trim(),
       page: Math.max(1, Math.round(Number(entry.page) || 1)),
     }));
+  const marks = [...new Set((bookmarkPages || []).map((page) => Math.max(1, Math.round(Number(page) || 0))))]
+    .filter(Boolean)
+    .sort((a, b) => a - b);
   const catalog = doc.catalog;
-  if (!list.length) {
+  if (!hasOutlineContent(list, marks)) {
     catalog.delete(PDFName.of("Outlines"));
     return 0;
   }
   const context = doc.context;
   const pages = doc.getPages();
   const rootRef = context.nextRef();
-  const refs = list.map(() => context.nextRef());
-  list.forEach((entry, index) => {
-    const page = pages[Math.min(pages.length, entry.page) - 1];
-    const dict = context.obj({
-      Title: PDFHexString.fromText(entry.title),
-      Parent: rootRef,
-      Dest: [page.ref, PDFName.of("XYZ"), null, null, null],
+  const destOf = (page) => [pages[Math.min(pages.length, page) - 1].ref, PDFName.of("XYZ"), null, null, null];
+
+  const nodes = list.map((entry) => ({ title: entry.title, page: entry.page, ref: context.nextRef() }));
+  // 책갈피 ride in their own group, so they never read as chapters (#145).
+  const groupRef = marks.length ? context.nextRef() : null;
+  const markNodes = marks.map((page) => ({ title: bookmarkTitle(page), page, ref: context.nextRef() }));
+
+  const chain = (items, parentRef) => {
+    items.forEach((node, index) => {
+      const dict = context.obj({
+        Title: PDFHexString.fromText(node.title),
+        Parent: parentRef,
+        Dest: destOf(node.page),
+      });
+      if (index > 0) {
+        dict.set(PDFName.of("Prev"), items[index - 1].ref);
+      }
+      if (index < items.length - 1) {
+        dict.set(PDFName.of("Next"), items[index + 1].ref);
+      }
+      context.assign(node.ref, dict);
     });
-    if (index > 0) {
-      dict.set(PDFName.of("Prev"), refs[index - 1]);
+  };
+  chain(nodes, rootRef);
+  chain(markNodes, groupRef);
+
+  const top = [...nodes.map((node) => node.ref)];
+  if (groupRef) {
+    const group = context.obj({
+      Title: PDFHexString.fromText(BOOKMARK_GROUP_TITLE),
+      Parent: rootRef,
+      First: markNodes[0].ref,
+      Last: markNodes[markNodes.length - 1].ref,
+      // Negative: the group starts folded, so it does not bury the contents.
+      Count: -markNodes.length,
+    });
+    if (top.length) {
+      group.set(PDFName.of("Prev"), top[top.length - 1]);
+      const lastEntry = context.lookup(top[top.length - 1]);
+      lastEntry.set(PDFName.of("Next"), groupRef);
     }
-    if (index < list.length - 1) {
-      dict.set(PDFName.of("Next"), refs[index + 1]);
-    }
-    context.assign(refs[index], dict);
-  });
+    context.assign(groupRef, group);
+    top.push(groupRef);
+  }
+
   context.assign(
     rootRef,
     context.obj({
       Type: "Outlines",
-      First: refs[0],
-      Last: refs[refs.length - 1],
-      Count: list.length,
+      First: top[0],
+      Last: top[top.length - 1],
+      Count: top.length,
     }),
   );
   catalog.set(PDFName.of("Outlines"), rootRef);
-  return list.length;
+  return top.length;
 }
 
 /** Web Share with a file, or the same PDF as a download (#54 lock). */
