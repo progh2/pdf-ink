@@ -13,8 +13,10 @@ import {
   interactModeLabel,
   isReusedInkStart,
   allowsInkButton,
+  DOUBLE_TAP_MS,
   PEN_ACTIONS,
   PEN_BUTTON_DEFAULTS,
+  isDoubleTap,
   normalizePenButtons,
   penButtonAction,
   rectFromPoints,
@@ -323,5 +325,15 @@ describe("#137·#139 배선", () => {
 
   it("swallows the context menu on the paper", () => {
     assert.match(main, /addEventListener\("contextmenu", \(event\) => \{\s*if \(event\.target\.closest\("\.page-stage"\)\)/);
+  });
+});
+
+describe("#155 더블탭", () => {
+  it("needs two taps close in time and place", () => {
+    assert.equal(isDoubleTap(1000, 900, 4), true);
+    assert.equal(isDoubleTap(1000, 500, 4), false, "too slow");
+    assert.equal(isDoubleTap(1000, 900, 60), false, "too far");
+    assert.equal(isDoubleTap(1000, 0, 0), false, "there was no first tap");
+    assert.equal(DOUBLE_TAP_MS, 320);
   });
 });
