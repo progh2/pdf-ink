@@ -149,6 +149,7 @@ import {
   thumbPackPath,
 } from "./thumbPack.js";
 import {
+  AUTOSAVE_MS,
   parseInkFile,
   pickNewer,
   serializeInkFile,
@@ -413,6 +414,7 @@ const els = {
   dropboxSave: document.querySelector("#dropbox-save"),
   dropboxName: document.querySelector("#dropbox-name"),
   dropboxSaveGo: document.querySelector("#dropbox-save-go"),
+  dropboxHere: document.querySelector("#dropbox-here"),
   stickerSheet: document.querySelector("#sticker-sheet"),
   stickerBackdrop: document.querySelector("#sticker-backdrop"),
   stickerClose: document.querySelector("#sticker-close"),
@@ -734,6 +736,7 @@ function persistStrokes() {
   if (!state.identity) {
     return;
   }
+  scheduleInkAutosave();
   try {
     saveStrokes(state.identity, state.pages, state.leaves, state.outline);
   } catch {
@@ -5652,6 +5655,10 @@ function closeDropboxSheet() {
 async function showDropboxFolder(path) {
   state.dropboxPath = path;
   els.dropboxPath.textContent = path || "드롭박스";
+  if (els.dropboxHere) {
+    // #167: which folder the copy lands in, right next to the name box.
+    els.dropboxHere.textContent = `여기에 저장: ${path || "내 드롭박스"}`;
+  }
   els.dropboxUp.hidden = !path;
   els.dropboxList.replaceChildren(loadingRow("여는 중…"));
   try {
@@ -6189,6 +6196,52 @@ async function saveCopyToDropbox() {
   } catch {
     flashBanner("드롭박스에 저장하지 못했습니다.");
   }
+}
+
+/* ---- 자동 저장 (#167) ---- */
+
+let autosaveTimer = 0;
+let autosaveRunning = false;
+
+/** Called on every change: the upload is a few KB, so it can be quiet. */
+function scheduleInkAutosave() {
+  if (!state.dropboxDoc || !dropboxConnected()) {
+    return;
+  }
+  window.clearTimeout(autosaveTimer);
+  autosaveTimer = window.setTimeout(() => {
+    autosaveTimer = 0;
+    runInkAutosave();
+  }, AUTOSAVE_MS);
+}
+
+async function runInkAutosave() {
+  if (autosaveRunning || !state.dropboxDoc || !dropboxConnected()) {
+    return;
+  }
+  if (state.drawing) {
+    // Mid-stroke: come back when the hand is off the paper.
+    scheduleInkAutosave();
+    return;
+  }
+  autosaveRunning = true;
+  try {
+    await saveInkSidecar();
+  } catch {
+    flashBanner("필기를 자동으로 저장하지 못했습니다.", 2400);
+  } finally {
+    autosaveRunning = false;
+  }
+}
+
+/** Leaving the page must not lose the last stroke. */
+function flushInkAutosave() {
+  if (!autosaveTimer) {
+    return;
+  }
+  window.clearTimeout(autosaveTimer);
+  autosaveTimer = 0;
+  runInkAutosave();
 }
 
 /* ---- 썸네일 묶음 (#153) : 기본 꺼짐, 문서마다 ---- */
@@ -7830,10 +7883,13 @@ if (els.gdriveOpen && driveConfigured()) {
 els.syncDismiss?.addEventListener("click", hideSyncNote);
 window.addEventListener("focus", () => checkRemote());
 document.addEventListener("visibilitychange", () => {
-  if (!document.hidden) {
-    checkRemote();
+  if (document.hidden) {
+    flushInkAutosave();
+    return;
   }
+  checkRemote();
 });
+window.addEventListener("pagehide", flushInkAutosave);
 els.dropboxOpen?.addEventListener("click", openDropboxSheet);
 els.dropboxSaveGo?.addEventListener("click", saveCopyToDropbox);
 document.querySelectorAll("#dropbox-ink-choices [data-ink-copy]").forEach((btn) => {

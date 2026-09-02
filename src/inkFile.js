@@ -6,6 +6,8 @@
 
 export const INK_FILE_VERSION = 1;
 export const INK_FILE_SUFFIX = ".ink";
+/** How long after the last change the ink goes up on its own (#167). */
+export const AUTOSAVE_MS = 2500;
 
 export function sidecarPath(pdfPath) {
   return `${String(pdfPath || "")}${INK_FILE_SUFFIX}`;
