@@ -79,12 +79,13 @@ describe("#94 종이 여백만큼 밀기", () => {
 });
 
 describe("#96 확대 배율과 선명도", () => {
-  it("goes up to 8x now, still starting from fit", () => {
+  it("goes up to 8x and down to 70% (#157)", () => {
     assert.equal(MAX_SCALE, 8);
-    assert.equal(MIN_SCALE, 1);
+    assert.equal(MIN_SCALE, 0.7, "#157: 30%까지 줄여 본다");
     assert.equal(clampScale(8), 8);
     assert.equal(clampScale(12), 8);
-    assert.equal(clampScale(0.2), 1);
+    assert.equal(clampScale(0.2), 0.7);
+    assert.equal(clampScale(0.85), 0.85, "줄인 상태도 그대로 유지");
     assert.equal(scaleFromPinch(100, 900, 1), 8);
   });
 
@@ -108,5 +109,24 @@ describe("#96 확대 배율과 선명도", () => {
   it("comes back down when the reader zooms out", () => {
     assert.equal(renderZoomFactor(3, 600, 800), 3);
     assert.equal(renderZoomFactor(1, 600, 800), 1);
+  });
+});
+
+describe("#157 줄여 보기", () => {
+  it("keeps the page reachable when it is smaller than the screen", () => {
+    // 0.7 of a 360x520 page inside a 400x600 view: nothing overflows,
+    // so only the push margin is left to move.
+    const pan = constrainPan(999, 999, 0.7, 360, 520, 400, 600);
+    assert.deepEqual(pan, { x: PAN_MARGIN_PX, y: PAN_MARGIN_PX });
+  });
+
+  it("pinches down to the floor and back up", () => {
+    assert.equal(scaleFromPinch(400, 100, 1), MIN_SCALE, "pinched hard, stops at 0.7");
+    assert.equal(scaleFromPinch(100, 90, 1), 0.9);
+    assert.equal(scaleFromPinch(100, 200, 1), 2);
+  });
+
+  it("does not ask for a sharper render when shrinking", () => {
+    assert.equal(renderZoomFactor(0.7, 1080, 1560), 1);
   });
 });
