@@ -175,8 +175,12 @@ import {
   dropboxIdentity,
   isConflict,
   makeVerifier,
+  copyNameFor,
+  ensurePdfName,
+  joinPath,
   parentPath,
   pdfEntries,
+  saveAsArg,
   remoteChanged,
   refreshBody,
   sessionFromToken,
@@ -380,6 +384,9 @@ const els = {
   dropboxPath: document.querySelector("#dropbox-path"),
   dropboxUp: document.querySelector("#dropbox-up"),
   dropboxLogout: document.querySelector("#dropbox-logout"),
+  dropboxSave: document.querySelector("#dropbox-save"),
+  dropboxName: document.querySelector("#dropbox-name"),
+  dropboxSaveGo: document.querySelector("#dropbox-save-go"),
   stickerSheet: document.querySelector("#sticker-sheet"),
   stickerBackdrop: document.querySelector("#sticker-backdrop"),
   stickerClose: document.querySelector("#sticker-close"),
@@ -488,6 +495,8 @@ const state = {
   driveDoc: null,
   driveToken: "",
   dropboxPath: "",
+  dropboxMode: "open",
+  inkCopy: "sidecar",
   stickers: [],
   stickerFolders: [],
   stickerFolder: DEFAULT_FOLDER_ID,
@@ -5336,6 +5345,8 @@ async function openDropboxSheet() {
     await startDropboxLogin();
     return;
   }
+  state.dropboxMode = "open";
+  els.dropboxSave.hidden = true;
   els.dropboxSheet.hidden = false;
   els.dropboxBackdrop.hidden = false;
   await showDropboxFolder(state.dropboxPath || "");
@@ -5393,6 +5404,11 @@ function renderDropboxList(entries) {
       row.addEventListener("click", () => {
         if (entry[".tag"] === "folder") {
           showDropboxFolder(entry.path_lower || entry.path_display || "");
+          return;
+        }
+        if (state.dropboxMode === "save") {
+          // Picking a file here just borrows its name; we never overwrite it.
+          els.dropboxName.value = entry.name;
           return;
         }
         openDropboxFile(entry);
@@ -5774,6 +5790,91 @@ async function checkDriveRemote() {
     }
   } catch {
     // offline or the token lapsed: the save path will say so
+  }
+}
+
+/* ---- 다른 이름으로 드롭박스에 저장 (#149) ---- */
+
+async function openDropboxSaveAs() {
+  if (!els.dropboxSheet) {
+    return;
+  }
+  if (!state.pdf) {
+    flashBanner("먼저 PDF를 여세요.");
+    return;
+  }
+  if (!dropboxConnected()) {
+    await startDropboxLogin();
+    return;
+  }
+  state.dropboxMode = "save";
+  els.dropboxName.value = copyNameFor(state.fileName);
+  syncInkCopyChoices();
+  els.dropboxSheet.hidden = false;
+  els.dropboxBackdrop.hidden = false;
+  els.dropboxSave.hidden = false;
+  await showDropboxFolder(state.dropboxPath || "");
+}
+
+function syncInkCopyChoices() {
+  document.querySelectorAll("#dropbox-ink-choices [data-ink-copy]").forEach((btn) => {
+    btn.classList.toggle("is-selected", btn.dataset.inkCopy === state.inkCopy);
+  });
+}
+
+async function bytesForCopy() {
+  if (state.inkCopy !== "baked") {
+    return new Blob([state.buffer], { type: "application/pdf" });
+  }
+  return annotatedPdfBlob();
+}
+
+/** Uploads a copy, never over someone else's file (#149). */
+async function saveCopyToDropbox() {
+  const folder = state.dropboxPath || "";
+  const name = ensurePdfName(els.dropboxName?.value);
+  const path = joinPath(folder, name);
+  showBanner("드롭박스에 저장하는 중…");
+  try {
+    const blob = await bytesForCopy();
+    const token = await dropboxToken();
+    const reply = await fetch(UPLOAD_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/octet-stream",
+        "Dropbox-API-Arg": asciiHeader(saveAsArg(path)),
+      },
+      body: blob,
+    });
+    if (!reply.ok) {
+      throw new Error("upload");
+    }
+    const meta = await reply.json();
+    if (state.inkCopy === "sidecar") {
+      await fetch(UPLOAD_URL, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/octet-stream",
+          "Dropbox-API-Arg": asciiHeader(saveAsArg(sidecarPath(meta.path_lower || path))),
+        },
+        body: new Blob([
+          serializeInkFile({
+            pages: state.pages,
+            leaves: state.leaves,
+            outline: state.outline,
+            name: meta.name || name,
+            savedAt: Date.now(),
+          }),
+        ]),
+      });
+    }
+    closeDropboxSheet();
+    // The reader stays on the document they were reading (#149 lock).
+    flashBanner(`드롭박스에 저장했습니다. ${meta.name || name}`, 2600);
+  } catch {
+    flashBanner("드롭박스에 저장하지 못했습니다.");
   }
 }
 
@@ -6734,6 +6835,12 @@ function selectMoreAction(action) {
     bakeIntoPdf();
     return;
   }
+  if (action === "saveas") {
+    closeMorePanel();
+    ignoreAfterPanel = true;
+    openDropboxSaveAs();
+    return;
+  }
   if (action === "export") {
     closeMorePanel();
     ignoreAfterPanel = true;
@@ -7310,6 +7417,13 @@ document.addEventListener("visibilitychange", () => {
   }
 });
 els.dropboxOpen?.addEventListener("click", openDropboxSheet);
+els.dropboxSaveGo?.addEventListener("click", saveCopyToDropbox);
+document.querySelectorAll("#dropbox-ink-choices [data-ink-copy]").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    state.inkCopy = btn.dataset.inkCopy;
+    syncInkCopyChoices();
+  });
+});
 els.dropboxClose?.addEventListener("click", closeDropboxSheet);
 els.dropboxBackdrop?.addEventListener("click", closeDropboxSheet);
 els.dropboxUp?.addEventListener("click", () => showDropboxFolder(parentPath(state.dropboxPath)));

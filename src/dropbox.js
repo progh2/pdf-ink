@@ -159,6 +159,38 @@ export function docFromEntry(entry) {
   };
 }
 
+export const INK_COPY_MODES = ["none", "sidecar", "baked"];
+export const INK_COPY_LABELS = { none: "필기 없이", sidecar: "필기를 옆 파일로", baked: "필기를 구워서" };
+
+/** A new file, never a silent overwrite: Dropbox renames instead (#149). */
+export function saveAsArg(path) {
+  return JSON.stringify({
+    path,
+    mode: { ".tag": "add" },
+    autorename: true,
+    mute: true,
+  });
+}
+
+export function joinPath(folder, name) {
+  const base = String(folder || "").replace(/\/$/, "");
+  const leaf = String(name || "").replace(/^\/+/, "").trim();
+  return `${base}/${leaf || "문서.pdf"}`;
+}
+
+export function ensurePdfName(name) {
+  const clean = String(name || "").trim().replace(/[\\/:*?"<>|]/g, "");
+  if (!clean) {
+    return "문서.pdf";
+  }
+  return /\.pdf$/i.test(clean) ? clean : `${clean}.pdf`;
+}
+
+export function copyNameFor(name) {
+  const base = String(name || "문서.pdf").replace(/\.pdf$/i, "");
+  return `${base}-사본.pdf`;
+}
+
 /** How often we ask whether someone else changed the file (#127). */
 export const SYNC_POLL_MS = 20_000;
 

@@ -44,6 +44,7 @@ describe("M4 #25 chrome", () => {
       "rotate",
       "save",
       "bake",
+      "saveas",
       "export",
     ]);
     assert.doesNotMatch(more, /마스킹\(모자이크\)|data-more="mosaic"/);

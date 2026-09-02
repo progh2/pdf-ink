@@ -5,9 +5,15 @@ import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import {
   AUTH_URL,
+  INK_COPY_LABELS,
+  INK_COPY_MODES,
   DROPBOX_APP_KEY,
   TOKEN_SKEW_MS,
   asciiHeader,
+  copyNameFor,
+  ensurePdfName,
+  joinPath,
+  saveAsArg,
   authorizeUrl,
   challengeFor,
   docFromEntry,
@@ -232,5 +238,69 @@ describe("#126 구운 뒤 두 겹 방지 · #127 변경 감지", () => {
     assert.doesNotMatch(check, /DOWNLOAD_URL|openPdfBuffer/);
     assert.match(html, /id="sync-reload">새로 불러오기/);
     assert.match(main, /els\.syncReload\?\.addEventListener\("click", \(\) => \(state\.driveDoc \? reloadFromDrive\(\) : reloadFromDropbox\(\)\)\)/);
+  });
+});
+
+describe("#149 다른 이름으로 저장", () => {
+  it("never overwrites: Dropbox renames instead", () => {
+    const arg = JSON.parse(saveAsArg("/수학/노트.pdf"));
+    assert.deepEqual(arg.mode, { ".tag": "add" });
+    assert.equal(arg.autorename, true, "a name clash must not eat someone's file");
+  });
+
+  it("builds a path from the folder and the typed name", () => {
+    assert.equal(joinPath("/수학", "노트.pdf"), "/수학/노트.pdf");
+    assert.equal(joinPath("/수학/", "/노트.pdf"), "/수학/노트.pdf");
+    assert.equal(joinPath("", "노트.pdf"), "/노트.pdf", "the root folder");
+  });
+
+  it("keeps the name a pdf, and drops characters a path cannot hold", () => {
+    assert.equal(ensurePdfName("노트"), "노트.pdf");
+    assert.equal(ensurePdfName("노트.PDF"), "노트.PDF");
+    assert.equal(ensurePdfName(" 1/2 정리 "), "12 정리.pdf");
+    assert.equal(ensurePdfName("   "), "문서.pdf");
+  });
+
+  it("offers a copy name and the three ink choices", () => {
+    assert.equal(copyNameFor("수학.pdf"), "수학-사본.pdf");
+    assert.deepEqual(INK_COPY_MODES, ["none", "sidecar", "baked"]);
+    assert.equal(INK_COPY_LABELS.sidecar, "필기를 옆 파일로");
+  });
+});
+
+describe("#149 배선", () => {
+  const main = readFileSync(join(root, "src/main.js"), "utf8");
+  const html = readFileSync(join(root, "index.html"), "utf8");
+
+  it("offers the action for any open document, local or cloud", () => {
+    assert.match(html, /data-more="saveas">다른 이름으로 저장/);
+    assert.match(main, /if \(action === "saveas"\)[\s\S]{0,120}openDropboxSaveAs\(\)/);
+    const open = main.slice(main.indexOf("async function openDropboxSaveAs"), main.indexOf("function syncInkCopyChoices"));
+    assert.match(open, /if \(!state\.pdf\)/, "asks for a document, not a dropbox one");
+    assert.match(open, /copyNameFor\(state\.fileName\)/);
+  });
+
+  it("uploads a new file and never overwrites", () => {
+    assert.match(main, /saveAsArg\(path\)/);
+    const save = main.slice(main.indexOf("async function saveCopyToDropbox"), main.indexOf("/* ---- 필기 사이드카"));
+    assert.doesNotMatch(save, /uploadArg\(/, "uploadArg would overwrite; saveAsArg renames");
+  });
+
+  it("honours the three ink choices", () => {
+    for (const mode of ["none", "sidecar", "baked"]) {
+      assert.match(html, new RegExp(`data-ink-copy="${mode}"`), mode);
+    }
+    assert.match(main, /state\.inkCopy !== "baked"[\s\S]{0,200}state\.buffer/, "없이/옆 파일은 원본 바이트");
+    assert.match(main, /return annotatedPdfBlob\(\)/, "구워서는 주석 박힌 PDF");
+    assert.match(main, /if \(state\.inkCopy === "sidecar"\)[\s\S]{0,500}serializeInkFile/);
+  });
+
+  it("stays on the document the reader was reading", () => {
+    const save = main.slice(main.indexOf("async function saveCopyToDropbox"), main.indexOf("/* ---- 필기 사이드카"));
+    assert.doesNotMatch(save, /openPdfBuffer|state\.dropboxDoc =/, "no silent switch to the copy");
+  });
+
+  it("does not open a file while picking a place to save", () => {
+    assert.match(main, /if \(state\.dropboxMode === "save"\)[\s\S]{0,160}els\.dropboxName\.value = entry\.name/);
   });
 });

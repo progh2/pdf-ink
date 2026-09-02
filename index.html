@@ -196,6 +196,7 @@
         </div>
         <button type="button" data-more="save">저장</button>
         <button type="button" data-more="bake">PDF에 굽기</button>
+        <button type="button" data-more="saveas">다른 이름으로 저장</button>
         <button type="button" data-more="export">내보내기</button>
         <button type="button" data-more="settings" id="settings-btn">설정</button>
       </div>
@@ -248,6 +249,15 @@
         <div class="sticker-body">
           <button type="button" class="sticker-flat" id="dropbox-up" hidden>상위 폴더</button>
           <div class="dropbox-list" id="dropbox-list"></div>
+          <div class="dropbox-save" id="dropbox-save" hidden>
+            <input type="text" id="dropbox-name" class="dropbox-name" aria-label="파일 이름" />
+            <div class="choice-row choice-3" id="dropbox-ink-choices">
+              <button type="button" data-ink-copy="none">필기 없이</button>
+              <button type="button" data-ink-copy="sidecar">옆 파일로</button>
+              <button type="button" data-ink-copy="baked">구워서</button>
+            </div>
+            <button type="button" class="sticker-flat" id="dropbox-save-go">여기에 저장</button>
+          </div>
           <button type="button" class="sticker-flat" id="dropbox-logout">연결 끊기</button>
         </div>
       </div>
