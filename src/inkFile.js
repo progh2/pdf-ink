@@ -16,12 +16,22 @@ export function sidecarName(pdfName) {
 }
 
 /** Everything this browser knows that the PDF itself does not carry. */
-export function buildInkFile({ pages, leaves, outline, savedAt = Date.now(), name = "" } = {}) {
+export function buildInkFile({
+  pages,
+  leaves,
+  outline,
+  savedAt = Date.now(),
+  name = "",
+  shareThumbs = false,
+} = {}) {
   return {
     version: INK_FILE_VERSION,
     app: "pdf-ink",
     name: String(name || ""),
     savedAt: Math.round(Number(savedAt) || Date.now()),
+    // #153: per document, so a heavy textbook can share thumbs and a scratch
+    // file does not.
+    shareThumbs: Boolean(shareThumbs),
     pages: pages || {},
     leaves: Array.isArray(leaves) ? leaves : [],
     outline: Array.isArray(outline) ? outline : [],
@@ -41,6 +51,7 @@ export function parseInkFile(text) {
     return {
       version: Number(data.version) || 1,
       savedAt: Math.round(Number(data.savedAt) || 0),
+      shareThumbs: Boolean(data.shareThumbs),
       pages: data.pages,
       leaves: Array.isArray(data.leaves) ? data.leaves : [],
       outline: Array.isArray(data.outline) ? data.outline : [],

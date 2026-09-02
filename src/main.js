@@ -10,6 +10,7 @@ import {
   loadStickerFolders,
   listThumbKeys,
   loadThumb,
+  loadThumbEntries,
   loadStickers,
   loadStrokes,
   migrateLastIntoFiles,
@@ -128,6 +129,15 @@ import {
 } from "./shapeHold.js";
 import { MOSAIC_CELL_CSS, mosaicBoxesPx, mosaicItem } from "./mosaic.js";
 import { recentCardEntries } from "./recent.js";
+import {
+  buildThumbPack,
+  packTooBig,
+  parseThumbPack,
+  shouldDownloadPack,
+  shouldUploadPack,
+  staleRatio,
+  thumbPackPath,
+} from "./thumbPack.js";
 import {
   parseInkFile,
   pickNewer,
@@ -337,6 +347,7 @@ const els = {
   otherPdf: document.querySelector("#other-pdf"),
   penOnlyBtn: document.querySelector("#pen-only-btn"),
   penButtonBtn: document.querySelector("#pen-button-btn"),
+  shareThumbsBtn: document.querySelector("#share-thumbs-btn"),
   docTitle: document.querySelector("#doc-title"),
   workspace: document.querySelector("#workspace"),
   writeSplit: document.querySelector("#write-split"),
@@ -493,6 +504,8 @@ const state = {
   dropbox: null,
   dropboxDoc: null,
   inkSavedAt: 0,
+  shareThumbs: false,
+  thumbPackKeys: null,
   driveDoc: null,
   driveToken: "",
   dropboxPath: "",
@@ -1619,6 +1632,7 @@ async function showUploadScreen() {
   showBanner("");
   await renderRecents();
   stopThumbWarming();
+  state.thumbPackKeys = null;
   if (state.pdf) {
     await state.pdf.destroy();
     state.pdf = null;
@@ -2398,6 +2412,8 @@ function syncInkTools() {
 function syncPenOnly() {
   els.penOnlyBtn.classList.toggle("is-on", state.penOnly);
   els.penOnlyBtn.setAttribute("aria-pressed", state.penOnly ? "true" : "false");
+  els.shareThumbsBtn?.classList.toggle("is-on", state.shareThumbs);
+  els.shareThumbsBtn?.setAttribute("aria-pressed", state.shareThumbs ? "true" : "false");
   els.penButtonBtn?.classList.toggle("is-on", state.penButtonErase);
   els.penButtonBtn?.setAttribute("aria-pressed", state.penButtonErase ? "true" : "false");
   document.querySelectorAll("#pen-barrel-choices [data-pen-barrel]").forEach((btn) => {
@@ -5448,6 +5464,7 @@ async function openDropboxFile(entry) {
     await openPdfBuffer(buffer, { identity: dropboxIdentity(doc), name: doc.name });
     await loadInkSidecar(doc);
     await rebuildPages();
+    await downloadThumbPack(doc);
   } catch {
     flashBanner("드롭박스에서 열지 못했습니다.");
   }
@@ -5548,6 +5565,7 @@ async function warmThumbs() {
     const next = pending[index];
     index += 1;
     if (!next) {
+      uploadThumbPack();
       return;
     }
     if (state.drawing) {
@@ -5892,6 +5910,109 @@ async function saveCopyToDropbox() {
   }
 }
 
+/* ---- 썸네일 묶음 (#153) : 기본 꺼짐, 문서마다 ---- */
+
+async function blobToBase64(blob) {
+  const buffer = new Uint8Array(await blob.arrayBuffer());
+  let text = "";
+  for (const byte of buffer) {
+    text += String.fromCharCode(byte);
+  }
+  return btoa(text);
+}
+
+function base64ToBlob(text) {
+  const binary = atob(text);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return new Blob([bytes], { type: "image/png" });
+}
+
+function wantedThumbKeys() {
+  const size = previewThumbSize(state.previewWidth);
+  return state.leaves.map((leaf) => pageThumbKey(leaf, size.width));
+}
+
+/** Uploaded only when the document asked for it and every thumb is drawn. */
+async function uploadThumbPack() {
+  const doc = state.dropboxDoc;
+  if (!state.shareThumbs || !doc || !dropboxConnected()) {
+    return;
+  }
+  const wanted = wantedThumbKeys();
+  const done = await listThumbKeys(state.identity);
+  const ready = wanted.every((key) => done.has(key));
+  const remote = state.thumbPackKeys;
+  if (!shouldUploadPack({ hasPack: Boolean(remote), ratio: staleRatio(remote || [], wanted), ready })) {
+    return;
+  }
+  const blobs = await loadThumbEntries(state.identity, wanted);
+  const entries = {};
+  for (const [key, blob] of Object.entries(blobs)) {
+    entries[key] = await blobToBase64(blob);
+  }
+  const text = JSON.stringify(buildThumbPack(entries));
+  if (packTooBig(text)) {
+    flashBanner("썸네일이 너무 커서 올리지 않았습니다.", 2400);
+    return;
+  }
+  try {
+    const token = await dropboxToken();
+    await fetch(UPLOAD_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/octet-stream",
+        "Dropbox-API-Arg": asciiHeader(uploadArg(thumbPackPath(doc.path), "")),
+      },
+      body: new Blob([text]),
+    });
+    state.thumbPackKeys = Object.keys(entries);
+  } catch {
+    // a pack is a nicety: failing to upload one changes nothing
+  }
+}
+
+/** Downloaded once, when this machine would otherwise draw most of them. */
+async function downloadThumbPack(doc) {
+  if (!state.shareThumbs || !doc || !dropboxConnected()) {
+    return;
+  }
+  const wanted = wantedThumbKeys();
+  const done = await listThumbKeys(state.identity);
+  const missing = wanted.filter((key) => !done.has(key)).length;
+  if (!wanted.length || !shouldDownloadPack(missing / wanted.length)) {
+    state.thumbPackKeys = [...done];
+    return;
+  }
+  try {
+    const token = await dropboxToken();
+    const reply = await fetch(DOWNLOAD_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Dropbox-API-Arg": asciiHeader(downloadArg(thumbPackPath(doc.path))),
+      },
+    });
+    if (!reply.ok) {
+      return;
+    }
+    const pack = parseThumbPack(await reply.text());
+    if (!pack) {
+      return;
+    }
+    for (const [key, base64] of Object.entries(pack.thumbs)) {
+      await saveThumb(state.identity, key, base64ToBlob(base64));
+    }
+    state.thumbPackKeys = Object.keys(pack.thumbs);
+    renderPreview();
+  } catch {
+    // no pack, or offline: draw them the usual way
+  }
+}
+
 /* ---- 필기 사이드카 (#147) ---- */
 
 /** Uploads just the ink: kilobytes, and the PDF is left untouched. */
@@ -5905,6 +6026,7 @@ async function saveInkSidecar() {
     leaves: state.leaves,
     outline: state.outline,
     name: state.fileName,
+    shareThumbs: state.shareThumbs,
     savedAt: Date.now(),
   });
   const token = await dropboxToken();
@@ -5959,6 +6081,7 @@ async function loadInkSidecar(doc) {
   state.pageCount = state.leaves.length;
   state.outline = normalizeOutline(remote.outline, state.leaves);
   state.inkSavedAt = remote.savedAt;
+  state.shareThumbs = Boolean(remote.shareThumbs);
   persistStrokes();
 }
 
@@ -7665,6 +7788,17 @@ document.querySelectorAll("#pen-second-choices [data-pen-second]").forEach((btn)
     savePenButtons(state.penButtons);
     applyChrome();
   });
+});
+els.shareThumbsBtn?.addEventListener("click", () => {
+  state.shareThumbs = !state.shareThumbs;
+  applyChrome();
+  // The choice rides in the sidecar, so the other machine honours it too.
+  if (state.dropboxDoc && dropboxConnected()) {
+    saveInkSidecar().catch(() => null);
+  }
+  if (state.shareThumbs) {
+    uploadThumbPack();
+  }
 });
 els.penButtonBtn?.addEventListener("click", () => {
   state.penButtonErase = !state.penButtonErase;

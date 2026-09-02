@@ -283,3 +283,14 @@ export async function listThumbKeys(identity) {
     return new Set();
   }
 }
+
+export async function loadThumbEntries(identity, keys) {
+  const out = {};
+  for (const key of keys || []) {
+    const blob = await loadThumb(identity, key);
+    if (blob) {
+      out[key] = blob;
+    }
+  }
+  return out;
+}
