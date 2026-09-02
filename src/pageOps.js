@@ -3,12 +3,13 @@ import { inkKey, makeOutlineLeaf, makePdfLeaf, setLeafRotate } from "./preview.j
 import { addRotation } from "./rotate.js";
 
 /** Preview drawer page menu (#55). Hold 400ms or right-click on a thumb. */
-export const PAGE_MENU_ACTIONS = ["copy", "paste", "duplicate", "delete", "up", "down", "left", "right"];
+export const PAGE_MENU_ACTIONS = ["copy", "paste", "duplicate", "delete", "pick", "up", "down", "left", "right"];
 export const PAGE_MENU_LABELS = {
   copy: "복사",
   paste: "붙여넣기",
   duplicate: "복제",
   delete: "삭제",
+  pick: "여러 개 고르기",
   up: "위로",
   down: "아래로",
   left: "왼쪽 90°",
@@ -93,6 +94,63 @@ export function rotatePageLeaf(leaves, index, delta) {
     return leaves || [];
   }
   return setLeafRotate(leaves, index, addRotation(leaf.rotate, delta));
+}
+
+/** Bulk work runs back to front, so earlier indexes stay valid (#159). */
+export function sortedIndexes(indexes, leaves) {
+  const count = (leaves || []).length;
+  return [...new Set((indexes || []).map((at) => Math.round(Number(at))))]
+    .filter((at) => at >= 0 && at < count)
+    .sort((a, b) => a - b);
+}
+
+export function rotatePageLeaves(leaves, indexes, delta) {
+  let out = leaves || [];
+  for (const at of sortedIndexes(indexes, out)) {
+    out = rotatePageLeaf(out, at, delta);
+  }
+  return out;
+}
+
+export function deletePageLeaves(leaves, pages, indexes) {
+  const list = leaves || [];
+  const targets = sortedIndexes(indexes, list);
+  // Never empty the document: keep at least one page.
+  const keep = targets.length >= list.length ? targets.slice(0, list.length - 1) : targets;
+  const drop = new Set(keep);
+  const nextPages = { ...(pages || {}) };
+  for (const at of keep) {
+    delete nextPages[inkKey(list[at])];
+  }
+  return { leaves: list.filter((_, at) => !drop.has(at)), pages: nextPages, removed: keep.length };
+}
+
+export function copyPageLeaves(leaves, pages, indexes) {
+  const list = leaves || [];
+  const clips = sortedIndexes(indexes, list).map((at) => copyPageLeaf(list, pages, at)).filter(Boolean);
+  return clips.length ? clips : null;
+}
+
+/** Copies land after the last chosen page, in the order they were taken. */
+export function pastePageLeaves(leaves, pages, index, clips) {
+  let out = { leaves: leaves || [], pages: pages || {}, at: Number(index) };
+  for (const clip of clips || []) {
+    const next = pastePageLeaf(out.leaves, out.pages, out.at, clip);
+    if (!next.key) {
+      continue;
+    }
+    out = { leaves: next.leaves, pages: next.pages, at: next.at };
+  }
+  return out;
+}
+
+export function duplicatePageLeaves(leaves, pages, indexes) {
+  const clips = copyPageLeaves(leaves, pages, indexes);
+  if (!clips) {
+    return { leaves: leaves || [], pages: pages || {}, at: 0 };
+  }
+  const last = sortedIndexes(indexes, leaves).at(-1);
+  return pastePageLeaves(leaves, pages, last, clips);
 }
 
 export function copyPageLeaf(leaves, pages, index) {

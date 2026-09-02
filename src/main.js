@@ -95,13 +95,19 @@ import {
   PAGE_HOLD_MS,
   canPastePage,
   copyPageLeaf,
+  copyPageLeaves,
+  deletePageLeaves,
   dropIndexAt,
   dropLineTop,
   duplicatePageLeaf,
+  duplicatePageLeaves,
   movePageLeaf,
   pastePageLeaf,
+  pastePageLeaves,
   placePageMenu,
   reorderPageLeaf,
+  rotatePageLeaves,
+  sortedIndexes,
 } from "./pageOps.js";
 import {
   acceptAreaUrl,
@@ -530,6 +536,8 @@ const state = {
   studioTool: "chroma",
   studioScale: 1,
   pageMenuAt: 0,
+  pickMode: false,
+  pickedPages: [],
   selectIndices: [],
   selectPage: 1,
   selectDrag: null,
@@ -2565,6 +2573,7 @@ function closeMorePanel() {
 function closePreview() {
   hidePageMenu();
   hideTocMenu();
+  clearPagePick();
   if (!els.previewDrawer) {
     return;
   }
@@ -4489,6 +4498,27 @@ function renderTocList() {
   }
 }
 
+/** Bulk page work: leaves and every page's ink in one undo step (#159). */
+function commitBulkChange(apply) {
+  const key = inkKey(leafAt(state.leaves, state.page)) || "1";
+  const leavesBefore = cloneItems(state.leaves);
+  const pagesBefore = cloneItems(state.pages);
+  apply();
+  recordChange(state.history, {
+    page: key,
+    before: cloneItems(state.pages[key] || []),
+    after: cloneItems(state.pages[key] || []),
+    extra: {
+      leavesBefore,
+      leavesAfter: cloneItems(state.leaves),
+      pagesBefore,
+      pagesAfter: cloneItems(state.pages),
+    },
+  });
+  persistStrokes();
+  syncHistoryButtons();
+}
+
 /** Ink lives under a leaf key, so a page op records that key plus the leaves. */
 function commitLeafChange(key, apply) {
   const before = cloneItems(state.pages[key] || []);
@@ -4549,6 +4579,91 @@ function bindMenuRelease(menu, key, run) {
   });
 }
 
+/* ---- 여러 쪽 고르기 (#159) ---- */
+
+function pickedIndexes() {
+  return sortedIndexes(
+    state.pickedPages.map((id) => state.leaves.findIndex((leaf) => leaf.id === id)),
+    state.leaves,
+  );
+}
+
+function clearPagePick() {
+  state.pickMode = false;
+  state.pickedPages = [];
+  els.previewList?.querySelectorAll(".preview-row.is-picked").forEach((row) => {
+    row.classList.remove("is-picked");
+  });
+}
+
+function togglePagePick(leafId) {
+  const at = state.pickedPages.indexOf(leafId);
+  if (at >= 0) {
+    state.pickedPages.splice(at, 1);
+  } else {
+    state.pickedPages.push(leafId);
+  }
+  const row = els.previewList?.querySelector(`[data-leaf="${leafId}"]`);
+  row?.classList.toggle("is-picked", at < 0);
+}
+
+/** Runs the menu over every chosen page, in one undo step. */
+function runPickedMenu(action) {
+  const indexes = pickedIndexes();
+  if (!indexes.length) {
+    return false;
+  }
+  const last = indexes.at(-1);
+  if (action === "copy") {
+    state.pageClip = copyPageLeaves(state.leaves, state.pages, indexes);
+    flashBanner(`${indexes.length}쪽을 복사했습니다.`);
+    return true;
+  }
+  if (action === "left" || action === "right") {
+    const delta = action === "left" ? -90 : 90;
+    commitBulkChange(() => {
+      state.pages = { ...state.pages };
+      for (const at of indexes) {
+        const leaf = state.leaves[at];
+        state.pages[inkKey(leaf)] = rotateItems(state.pages[inkKey(leaf)] || [], delta);
+      }
+      state.leaves = rotatePageLeaves(state.leaves, indexes, delta);
+    });
+    afterPageOp(state.page);
+    return true;
+  }
+  if (action === "delete") {
+    const out = deletePageLeaves(state.leaves, state.pages, indexes);
+    if (!out.removed) {
+      flashBanner("마지막 한 장은 지울 수 없습니다.");
+      return true;
+    }
+    commitBulkChange(() => {
+      state.leaves = out.leaves;
+      state.pages = out.pages;
+    });
+    clearPagePick();
+    afterPageOp(Math.min(state.page, out.leaves.length));
+    return true;
+  }
+  if (action === "duplicate" || action === "paste") {
+    const clips = action === "duplicate" ? copyPageLeaves(state.leaves, state.pages, indexes) : state.pageClip;
+    const list = Array.isArray(clips) ? clips : [clips].filter(Boolean);
+    if (!list.length) {
+      return true;
+    }
+    const out = pastePageLeaves(state.leaves, state.pages, last, list);
+    commitBulkChange(() => {
+      state.leaves = out.leaves;
+      state.pages = out.pages;
+    });
+    clearPagePick();
+    afterPageOp(out.at + 1);
+    return true;
+  }
+  return false;
+}
+
 function hidePageMenu() {
   if (els.pageMenu) {
     els.pageMenu.hidden = true;
@@ -4577,6 +4692,22 @@ function openPageMenu(pageNum, rowTop) {
 }
 
 function runPageMenu(action) {
+  if (action === "pick") {
+    hidePageMenu();
+    state.pickMode = true;
+    const leaf = leafAt(state.leaves, state.pageMenuAt);
+    if (leaf && !state.pickedPages.includes(leaf.id)) {
+      togglePagePick(leaf.id);
+    }
+    flashBanner("고를 쪽을 탭하세요. 길게 누르면 메뉴.", 2200);
+    return;
+  }
+  if (state.pickMode) {
+    hidePageMenu();
+    if (runPickedMenu(action)) {
+      return;
+    }
+  }
   const pageNum = state.pageMenuAt;
   const index = pageNum - 1;
   const leaf = leafAt(state.leaves, pageNum);
@@ -4764,6 +4895,10 @@ function bindPreviewRowGestures(row, fallbackPage) {
       return;
     }
     if (!wasHeld) {
+      if (state.pickMode) {
+        togglePagePick(row.dataset.leaf);
+        return;
+      }
       goToPage(pageOf());
     }
   };
@@ -4886,6 +5021,7 @@ async function paintVisiblePreviewRows() {
       row = makePreviewRow(leaf);
     }
     row.classList.toggle("is-current", pageOfLeaf(state.leaves, leaf.id) === state.page);
+    row.classList.toggle("is-picked", state.pickedPages.includes(leaf.id));
     next.push(row);
   }
   for (const stale of have.values()) {
@@ -5116,9 +5252,14 @@ function leavesNeedRebuild(before, after) {
 }
 
 function applyHistoryLeaves(entry, side) {
+  // #159: a bulk page op carries every page's ink, so one undo puts it all back.
+  const pages = side === "undo" ? entry?.extra?.pagesBefore : entry?.extra?.pagesAfter;
+  if (pages) {
+    state.pages = cloneItems(pages);
+  }
   const next = side === "undo" ? entry?.extra?.leavesBefore : entry?.extra?.leavesAfter;
   if (!next) {
-    return false;
+    return Boolean(pages);
   }
   const prev = state.leaves;
   state.leaves = cloneItems(next);

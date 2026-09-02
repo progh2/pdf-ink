@@ -9,15 +9,21 @@ import {
   PAGE_MENU_LABELS,
   canPastePage,
   copyPageLeaf,
+  copyPageLeaves,
+  deletePageLeaves,
   dropIndexAt,
   dropLineTop,
   duplicatePageLeaf,
+  duplicatePageLeaves,
   movePageLeaf,
   newInkId,
   pastePageLeaf,
+  pastePageLeaves,
   placePageMenu,
   reorderPageLeaf,
   rotatePageLeaf,
+  rotatePageLeaves,
+  sortedIndexes,
 } from "./pageOps.js";
 import { inkKey, makeOutlineLeaf, makePdfLeaf, normalizeLeaves } from "./preview.js";
 
@@ -29,7 +35,17 @@ const stroke = { type: "pen", width: 2, points: [{ x: 0.2, y: 0.2 }] };
 
 describe("#55 미리보기 페이지 조작", () => {
   it("locks the menu to the issue list, no new bar cell", () => {
-    assert.deepEqual(PAGE_MENU_ACTIONS, ["copy", "paste", "duplicate", "delete", "up", "down", "left", "right"]);
+    assert.deepEqual(PAGE_MENU_ACTIONS, [
+      "copy",
+      "paste",
+      "duplicate",
+      "delete",
+      "pick",
+      "up",
+      "down",
+      "left",
+      "right",
+    ]);
     assert.equal(PAGE_MENU_LABELS.duplicate, "복제");
     assert.equal(PAGE_HOLD_MS, 400);
   });
@@ -187,5 +203,79 @@ describe("#55 거른 목록에서는 순서를 안 바꿈", () => {
 
   it("only drags in the 전체 filter, where row order is leaf order", () => {
     assert.match(main, /moved > PAGE_DRAG_SLOP_PX && state\.previewFilter === "all"/);
+  });
+});
+
+describe("#159 여러 쪽 한 번에", () => {
+  const pages = () => ({ 1: [stroke], 2: [stroke], 3: [] });
+  const leaves = () => [makePdfLeaf(1), makePdfLeaf(2), makePdfLeaf(3)];
+
+  it("turns every chosen page, and leaves the rest", () => {
+    const out = rotatePageLeaves(leaves(), [0, 2], 90);
+    assert.deepEqual(out.map((leaf) => leaf.rotate), [90, 0, 90]);
+    assert.deepEqual(rotatePageLeaves(leaves(), [], 90).map((leaf) => leaf.rotate), [0, 0, 0]);
+  });
+
+  it("deletes them all at once, and never empties the document", () => {
+    const out = deletePageLeaves(leaves(), pages(), [0, 1]);
+    assert.deepEqual(out.leaves.map((leaf) => leaf.pdfPage), [3]);
+    assert.equal(out.pages["1"], undefined, "their ink goes with them");
+    assert.equal(out.removed, 2);
+    // Choosing everything still leaves one page behind.
+    const all = deletePageLeaves(leaves(), pages(), [0, 1, 2]);
+    assert.equal(all.leaves.length, 1);
+  });
+
+  it("copies several and pastes them after the last chosen page", () => {
+    const clips = copyPageLeaves(leaves(), pages(), [0, 1]);
+    assert.equal(clips.length, 2);
+    const out = pastePageLeaves(leaves(), pages(), 2, clips);
+    assert.deepEqual(out.leaves.map((leaf) => leaf.pdfPage), [1, 2, 3, 1, 2], "in the order they were taken");
+    assert.deepEqual(out.pages[inkKey(out.leaves[3])], [stroke]);
+  });
+
+  it("duplicates a run right after it", () => {
+    const out = duplicatePageLeaves(leaves(), pages(), [0, 1]);
+    assert.deepEqual(out.leaves.map((leaf) => leaf.pdfPage), [1, 2, 1, 2, 3]);
+    // The copies carry their own ink keys, so writing on one is not the other.
+    assert.notEqual(inkKey(out.leaves[2]), inkKey(out.leaves[0]));
+  });
+
+  it("ignores junk indexes and keeps them in order", () => {
+    assert.deepEqual(sortedIndexes([2, 0, 2, -1, 9], leaves()), [0, 2]);
+    assert.deepEqual(sortedIndexes(null, leaves()), []);
+  });
+});
+
+describe("#159 배선", () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const main = readFileSync(join(here, "main.js"), "utf8");
+  const html = readFileSync(join(here, "..", "index.html"), "utf8");
+  const css = readFileSync(join(here, "style.css"), "utf8");
+
+  it("turns picking on from the menu and shows the chosen rows", () => {
+    assert.match(html, /data-page-menu="pick">여러 개 고르기/);
+    assert.match(main, /if \(action === "pick"\)[\s\S]{0,200}state\.pickMode = true/);
+    assert.match(css, /\.preview-row\.is-picked \.preview-thumb/);
+    assert.match(main, /row\.classList\.toggle\("is-picked"/);
+  });
+
+  it("taps toggle instead of jumping while picking", () => {
+    assert.match(main, /if \(state\.pickMode\) \{\s*togglePagePick\(row\.dataset\.leaf\);\s*return;/);
+  });
+
+  it("runs the action over every chosen page, in one undo step", () => {
+    assert.match(main, /if \(state\.pickMode\) \{[\s\S]{0,200}runPickedMenu\(action\)/);
+    const run = main.slice(main.indexOf("function runPickedMenu"), main.indexOf("function hidePageMenu"));
+    assert.match(run, /rotatePageLeaves\(state\.leaves, indexes, delta\)/);
+    assert.match(run, /deletePageLeaves\(state\.leaves, state\.pages, indexes\)/);
+    assert.match(run, /pastePageLeaves\(state\.leaves, state\.pages, last, list\)/);
+    assert.equal((run.match(/commitBulkChange\(/g) || []).length, 3, "rotate, delete and paste each commit once");
+  });
+
+  it("keeps the last page and forgets the picks when the drawer closes", () => {
+    const run = main.slice(main.indexOf("function runPickedMenu"), main.indexOf("function hidePageMenu"));
+    assert.match(run, /마지막 한 장은 지울 수 없습니다/);
+    assert.match(main, /function closePreview[\s\S]{0,200}clearPagePick\(\)/);
   });
 });

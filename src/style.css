@@ -1419,6 +1419,10 @@ body {
   display: block;
 }
 
+.preview-row.is-picked .preview-thumb {
+  box-shadow: 0 0 0 3px #2c2a26;
+}
+
 .preview-row.is-current .preview-thumb {
   box-shadow: 0 0 0 2px #c4a574;
 }
