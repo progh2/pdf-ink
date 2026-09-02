@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import {
+  AUTOSAVE_MS,
   INK_FILE_VERSION,
   buildInkFile,
   inkFileIsEmpty,
@@ -104,5 +105,37 @@ describe("#147 배선", () => {
     const load = main.slice(main.indexOf("async function loadInkSidecar"), main.indexOf("/* ---- 다른 기기의 변경"));
     assert.match(load, /if \(!reply\.ok\) \{\s*return;/, "a missing sidecar is normal, not an error");
     assert.match(load, /if \(!remote\) \{\s*return;/);
+  });
+});
+
+describe("#167 자동 저장", () => {
+  const main = readFileSync(join(root, "src/main.js"), "utf8");
+  const html = readFileSync(join(root, "index.html"), "utf8");
+
+  it("waits for the hand to settle, then sends a few KB", () => {
+    assert.ok(AUTOSAVE_MS >= 1000, "not on every stroke");
+    assert.match(main, /function scheduleInkAutosave[\s\S]*AUTOSAVE_MS/);
+    assert.match(main, /function persistStrokes[\s\S]{0,120}scheduleInkAutosave\(\)/);
+    const run = main.slice(main.indexOf("async function runInkAutosave"), main.indexOf("function flushInkAutosave"));
+    assert.match(run, /if \(state\.drawing\)[\s\S]{0,140}scheduleInkAutosave\(\)/, "never mid-stroke");
+    assert.match(run, /await saveInkSidecar\(\)/);
+  });
+
+  it("only for a cloud document, and never bakes the pdf", () => {
+    assert.match(main, /function scheduleInkAutosave\(\) \{\s*if \(!state\.dropboxDoc \|\| !dropboxConnected\(\)\)/);
+    const run = main.slice(main.indexOf("async function runInkAutosave"), main.indexOf("function flushInkAutosave"));
+    assert.doesNotMatch(run, /bakeIntoPdf|withAnnotatedPdf/);
+  });
+
+  it("does not lose the last stroke when the page goes away", () => {
+    assert.match(main, /window\.addEventListener\("pagehide", flushInkAutosave\)/);
+    assert.match(main, /if \(document\.hidden\) \{\s*flushInkAutosave\(\);/);
+  });
+
+  it("keeps the name box above the list, with the folder shown", () => {
+    const body = html.slice(html.indexOf('id="dropbox-up"'), html.indexOf('id="dropbox-logout"'));
+    assert.ok(body.indexOf('id="dropbox-save"') < body.indexOf('id="dropbox-list"'), "above the file list");
+    assert.match(html, /id="dropbox-here"/);
+    assert.match(main, /여기에 저장: \$\{path \|\| "내 드롭박스"\}/);
   });
 });
