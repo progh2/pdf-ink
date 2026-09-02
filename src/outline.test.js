@@ -337,3 +337,38 @@ describe("#155 서랍이 밀고, 목차는 더블탭으로 이름 변경", () =>
     assert.match(mainSrc, /lastTapAt = now;[\s\S]{0,120}goToPage\(dest\)/);
   });
 });
+
+describe("#161 목차는 쪽 순서에 들어간다", () => {
+  const leaves = Array.from({ length: 9 }, (_, index) => ({
+    id: `p${index + 1}`,
+    kind: "pdf",
+    pdfPage: index + 1,
+  }));
+  const pages = (list) => list.map((entry) => outlineDestPage(entry, leaves));
+
+  it("puts a new item where its page belongs", () => {
+    let list = addOutlineEntry([], 5, leaves);
+    list = addOutlineEntry(list, 2, leaves);
+    list = addOutlineEntry(list, 8, leaves);
+    list = addOutlineEntry(list, 1, leaves);
+    assert.deepEqual(pages(list), [1, 2, 5, 8]);
+  });
+
+  it("puts a second item on the same page after the first", () => {
+    let list = addOutlineEntry([], 3, leaves);
+    const first = list[0].id;
+    list = addOutlineEntry(list, 3, leaves);
+    assert.deepEqual(pages(list), [3, 3]);
+    assert.equal(list[0].id, first, "the one that was there stays first");
+  });
+
+  it("does not reshuffle what is already in the list", () => {
+    const made = [
+      { id: "t:1", title: "뒤", page: 9 },
+      { id: "t:2", title: "앞", page: 1 },
+    ];
+    const list = addOutlineEntry(made, 5, leaves);
+    // The hand-made order is kept; only the new one is placed.
+    assert.deepEqual(list.map((entry) => entry.title), ["뒤", "앞", "페이지 5"]);
+  });
+});

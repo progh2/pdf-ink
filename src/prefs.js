@@ -19,6 +19,7 @@ const PREVIEW_WIDTH_KEY = "pdf-ink:preview-width";
 const DROPBOX_KEY = "pdf-ink:dropbox";
 const PEN_BUTTON_KEY = "pdf-ink:pen-button";
 const PEN_BUTTON_MAP_KEY = "pdf-ink:pen-buttons";
+const RECENT_COLORS_KEY = "pdf-ink:recent-colors";
 const TOOLBAR_FLOAT_KEY = "pdf-ink:toolbar-float";
 const SLOTS_KEY = "pdf-ink:pen-slots";
 const SLOT_INDEX_KEY = "pdf-ink:slot-index";
@@ -310,4 +311,18 @@ export function loadPenButtons() {
 
 export function savePenButtons(map) {
   writeRaw(PEN_BUTTON_MAP_KEY, JSON.stringify(normalizePenButtons(map)));
+}
+
+/** Colours the reader mixed themselves (#158). */
+export function loadRecentColors() {
+  try {
+    const list = JSON.parse(readRaw(RECENT_COLORS_KEY) || "[]");
+    return Array.isArray(list) ? list.filter((hex) => typeof hex === "string").slice(0, 5) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function saveRecentColors(list) {
+  writeRaw(RECENT_COLORS_KEY, JSON.stringify((list || []).slice(0, 5)));
 }

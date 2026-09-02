@@ -102,11 +102,25 @@ export function flattenOutline(entries, leaves = null) {
   }));
 }
 
+/**
+ * A new item lands where its page belongs, not at the bottom (#161). Existing
+ * order is left alone: only the insertion point is chosen.
+ */
 export function addOutlineEntry(entries, page, leaves = null) {
-  return [
-    ...normalizeOutline(entries, leaves),
-    makeOutlineEntry(page, { leafId: leaves ? leafIdAtPage(leaves, page) : "" }),
-  ];
+  const list = normalizeOutline(entries, leaves);
+  const entry = makeOutlineEntry(page, { leafId: leaves ? leafIdAtPage(leaves, page) : "" });
+  const dest = outlineDestPage(entry, leaves);
+  // After the last item that belongs before it: forgiving when the list is
+  // not sorted, and exact when it is.
+  let at = 0;
+  for (let index = 0; index < list.length; index += 1) {
+    if (outlineDestPage(list[index], leaves) <= dest) {
+      at = index + 1;
+    }
+  }
+  const out = list.slice();
+  out.splice(at, 0, entry);
+  return out;
 }
 
 /** Where the entry points today: the leaf's slot, not the stored number. */
