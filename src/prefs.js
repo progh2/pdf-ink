@@ -34,7 +34,8 @@ export const DEFAULT_SLOTS = [
   { type: "pen", color: "#1E4B8C", width: 4, opacity: HIGHLIGHTER_OPACITY_DEFAULT, stamp: "참 잘했어요" },
 ];
 
-export const DEFAULT_ERASER = { mode: "pixel", width: 4 };
+/** #157: 획 지우개가 기본. 이미 고른 값이 있으면 그대로 쓴다. */
+export const DEFAULT_ERASER = { mode: "stroke", width: 4 };
 
 export const DEFAULT_INK_TOOLS = {
   pen: { type: "pen", color: "#1A1A1A", width: 2, opacity: HIGHLIGHTER_OPACITY_DEFAULT, stamp: "참 잘했어요" },

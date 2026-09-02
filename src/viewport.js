@@ -1,4 +1,5 @@
-export const MIN_SCALE = 1;
+/** #157: 맞춤 크기의 70%까지 줄여 볼 수 있다. */
+export const MIN_SCALE = 0.7;
 export const MAX_SCALE = 8;
 
 /** Bitmap budget per page. A phone cannot hold a 3x poster (#96). */
