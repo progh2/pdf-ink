@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import {
   DRIVE_SCOPE,
   FILE_FIELDS,
+  appIdFromClientId,
   docFromPicked,
   downloadUrl,
   driveConfigured,
@@ -121,5 +122,40 @@ describe("#133 배선", () => {
     assert.match(main, /await flattenAfterWriteBack\(blob\);\s*flashBanner\(`드라이브에 저장했습니다/);
     assert.match(main, /function checkRemote\(\)[\s\S]*checkDropboxRemote\(\);\s*checkDriveRemote\(\)/);
     assert.match(main, /if \(!String\(identity \|\| ""\)\.startsWith\("gdrive::"\)\) \{\s*state\.driveDoc = null;/);
+  });
+});
+
+describe("#165 피커 설정", () => {
+  it("takes the app id out of the client id", () => {
+    assert.equal(appIdFromClientId("44932901774-abc.apps.googleusercontent.com"), "44932901774");
+    assert.equal(appIdFromClientId("no-digits.apps.googleusercontent.com"), "");
+    assert.equal(appIdFromClientId(""), "");
+  });
+
+  it("starts in My Drive, shows folders, and only picks pdfs", () => {
+    const view = pickerViewConfig();
+    assert.equal(view.parent, "root", "a folder to walk, not a search box");
+    assert.equal(view.includeFolders, true);
+    assert.equal(view.selectFolderEnabled, false);
+    assert.equal(view.mimeTypes, "application/pdf");
+  });
+});
+
+describe("#165 배선", () => {
+  const main = readFileSync(join(root, "src/main.js"), "utf8");
+
+  it("gives the picker the app id and a folder view", () => {
+    assert.match(main, /\.setAppId\(appIdFromClientId\(\)\)/);
+    assert.match(main, /ViewId\.DOCS/);
+    assert.doesNotMatch(main, /ViewId\.PDFS/, "the search view is gone");
+    assert.match(main, /view\.setParent\(config\.parent\)/);
+    assert.match(main, /view\.setSelectFolderEnabled\(config\.selectFolderEnabled\)/);
+  });
+
+  it("says what went wrong when opening fails", () => {
+    const open = main.slice(main.indexOf("async function openDriveFile"), main.indexOf("/**\n * Drive has no If-Match"));
+    assert.match(open, /throw new Error\(String\(metaReply\.status\)\)/);
+    assert.match(open, /throw new Error\(String\(reply\.status\)\)/);
+    assert.match(open, /구글 드라이브에서 열지 못했습니다\.\$\{why\}/);
   });
 });

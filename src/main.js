@@ -167,6 +167,7 @@ import {
   GIS_SRC,
   GOOGLE_API_KEY,
   GOOGLE_CLIENT_ID,
+  appIdFromClientId,
   docFromPicked,
   downloadUrl as driveDownloadUrl,
   driveConfigured,
@@ -5970,14 +5971,19 @@ async function openDrivePicker() {
     await loadScript(GAPI_SRC);
     await new Promise((resolve) => window.gapi.load("picker", resolve));
     showBanner("");
-    const view = new window.google.picker.DocsView(window.google.picker.ViewId.PDFS);
+    // #165: My Drive with folders, not the PDF search box.
     const config = pickerViewConfig();
+    const view = new window.google.picker.DocsView(window.google.picker.ViewId.DOCS);
     view.setMimeTypes(config.mimeTypes);
     view.setIncludeFolders(config.includeFolders);
+    view.setSelectFolderEnabled(config.selectFolderEnabled);
+    view.setParent(config.parent);
     const picker = new window.google.picker.PickerBuilder()
       .addView(view)
       .setOAuthToken(token)
       .setDeveloperKey(GOOGLE_API_KEY)
+      // Without the app id, drive.file never grants us the picked file.
+      .setAppId(appIdFromClientId())
       .setCallback((result) => {
         const doc = pdfFromPickerResult(result);
         if (doc) {
@@ -6012,11 +6018,15 @@ async function driveFetch(url, options = {}) {
 async function openDriveFile(picked) {
   showBanner("구글 드라이브에서 여는 중…");
   try {
-    const meta = await (await driveFetch(driveMetadataUrl(picked.id))).json();
+    const metaReply = await driveFetch(driveMetadataUrl(picked.id));
+    if (!metaReply.ok) {
+      throw new Error(String(metaReply.status));
+    }
+    const meta = await metaReply.json();
     const doc = docFromPicked({ ...picked, ...meta });
     const reply = await driveFetch(driveDownloadUrl(doc.id));
     if (!reply.ok) {
-      throw new Error("download");
+      throw new Error(String(reply.status));
     }
     const buffer = await reply.arrayBuffer();
     const check = await validatePdfContents(new Blob([buffer]));
@@ -6027,8 +6037,10 @@ async function openDriveFile(picked) {
     state.driveDoc = doc;
     showBanner("");
     await openPdfBuffer(buffer, { identity: driveIdentity(doc), name: doc.name });
-  } catch {
-    flashBanner("구글 드라이브에서 열지 못했습니다.");
+  } catch (error) {
+    // The status tells us whether it was the grant, the scope or the network.
+    const why = error?.message ? ` (${error.message})` : "";
+    flashBanner(`구글 드라이브에서 열지 못했습니다.${why}`, 3200);
   }
 }
 
