@@ -62,7 +62,11 @@ Vite 정적 호스팅만 사용합니다. `vercel.json`이 빌드(`npm run build
 
 ## 라이선스
 
-MIT([LICENSE](LICENSE)). 함께 쓰는 것: `pdfjs-dist`(Apache-2.0, Mozilla), `pdf-lib`(MIT), `vite`·`vite-plugin-pwa`(MIT). 각 라이선스는 `node_modules`의 원문을 따릅니다.
+**GNU AGPL-3.0-or-later**([LICENSE](LICENSE)). 자유롭게 쓰고 고치고 나눠 주되, **고친 것을 웹에서 서비스하면 그 소스도 같은 라이선스로 공개**해야 합니다(13조). 그냥 쓰는 사람에게는 아무 의무가 없고, 가져가서 자기 서비스로 다시 파는 경우에만 걸립니다. 그래서 앱 화면(업로드 화면과 설정)에 소스 링크를 둡니다.
+
+「필기웹」·「pdf-ink」라는 **이름과 아이콘은 라이선스에 포함되지 않습니다.** 포크는 다른 이름을 쓰세요.
+
+함께 쓰는 것: `pdfjs-dist`(Apache-2.0, Mozilla), `pdf-lib`(MIT), `vite`·`vite-plugin-pwa`(MIT) — 모두 AGPL과 함께 쓸 수 있습니다. 각 라이선스는 `node_modules`의 원문을 따릅니다.
 
 ## 범위 (M1)
 
