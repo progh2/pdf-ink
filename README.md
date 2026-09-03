@@ -57,6 +57,7 @@ Vite 정적 호스팅만 사용합니다. `vercel.json`이 빌드(`npm run build
 
 - [docs/PRD.md](docs/PRD.md) — 제품 정의: 원칙·되는 것·아직 아닌 것
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — 구조와 UML(컴포넌트·모델·열기/저장 흐름·도구 상태)
+- [docs/LICENSES.md](docs/LICENSES.md) — 라이선스 관계도: 무엇이 실려 나가고, 왜 섞어도 되는지
 - [docs/PROCESS.md](docs/PROCESS.md) — 이슈별로 무엇을 왜 그렇게 했는지의 기록
 - [docs/BOARD.md](docs/BOARD.md) — 이슈 보드
 
@@ -66,7 +67,7 @@ Vite 정적 호스팅만 사용합니다. `vercel.json`이 빌드(`npm run build
 
 「필기웹」·「pdf-ink」라는 **이름과 아이콘은 라이선스에 포함되지 않습니다.** 포크는 다른 이름을 쓰세요.
 
-함께 쓰는 것: `pdfjs-dist`(Apache-2.0, Mozilla), `pdf-lib`(MIT), `vite`·`vite-plugin-pwa`(MIT) — 모두 AGPL과 함께 쓸 수 있습니다. 각 라이선스는 `node_modules`의 원문을 따릅니다.
+함께 쓰는 것: `pdfjs-dist`(Apache-2.0, Mozilla), `pdf-lib`(MIT)와 그 의존성(MIT·Zlib·0BSD), `workbox-window`(MIT) — 모두 AGPL 안에 넣을 수 있습니다. 그쪽이 요구하는 저작권 표시는 [public/THIRD-PARTY-NOTICES.txt](public/THIRD-PARTY-NOTICES.txt)에 모아 두고 앱에서 **다른 코드** 링크로 엽니다(번들은 압축되면서 주석이 지워집니다). 의존성이 바뀌면 `npm run notices`로 다시 만듭니다. 왜 섞어도 되는지와 방향은 [docs/LICENSES.md](docs/LICENSES.md)에 그림으로 있습니다.
 
 ## 범위 (M1)
 
