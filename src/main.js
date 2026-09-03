@@ -73,10 +73,12 @@ import { followStampGhost, stampGhostItem, stampPlaceFromGhost } from "./stampGh
 import {
   DOUBLE_TAP_MS,
   allowsInkButton,
-  appendInkPoint,
+  appendInkPoints,
   isDoubleTap,
   beginInkPoints,
   canCreateInk,
+  isStrokePointer,
+  normFromRect,
   finishInkPoints,
   interactModeLabel,
   penButtonAction,
@@ -580,6 +582,9 @@ const shapeHold = createShapeHold({ holdMs: SHAPE_HOLD_MS });
 let shapeOfferDismissTimer = 0;
 let ignoreChipMountMoves = 0;
 let lockedStrokePoints = null;
+// #171: the one pointer this stroke answers to.
+let strokePointerId = null;
+let strokeRect = null;
 let chipMenuBox = null;
 let frozenEndClient = null;
 let renderGen = 0;
@@ -844,10 +849,20 @@ function canvas2d(canvas) {
   return canvas.getContext("2d", { willReadFrequently: true });
 }
 
+/**
+ * The layer under the pen tip, and the only one repainted every frame (#172).
+ * `willReadFrequently` would put it back on the CPU, and we never read it back;
+ * `desynchronized` lets the compositor show it without waiting for the frame,
+ * which is the shortest path from the nib to the glass.
+ */
+function liveCanvas2d(canvas) {
+  return canvas.getContext("2d", { desynchronized: true });
+}
+
 function clearLiveLayer(view) {
   const canvas = view?.liveCanvas;
   if (canvas) {
-    canvas2d(canvas).clearRect(0, 0, canvas.width, canvas.height);
+    liveCanvas2d(canvas).clearRect(0, 0, canvas.width, canvas.height);
   }
 }
 
@@ -857,7 +872,7 @@ function drawLiveLayer(view, stroke) {
   if (!canvas) {
     return;
   }
-  const ctx = canvas2d(canvas);
+  const ctx = liveCanvas2d(canvas);
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   if (stroke?.points?.length) {
     paintItem(ctx, stroke, strokeScale(view), canvas);
@@ -2148,6 +2163,7 @@ function abortStroke() {
   }
   state.currentStroke = null;
   state.drawing = false;
+  strokePointerId = null;
   const view = state.pageViews.find((item) => item.pageNum === state.drawPage);
   if (view) {
     drawStrokesOn(view);
@@ -2198,6 +2214,9 @@ function startStroke(event, stage) {
   const client = { x: event.clientX, y: event.clientY };
   state.drawPage = Number(stage.dataset.page) || state.page;
   state.drawCanvas = ink;
+  // #171: from here on, only this pointer touches this stroke.
+  strokePointerId = event.pointerId ?? null;
+  strokeRect = ink.getBoundingClientRect();
   if (usesStamp()) {
     shapeHold.reset();
     dismissShapeChips();
@@ -2239,6 +2258,10 @@ function moveStroke(event) {
   if (!state.drawing || !state.currentStroke || !state.drawCanvas) {
     return;
   }
+  // A palm on the toolbar is not this stroke, however close it lands (#171).
+  if (!isStrokePointer(strokePointerId, event.pointerId)) {
+    return;
+  }
   if (!allowsInkPointer(event)) {
     return;
   }
@@ -2246,6 +2269,8 @@ function moveStroke(event) {
   // #135: a pen reports faster than the screen refreshes, so take every sample.
   const samples = typeof event.getCoalescedEvents === "function" ? event.getCoalescedEvents() : [];
   const client = { x: event.clientX, y: event.clientY };
+  // #172: measure the page once per event, not once per sample.
+  strokeRect = state.drawCanvas.getBoundingClientRect();
   const chipsUp = Boolean(els.shapeChips && !els.shapeChips.hidden);
   const chipHit = Boolean(ignoreChipMountMoves) || eventHitsShapeChips(event);
   let append = true;
@@ -2263,20 +2288,13 @@ function moveStroke(event) {
     append = false;
   }
   if (append) {
+    const batch = [];
     for (const sample of samples.length > 1 ? samples.slice(0, -1) : []) {
-      state.currentStroke.points = appendInkPoint(
-        state.currentStroke.points,
-        eventToNorm(sample, state.drawCanvas),
-        { x: sample.clientX, y: sample.clientY },
-        lastInkUpClient,
-      );
+      const at = { x: sample.clientX, y: sample.clientY };
+      batch.push({ norm: normFromRect(strokeRect, at), client: at });
     }
-    state.currentStroke.points = appendInkPoint(
-      state.currentStroke.points,
-      eventToNorm(event, state.drawCanvas),
-      client,
-      lastInkUpClient,
-    );
+    batch.push({ norm: normFromRect(strokeRect, client), client });
+    state.currentStroke.points = appendInkPoints(state.currentStroke.points, batch, lastInkUpClient);
     if (canShapeHold(state.currentStroke.type)) {
       shapeHold.rememberPoints(state.currentStroke.points);
       frozenEndClient = client;
@@ -2292,6 +2310,9 @@ function moveStroke(event) {
 }
 
 function endStroke(event) {
+  if (!isStrokePointer(strokePointerId, event.pointerId)) {
+    return;
+  }
   if (state.pendingStamp) {
     if (event.pointerId != null && state.drawCanvas) {
       try {
@@ -2312,6 +2333,7 @@ function endStroke(event) {
       }
     }
     state.pendingStamp = null;
+    strokePointerId = null;
     releasePaperScroll();
     return;
   }
@@ -2345,6 +2367,7 @@ function endStroke(event) {
   if (!live.points.length) {
     state.currentStroke = null;
     state.drawing = false;
+    strokePointerId = null;
     releasePaperScroll();
     shapeHold.reset();
     dismissShapeChips();
@@ -2373,6 +2396,7 @@ function endStroke(event) {
   const offer = held.offer && canShapeHold(live.type) ? held.offer : null;
   state.currentStroke = null;
   state.drawing = false;
+  strokePointerId = null;
   releasePaperScroll();
   if (offer) {
     const items = pageStrokes(state.drawPage);

@@ -930,3 +930,23 @@ describe("#116 마우스로 그릴 때 획이 안 끊긴다", () => {
     assert.equal(append, false, "a 6px wobble is not a stroke");
   });
 });
+
+describe("#172 이동마다 복사하지 않기", () => {
+  it("keeps a frozen snapshot even if the live array is replaced after", () => {
+    const hold = createShapeHold({ holdMs: 10, now: () => 0, setTimeoutFn: () => 0, clearTimeoutFn: () => {} });
+    const live = [{ x: 0, y: 0.5 }, { x: 0.5, y: 0.5 }, { x: 1, y: 0.5 }];
+    hold.begin({ tool: "highlighter", client: { x: 0, y: 0 } });
+    hold.rememberPoints(live);
+    const frozen = hold.frozenPoints();
+    live.push({ x: 0.2, y: 0.9 });
+    assert.equal(frozen.length, 3, "the snapshot is its own copy");
+    assert.deepEqual(frozen.at(-1), { x: 1, y: 0.5 });
+  });
+
+  it("still drops points that are not real numbers when it freezes", () => {
+    const hold = createShapeHold({ holdMs: 10, now: () => 0, setTimeoutFn: () => 0, clearTimeoutFn: () => {} });
+    hold.begin({ tool: "pen", client: { x: 0, y: 0 } });
+    hold.rememberPoints([{ x: 0, y: 0 }, { x: NaN, y: 1 }, { x: 1, y: 1 }]);
+    assert.equal(hold.frozenPoints().length, 2);
+  });
+});

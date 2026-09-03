@@ -133,6 +133,31 @@ export function isReusedInkStart(prevUpClient, nextClient, slopPx = REUSED_INK_S
   return Math.hypot(dx, dy) <= slopPx;
 }
 
+/**
+ * One stroke belongs to one pointer (#171). A palm that lands on the toolbar
+ * is never registered as a pinch, so without this its moves used to be appended
+ * to the pen's stroke — the line shot out and back, a triangle.
+ */
+export function isStrokePointer(activeId, eventId) {
+  if (activeId === null || activeId === undefined) {
+    return true;
+  }
+  if (eventId === null || eventId === undefined) {
+    return true;
+  }
+  return activeId === eventId;
+}
+
+/** Normalized position from a rect measured once per event, not per sample (#172). */
+export function normFromRect(rect, client) {
+  const width = Number(rect?.width) || 1;
+  const height = Number(rect?.height) || 1;
+  return {
+    x: (Number(client?.x) - (Number(rect?.left) || 0)) / width,
+    y: (Number(client?.y) - (Number(rect?.top) || 0)) / height,
+  };
+}
+
 export function beginInkPoints(downNorm, downClient, prevUpClient) {
   if (isReusedInkStart(prevUpClient, downClient)) {
     return [];
@@ -149,6 +174,21 @@ export function appendInkPoint(points, moveNorm, moveClient, prevUpClient) {
     return list;
   }
   list.push(moveNorm);
+  return list;
+}
+
+/** Every sample of one event at once: one array copy instead of one each (#172). */
+export function appendInkPoints(points, samples, prevUpClient) {
+  const list = points ? points.slice() : [];
+  for (const sample of samples || []) {
+    if (!sample?.norm) {
+      continue;
+    }
+    if (!list.length && isReusedInkStart(prevUpClient, sample.client)) {
+      continue;
+    }
+    list.push(sample.norm);
+  }
   return list;
 }
 
