@@ -4,25 +4,28 @@ import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import {
+  DOUBLE_TAP_MS,
+  INTERACT_LOCKED_LABEL,
+  INTERACT_UNLOCKED_LABEL,
+  PEN_ACTIONS,
+  PEN_BUTTON_DEFAULTS,
+  VIEW_NOTICE_TEXT,
+  allowsInkButton,
   appendInkPoint,
+  appendInkPoints,
   beginInkPoints,
   canCreateInk,
   finishInkPoints,
-  INTERACT_LOCKED_LABEL,
-  INTERACT_UNLOCKED_LABEL,
   interactModeLabel,
-  isReusedInkStart,
-  allowsInkButton,
-  DOUBLE_TAP_MS,
-  PEN_ACTIONS,
-  PEN_BUTTON_DEFAULTS,
   isDoubleTap,
+  isReusedInkStart,
+  isStrokePointer,
+  normFromRect,
   normalizePenButtons,
   penButtonAction,
   rectFromPoints,
   shouldNoticeViewMode,
   shouldPanPointer,
-  VIEW_NOTICE_TEXT,
 } from "./interact.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -213,7 +216,7 @@ describe("#47 두 탭이 직선이 되면 안 됨", () => {
 
   it("wires the leftover-point helpers into stroke start/move/end", () => {
     assert.match(main, /beginInkPoints\(/);
-    assert.match(main, /appendInkPoint\(/);
+    assert.match(main, /appendInkPoints\(/);
     assert.match(main, /finishInkPoints\(/);
     assert.match(main, /lastInkUpClient/);
     assert.match(main, /createShapeHold\(/);
@@ -335,5 +338,94 @@ describe("#155 더블탭", () => {
     assert.equal(isDoubleTap(1000, 900, 60), false, "too far");
     assert.equal(isDoubleTap(1000, 0, 0), false, "there was no first tap");
     assert.equal(DOUBLE_TAP_MS, 320);
+  });
+});
+
+describe("#171 한 획은 한 포인터", () => {
+  it("takes the pointer that started the stroke", () => {
+    assert.equal(isStrokePointer(3, 3), true);
+  });
+
+  it("refuses a second pointer — the palm that made the triangle", () => {
+    assert.equal(isStrokePointer(3, 7), false);
+  });
+
+  it("stays open when either side has no id (synthetic pointers)", () => {
+    assert.equal(isStrokePointer(null, 7), true);
+    assert.equal(isStrokePointer(3, undefined), true);
+  });
+
+  it("does not confuse id 0 with no id", () => {
+    assert.equal(isStrokePointer(0, 1), false);
+    assert.equal(isStrokePointer(0, 0), true);
+  });
+});
+
+describe("#172 표본을 묶어서 붙이기", () => {
+  const rect = { left: 20, top: 50, width: 200, height: 400 };
+
+  it("reads the same position as a fresh measurement would", () => {
+    assert.deepEqual(normFromRect(rect, { x: 120, y: 250 }), { x: 0.5, y: 0.5 });
+  });
+
+  it("survives a zero-size rect instead of dividing by zero", () => {
+    const point = normFromRect({ left: 0, top: 0, width: 0, height: 0 }, { x: 3, y: 4 });
+    assert.ok(Number.isFinite(point.x) && Number.isFinite(point.y));
+  });
+
+  it("appends every sample, in order", () => {
+    const samples = [
+      { norm: { x: 0.1, y: 0.1 }, client: { x: 1, y: 1 } },
+      { norm: { x: 0.2, y: 0.2 }, client: { x: 2, y: 2 } },
+    ];
+    assert.deepEqual(appendInkPoints([{ x: 0, y: 0 }], samples), [
+      { x: 0, y: 0 },
+      { x: 0.1, y: 0.1 },
+      { x: 0.2, y: 0.2 },
+    ]);
+  });
+
+  it("matches one-at-a-time appending, including the reused-start guard", () => {
+    const prevUp = { x: 100, y: 100 };
+    const samples = [
+      { norm: { x: 0.1, y: 0.1 }, client: { x: 100, y: 100 } },
+      { norm: { x: 0.4, y: 0.4 }, client: { x: 180, y: 240 } },
+    ];
+    let one = [];
+    for (const sample of samples) {
+      one = appendInkPoint(one, sample.norm, sample.client, prevUp);
+    }
+    assert.deepEqual(appendInkPoints([], samples, prevUp), one);
+    assert.deepEqual(one, [{ x: 0.4, y: 0.4 }]);
+  });
+
+  it("leaves the array it was given alone", () => {
+    const before = [{ x: 0, y: 0 }];
+    appendInkPoints(before, [{ norm: { x: 1, y: 1 }, client: { x: 1, y: 1 } }]);
+    assert.equal(before.length, 1);
+  });
+});
+
+describe("#171·#172 배선", () => {
+  const main = readFileSync(join(root, "src/main.js"), "utf8");
+
+  it("remembers which pointer owns the stroke and lets go at the end", () => {
+    assert.match(main, /strokePointerId = event\.pointerId \?\? null/);
+    assert.match(main, /if \(!isStrokePointer\(strokePointerId, event\.pointerId\)\) \{\s*return;/);
+    assert.equal((main.match(/isStrokePointer\(strokePointerId/g) || []).length, 2, "move and end both check");
+    assert.ok(main.split("function endStroke")[1].includes("strokePointerId = null"), "the id is dropped when the stroke ends");
+  });
+
+  it("measures the page once per event and appends the samples in one go", () => {
+    const move = main.slice(main.indexOf("function moveStroke"), main.indexOf("function endStroke"));
+    assert.equal((move.match(/getBoundingClientRect\(\)/g) || []).length, 1);
+    assert.match(move, /appendInkPoints\(state\.currentStroke\.points, batch, lastInkUpClient\)/);
+    assert.doesNotMatch(move, /eventToNorm\(sample/, "no per-sample measuring");
+  });
+
+  it("keeps the live layer off the CPU path", () => {
+    assert.match(main, /function liveCanvas2d\(canvas\) \{\s*return canvas\.getContext\("2d", \{ desynchronized: true \}\);/);
+    const live = main.slice(main.indexOf("function clearLiveLayer"), main.indexOf("function drawStrokesOn"));
+    assert.doesNotMatch(live, /canvas2d\(/, "the live layer never takes the willReadFrequently context");
   });
 });

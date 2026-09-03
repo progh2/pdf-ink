@@ -434,8 +434,14 @@ export function createShapeHold({
       lastSignificantAt = now();
       timer = setTimeoutFn(() => fire(getPoints, onOffer), holdMs);
     },
+    /**
+     * Called on every move, so it keeps the reference instead of cloning the
+     * whole stroke each time (#172). Callers replace the array rather than
+     * mutating it, and freezing copies, so a snapshot still cannot be moved
+     * under our feet.
+     */
     rememberPoints(points) {
-      lastGood = copyPoints(points);
+      lastGood = Array.isArray(points) ? points : [];
     },
     frozenPoints() {
       if (frozen?.length) {
