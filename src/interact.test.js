@@ -429,3 +429,11 @@ describe("#171·#172 배선", () => {
     assert.doesNotMatch(live, /canvas2d\(/, "the live layer never takes the willReadFrequently context");
   });
 });
+
+describe("#174 소스 링크 (AGPL 13조)", () => {
+  it("offers the source where someone using the app can find it", () => {
+    assert.equal((html.match(/class="source-note"/g) || []).length, 2, "upload screen and settings");
+    assert.match(html, /id="source-link"[^>]*href="https:\/\/github\.com\/progh2\/pdf-ink"/);
+    assert.match(html, /AGPL-3\.0/);
+  });
+});
