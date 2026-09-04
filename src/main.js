@@ -531,6 +531,8 @@ const state = {
   pdf: null,
   // #178: 파일이 들고 온 링크. 쪽·회전별로 한 번만 읽는다.
   pdfLinks: new Map(),
+  // #198: 이름 목적지는 문서마다 한 번만 찾는다.
+  destCache: new Map(),
   // #190: 그중 사람이 고쳐 준 것.
   linkFixes: {},
   identity: null,
@@ -1737,6 +1739,7 @@ async function showUploadScreen() {
   state.thumbPackKeys = null;
   // #178: another file's links must not answer for this one.
   state.pdfLinks = new Map();
+  state.destCache = new Map();
   hideLinkFixPanel();
   if (state.pdf) {
     await state.pdf.destroy();
@@ -1842,16 +1845,32 @@ function placeStamp(view, point) {
  * whose first entry is a page reference. Used by the table of contents (#145)
  * and by the file's own links (#178).
  */
+/**
+ * Looking a name up walks the file's destination table, and a planner can hold
+ * ten thousand links pointing at nineteen hundred names (#198). Resolve each
+ * name once per document; an array needs no lookup at all.
+ */
 async function explicitDest(dest, pdf = state.pdf) {
   if (!pdf || dest === null || dest === undefined) {
     return null;
   }
-  try {
-    // A name has to be looked up in the file; an array is already the answer.
-    return typeof dest === "string" ? await pdf.getDestination(dest) : dest;
-  } catch {
-    return null;
+  if (typeof dest !== "string") {
+    return dest;
   }
+  const mine = pdf === state.pdf;
+  if (mine && state.destCache.has(dest)) {
+    return state.destCache.get(dest);
+  }
+  let found = null;
+  try {
+    found = await pdf.getDestination(dest);
+  } catch {
+    found = null;
+  }
+  if (mine) {
+    state.destCache.set(dest, found);
+  }
+  return found;
 }
 
 /**
@@ -1880,7 +1899,11 @@ async function pageOfRefByScan(ref, pdf) {
 }
 
 async function pdfPageOfDest(dest, pdf = state.pdf) {
-  const target = destTarget(await explicitDest(dest, pdf));
+  return pageOfExplicitDest(await explicitDest(dest, pdf), pdf);
+}
+
+async function pageOfExplicitDest(explicit, pdf = state.pdf) {
+  const target = destTarget(explicit);
   if (!target) {
     return 0;
   }
@@ -1936,7 +1959,7 @@ async function exportLinksForLeaf(leaf) {
         continue;
       }
       const explicit = await explicitDest(target.dest);
-      const at = leafPositionForPdfPage(state.leaves, await pdfPageOfDest(target.dest));
+      const at = leafPositionForPdfPage(state.leaves, await pageOfExplicitDest(explicit));
       if (at) {
         out.push({ rect, page: at, view: destView(explicit) });
       }
@@ -1995,6 +2018,7 @@ async function openPdfBuffer(buffer, { identity, name, page = 1, handle = null }
     state.driveSidecarId = "";
   }
   state.pdfLinks = new Map();
+  state.destCache = new Map();
   hideLinkFixPanel();
   if (state.pdf) {
     await state.pdf.destroy();
