@@ -106,11 +106,26 @@ export function pagePositionForAction(action, page, pageCount) {
   return 0;
 }
 
-export function pdfLinkItem(box, target) {
+/** A rectangle in the page's own coordinates, as the file wrote it. */
+export function pdfSpaceRect(rect) {
+  const list = Array.isArray(rect) ? rect.map(Number) : [];
+  if (list.length < 4 || !list.every(Number.isFinite)) {
+    return null;
+  }
+  const box = [Math.min(list[0], list[2]), Math.min(list[1], list[3]), Math.max(list[0], list[2]), Math.max(list[1], list[3])];
+  return box[2] - box[0] > 0 && box[3] - box[1] > 0 ? box : null;
+}
+
+/**
+ * `rect` is the box in the page's own coordinates. It is what identifies this
+ * one link when someone corrects it (#190), so it travels with the item — the
+ * normalized box changes with rotation and cannot name a link on its own.
+ */
+export function pdfLinkItem(box, target, rect = null) {
   if (!box || !target) {
     return null;
   }
-  return { x: box.x, y: box.y, w: box.w, h: box.h, link: target };
+  return { x: box.x, y: box.y, w: box.w, h: box.h, link: target, rect: pdfSpaceRect(rect) };
 }
 
 /** 캐시 키: 우리가 쪽을 돌리면 상자도 돌아간다. */
@@ -153,15 +168,6 @@ export function destView(explicit) {
   return [name, ...rest.slice(1).map((value) => (Number.isFinite(Number(value)) && value !== null ? Number(value) : null))];
 }
 
-/** A rectangle in the page's own coordinates, as the file wrote it. */
-export function pdfSpaceRect(rect) {
-  const list = Array.isArray(rect) ? rect.map(Number) : [];
-  if (list.length < 4 || !list.every(Number.isFinite)) {
-    return null;
-  }
-  const box = [Math.min(list[0], list[2]), Math.min(list[1], list[3]), Math.max(list[0], list[2]), Math.max(list[1], list[3])];
-  return box[2] - box[0] > 0 && box[3] - box[1] > 0 ? box : null;
-}
 
 /** 배너 한 줄에 들어갈 만큼만. */
 export function shortJson(value, max = 90) {

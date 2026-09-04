@@ -121,13 +121,19 @@ describe("#178 PDF 안의 링크", () => {
   });
 
   it("makes an item only when both halves are there", () => {
-    assert.deepEqual(pdfLinkItem({ x: 0, y: 0, w: 1, h: 1 }, { kind: "url", href: "https://a.kr/" }), {
+    assert.deepEqual(pdfLinkItem({ x: 0, y: 0, w: 1, h: 1 }, { kind: "url", href: "https://a.kr/" }, [1, 2, 3, 4]), {
       x: 0,
       y: 0,
       w: 1,
       h: 1,
       link: { kind: "url", href: "https://a.kr/" },
+      rect: [1, 2, 3, 4],
     });
+    assert.equal(
+      pdfLinkItem({ x: 0, y: 0, w: 1, h: 1 }, { kind: "url", href: "https://a.kr/" }).rect,
+      null,
+      "a link with no readable box still works, it just cannot be corrected by itself",
+    );
     assert.equal(pdfLinkItem(null, { kind: "url", href: "https://a.kr/" }), null);
     assert.equal(pdfLinkItem({ x: 0, y: 0, w: 1, h: 1 }, null), null);
   });
@@ -152,9 +158,9 @@ describe("#178 배선", () => {
   });
 
   it("follows a tap only while the page is locked, so writing is never a click", () => {
-    const spot = main.slice(main.indexOf("function pdfLinkSpotAtClient"), main.indexOf("function actOnPdfLink"));
+    const spot = main.slice(main.indexOf("function pdfLinkSpotAtClient(client)"), main.indexOf("function linkKeysFor"));
     assert.match(spot, /state\.interactMode !== "view"/);
-    assert.match(main, /const tapped = \(gesture\.moved \|\| 0\) <= PAN_TAP_SLOP_PX/, "a drag is not a tap");
+    assert.match(main, /const tapped = !gesture\.held && \(gesture\.moved \|\| 0\) <= PAN_TAP_SLOP_PX/, "a drag is not a tap, and neither is a hold");
   });
 
   it("opens an outside address in its own tab, never in ours", () => {
@@ -216,7 +222,7 @@ describe("#180 링크 자리 표시", () => {
 
   it("repaints only when the page or its rotation changed", () => {
     const paint = main.slice(main.indexOf("async function paintPdfLinkHints"), main.indexOf("function clearPdfLinkHints"));
-    assert.match(paint, /if \(layer\.dataset\.key === key\) \{\s*return;/);
+    assert.match(paint, /if \(layer\.dataset\.key === key && !force\) \{\s*return;/);
     assert.match(paint, /pdfLinkCacheKey\(stillHere\.pdfPage, stillHere\.rotate\) !== key/, "the view may hold another page by now");
   });
 
@@ -330,13 +336,14 @@ describe("#188 배선", () => {
   const main = readFileSync(join(root, "src/main.js"), "utf8");
 
   it("says what the link was on every tap, not only when it fails", () => {
-    const follow = main.slice(main.indexOf("async function followPdfLink("), main.indexOf("function pdfLinkSpotAtClient"));
-    assert.equal((follow.match(/flashBanner\(/g) || []).length, 3, "url · action · dest");
+    const follow = main.slice(main.indexOf("async function followPdfLink("), main.indexOf("링크 고치기 (#190)"));
+    assert.equal((follow.match(/flashBanner\(/g) || []).length, 4, "url · 고친 것 · action · dest");
     assert.match(follow, /flashBanner\(describeLink\(\{ link \}\)\)/);
   });
 
   it("leaves a failed link on screen long enough to read", () => {
     assert.match(main, /flashBanner\(said, at \? 1800 : 7000\)/);
+    assert.match(main, /const tapped = !gesture\.held/);
   });
 
   it("asks the pages themselves when pdf.js will not resolve a reference", () => {
