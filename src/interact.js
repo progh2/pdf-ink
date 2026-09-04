@@ -61,7 +61,7 @@ export const PEN_ERASER_BUTTON = 5;
 
 /** Two taps this close together mean "rename", not "go there twice" (#155). */
 /** 보기 모드에서 손가락이 이만큼 안 움직였으면 끌기가 아니라 탭 (#178). */
-export const PAN_TAP_SLOP_PX = 8;
+export const PAN_TAP_SLOP_PX = 12;
 
 export const DOUBLE_TAP_MS = 320;
 export const DOUBLE_TAP_SLOP_PX = 24;

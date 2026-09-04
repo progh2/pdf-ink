@@ -137,6 +137,7 @@ describe("#178 PDF 안의 링크", () => {
 describe("#178 배선", () => {
   const root = join(dirname(fileURLToPath(import.meta.url)), "..");
   const main = readFileSync(join(root, "src/main.js"), "utf8");
+  const css = readFileSync(join(root, "src/style.css"), "utf8");
 
   it("reads a page's links once, and again when that page is turned", () => {
     const load = main.slice(main.indexOf("async function loadPdfLinks"), main.indexOf("function pdfLinkAt"));
@@ -147,13 +148,32 @@ describe("#178 배선", () => {
   });
 
   it("follows a tap only while the page is locked, so writing is never a click", () => {
-    const follow = main.slice(main.indexOf("async function followPdfLinkAtClient"), main.indexOf("function updateAreaHits"));
-    assert.match(follow, /state\.interactMode !== "view"/);
+    const spot = main.slice(main.indexOf("function pdfLinkSpotAtClient"), main.indexOf("function actOnPdfLink"));
+    assert.match(spot, /state\.interactMode !== "view"/);
     assert.match(main, /const tapped = \(gesture\.moved \|\| 0\) <= PAN_TAP_SLOP_PX/, "a drag is not a tap");
   });
 
   it("opens an outside address in its own tab, never in ours", () => {
-    assert.match(main, /window\.open\(link\.href, "_blank", "noopener,noreferrer"\)/);
+    assert.match(main, /window\.open\(href, "_blank", "noopener,noreferrer"\)/);
+    assert.match(main, /a\.rel = "noopener noreferrer"/, "the fallback is just as sealed off");
+  });
+
+  it("reaches the tab opener with no await in front of it", () => {
+    const follow = main.slice(main.indexOf("function followPdfLinkAtClient"), main.indexOf("function updateAreaHits"));
+    assert.doesNotMatch(follow, /^async function followPdfLinkAtClient/, "an await here loses the tap's permission to open a tab");
+    assert.match(follow, /if \(state\.pdfLinks\.has\([\s\S]*?\)\) \{\s*return actOnPdfLink\(spot\);/);
+    assert.match(main, /function openLinkTab\(href\)/);
+  });
+
+  it("shows the tap landed, so a dead link is not mistaken for a dead touch", () => {
+    assert.match(main, /box\.classList\.add\("is-hit"\)/);
+    assert.match(css, /\.pdf-link-hint\.is-hit \{/);
+    assert.match(main, /flashBanner\("이 링크가 가리키는 쪽이 문서에 없습니다"\)/, "and never calls a function that does not exist");
+  });
+
+  it("paints the hints for the page a document opens on", () => {
+    const rebuild = main.slice(main.indexOf("async function rebuildPages"), main.indexOf("async function refitPages"));
+    assert.match(rebuild, /refreshPdfLinkHints\(\)/, "page mode renders its own view and told nobody");
   });
 
   it("sends an inside link to where that page sits now", () => {
