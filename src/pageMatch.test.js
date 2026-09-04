@@ -103,22 +103,21 @@ describe("#200 배선", () => {
   });
 
   it("only fingerprints the pages that carry ink", () => {
-    const move = main.slice(main.indexOf("async function moveInkFrom"), main.indexOf("function showInkMovePlan"));
+    const move = main.slice(main.indexOf("async function moveInkFrom"), main.indexOf("async function renderOldMoveThumb"));
     assert.match(move, /fingerprintsOf\(row\.buffer, inked,/, "the old document: only the inked pages");
     assert.match(move, /fingerprintsOf\(state\.buffer, null,/, "the new one: every page, to look them up in");
   });
 
   it("adds to what is on the page unless asked to replace it", () => {
-    const apply = main.slice(main.indexOf("function applyInkMove"), main.indexOf("/* ---- 링크 고치기"));
+    const apply = main.slice(main.indexOf("async function applyInkMove"), main.indexOf("/* ---- 링크 고치기"));
     assert.match(apply, /const replace = els\.inkMoveReplace\?\.checked/);
     assert.match(apply, /replace \? items : \[\.\.\.\(state\.pages\[key\] \|\| \[\]\), \.\.\.items\]/);
     assert.match(apply, /commitBulkChange\(/, "and it all undoes in one go");
   });
 
   it("says what it moved and what it could not", () => {
-    const show = main.slice(main.indexOf("function showInkMovePlan"), main.indexOf("function applyInkMove"));
-    assert.match(show, /matchSummary\(plan\)/);
-    assert.match(show, /틀린 짝은 쪽 번호를 고치세요/);
+    assert.match(main, /summary: matchSummary\(plan\)/);
+    assert.match(main, /왼쪽에서 쪽을 고르고 오른쪽에서 갈 곳을 탭하세요/);
   });
 
   it("reads ink off the old document by the page it was on", () => {
@@ -228,7 +227,7 @@ describe("#202 배선", () => {
   const css = readFileSync(join(root, "src/style.css"), "utf8");
 
   it("falls back to the picture when the letters found nothing", () => {
-    const move = main.slice(main.indexOf("async function moveInkFrom"), main.indexOf("function showInkMovePlan"));
+    const move = main.slice(main.indexOf("async function moveInkFrom"), main.indexOf("async function renderOldMoveThumb"));
     assert.match(move, /const stillOpen = \[\.\.\.byText\.blank, \.\.\.byText\.missing\]/);
     assert.match(move, /matchByHash\(\{[\s\S]*?wanted: stillOpen/);
     assert.match(move, /mergeMatches\(byText, byImage\)/);
@@ -242,29 +241,70 @@ describe("#202 배선", () => {
     assert.match(print, /await new Promise\(\(resolve\) => window\.setTimeout\(resolve, 0\)\)/);
   });
 
-  it("shows both pages side by side and lets the pairing be corrected", () => {
-    const show = main.slice(main.indexOf("function showInkMovePlan"), main.indexOf("function applyInkMove"));
-    assert.match(show, /oldShot\.src = from\.thumbs\[row\.from\]/);
-    assert.match(show, /newShot\.src = to\.thumbs\[row\.to\]/);
-    assert.match(show, /input\.addEventListener\("input"/, "typing a page swaps the picture");
-    assert.match(show, /row\.to = Math\.max\(0, Math\.min\(to\.count, Number\(input\.value\) \|\| 0\)\)/);
-  });
-
   it("lists the pages it could not place, so they can be set by hand", () => {
-    const show = main.slice(main.indexOf("function showInkMovePlan"), main.indexOf("function applyInkMove"));
-    assert.match(show, /\.\.\.plan\.missing\.map\(\(page\) => \(\{ from: page, to: 0, sure: false \}\)\)/);
-    assert.match(show, /0이면 안 옮깁니다/);
+    assert.match(main, /plan\.missing\.map\(\(page\) => \(\{ from: page, to: 0, mode: "skip", sure: false \}\)\)/);
   });
 
   it("marks a guess so it gets looked at", () => {
-    const show = main.slice(main.indexOf("function showInkMovePlan"), main.indexOf("function applyInkMove"));
-    assert.match(show, /line\.classList\.add\("is-guess"\)/);
-    assert.match(css, /\.ink-move-row\.is-guess \{/);
+    assert.match(main, /card\.classList\.toggle\("is-guess", row\.sure === false/);
+    assert.match(css, /\.ink-move-card\.is-guess \{/);
   });
 
   it("offers replace as a choice, never as the default", () => {
     assert.match(html, /id="ink-move-replace"/);
     assert.doesNotMatch(html, /id="ink-move-replace"[^>]*checked/);
     assert.match(html, /기본은 더하기/);
+  });
+});
+
+describe("#204 양쪽 창", () => {
+  const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+  const main = readFileSync(join(root, "src/main.js"), "utf8");
+  const html = readFileSync(join(root, "index.html"), "utf8");
+  const css = readFileSync(join(root, "src/style.css"), "utf8");
+
+  it("puts the two documents side by side, each with its own scroll", () => {
+    assert.match(html, /id="ink-move-left"/);
+    assert.match(html, /id="ink-move-right"/);
+    assert.match(css, /\.ink-move-panes \{[\s\S]*?grid-template-columns: 1fr 1fr/);
+    assert.match(css, /\.ink-move-pane \{[\s\S]*?overflow-y: auto/);
+  });
+
+  it("draws the ink on both sides, or a blank note page is unrecognisable", () => {
+    const old = main.slice(main.indexOf("async function renderOldMoveThumb"), main.indexOf("async function renderNewMoveThumb"));
+    assert.match(old, /exportInkCanvas\(items, \{ width: canvas\.width, height: canvas\.height \}, base\.width\)/);
+    const now = main.slice(main.indexOf("async function renderNewMoveThumb"), main.indexOf("function watchMoveThumbs"));
+    assert.match(now, /paintThumbInk\(canvas, leaf\)/);
+  });
+
+  it("renders only what is on screen, and stops watching when the sheet closes", () => {
+    assert.match(main, /new IntersectionObserver/);
+    assert.match(main, /rootMargin: "160px"/);
+    assert.match(main, /watcher\.disconnect\(\)/);
+    assert.match(main, /inkMovePlan\.oldPdf\.destroy\(\)/, "the old document is let go too");
+  });
+
+  it("assigns by tapping: pick left, tap right, move on to the next unpaired", () => {
+    const assign = main.slice(main.indexOf("function assignMoveTarget"), main.indexOf("let inkMoveAssignMode"));
+    assert.match(assign, /row\.to = position/);
+    assert.match(assign, /row\.mode = inkMoveAssignMode/);
+    assert.match(assign, /inkMovePlan\.rows\.find\(\(one\) => one\.mode === "skip" \|\| !one\.to\)/);
+    assert.match(main, /먼저 왼쪽에서 옮길 쪽을 고르세요/);
+  });
+
+  it("scrolls the right pane to where the pick probably goes", () => {
+    const select = main.slice(main.indexOf("function selectMoveRow"), main.indexOf("function assignMoveTarget"));
+    assert.match(select, /row\.to \|\| row\.from/, "no proposal falls back to the same number");
+    assert.match(select, /scrollIntoView\(\{ block: "center" \}\)/);
+  });
+
+  it("can bring a page the old document added, picture and ink together", () => {
+    assert.match(html, /id="ink-move-mode-insert">탭한 쪽 뒤에 새 쪽/);
+    const payload = main.slice(main.indexOf("async function insertPayloadFor"), main.indexOf("async function applyInkMove"));
+    assert.match(payload, /locked: true/, "the page picture cannot be dragged off by accident");
+    const apply = main.slice(main.indexOf("async function applyInkMove"), main.indexOf("/* ---- 링크 고치기"));
+    assert.match(apply, /payloads\.sort\(\(a, b\) => b\.row\.to - a\.row\.to\)/, "back to front, so positions hold");
+    assert.match(apply, /insertOutlineAfter\(state\.leaves, payload\.row\.to - 1, id\)/);
+    assert.match(apply, /state\.pages\[id\] = \[payload\.image, \.\.\.payload\.items\]/);
   });
 });

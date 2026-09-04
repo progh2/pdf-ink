@@ -2212,50 +2212,100 @@ body {
   opacity: 0.55;
 }
 
-.ink-move-row {
+/*
+ * 양쪽 창 (#204). 왼쪽은 옛 문서의 필기 있는 쪽, 오른쪽은 지금 문서 전체.
+ * 각자 스크롤하고, 그림은 알아볼 수 있게 크게, 필기까지 얹어 그린다.
+ */
+.ink-move-sheet-card {
+  max-height: 94vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.ink-move-panes {
   display: grid;
-  grid-template-columns: auto auto auto 1fr auto;
-  align-items: center;
+  grid-template-columns: 1fr 1fr;
   gap: 8px;
-  padding: 6px;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+.ink-move-pane {
+  overflow-y: auto;
+  min-height: 40vh;
+  max-height: 58vh;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #faf8f2;
+}
+
+.ink-move-card {
+  display: grid;
+  gap: 4px;
+  padding: 8px;
+  border: 2px solid transparent;
   border-radius: 10px;
+  background: #fff;
+  font: inherit;
+  color: var(--title);
+  text-align: center;
 }
 
-/* 짐작으로 맞춘 줄은 눈에 띄어야 한다 — 사람이 확인하라는 뜻이다 (#202). */
-.ink-move-row.is-guess {
-  background: rgba(214, 158, 46, 0.1);
+.ink-move-card.is-selected {
+  border-color: #2f6f5e;
 }
 
-.ink-move-row.is-off {
-  opacity: 0.5;
+/* 짐작으로 맞춘 짝 — 사람이 확인하라는 표시. */
+.ink-move-card.is-guess {
+  background: rgba(214, 158, 46, 0.12);
 }
 
-.ink-move-thumb {
-  width: 44px;
+.ink-move-card.is-off {
+  opacity: 0.55;
+}
+
+.ink-move-shot {
+  width: 100%;
   height: auto;
-  max-height: 62px;
   border: 1px solid var(--line);
   border-radius: 4px;
   background: #fff;
-  object-fit: contain;
 }
 
-.ink-move-from {
+.ink-move-label {
   font-size: 13px;
   color: var(--muted);
-  white-space: nowrap;
 }
 
-.ink-move-row input {
-  width: 100%;
-  min-width: 56px;
-  height: 34px;
-  padding: 0 8px;
+.ink-move-target {
+  font-size: 12px;
+  color: #2f6f5e;
+}
+
+.ink-move-modebar {
+  display: flex;
+  gap: 6px;
+}
+
+.ink-move-modebar button {
+  flex: 1 1 0;
+  height: 36px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 10px;
   background: #fff;
-  color: var(--title);
   font: inherit;
+  font-size: 13px;
+  color: #5c574e;
+}
+
+.ink-move-modebar button.is-selected {
+  background: #2f6f5e;
+  border-color: #2f6f5e;
+  color: #fff;
 }
 
 .ink-move-mode {
