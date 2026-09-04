@@ -4,3 +4,6 @@ dist/
 .DS_Store
 *.local
 .vercel
+
+# 검사하려고 잠깐 둔 PDF는 저장소에 넣지 않는다 (#199).
+*.pdf
