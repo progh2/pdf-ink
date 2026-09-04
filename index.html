@@ -204,6 +204,7 @@
         <button type="button" data-more="bake">PDF에 굽기</button>
         <button type="button" data-more="saveas">다른 이름으로 저장</button>
         <button type="button" data-more="export">내보내기</button>
+        <button type="button" data-more="inkmove">필기 옮기기</button>
         <button type="button" data-more="settings" id="settings-btn">설정</button>
       </div>
 
@@ -371,6 +372,18 @@
         <div class="area-link-url-row">
           <input id="area-link-url" type="url" placeholder="https://" aria-label="웹 주소" />
           <button type="button" id="area-link-url-go">열기</button>
+        </div>
+      </div>
+
+      <div class="sheet" id="ink-move-sheet" hidden>
+        <button type="button" class="sheet-backdrop" id="ink-move-backdrop" aria-label="닫기"></button>
+        <div class="sheet-card" role="dialog" aria-labelledby="ink-move-title">
+          <h2 id="ink-move-title">필기 옮기기</h2>
+          <p class="ink-move-hint" id="ink-move-hint">
+            같은 자료의 다른 판에서 필기를 가져옵니다. 쪽에 적힌 글자로 같은 쪽을 찾습니다.
+          </p>
+          <div class="ink-move-docs" id="ink-move-docs"></div>
+          <button type="button" class="sheet-done" id="ink-move-done">닫기</button>
         </div>
       </div>
 

@@ -46,6 +46,7 @@ export const BAR_OVERFLOW_ITEMS = [
   "bake",
   "saveas",
   "export",
+  "inkmove",
 ];
 
 export const DOCK_POSITIONS = ["top", "bottom", "left", "right", "float"];

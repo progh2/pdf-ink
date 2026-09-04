@@ -148,6 +148,7 @@ describe("#56 GoodNotes 4 utility bar", () => {
       "bake",
       "saveas",
       "export",
+      "inkmove",
     ]);
     assert.doesNotMatch(more, /마스킹\(모자이크\)|data-more="mosaic"/);
     assert.doesNotMatch(more, /영역캡처/, "#110: 선택 칸이 겸한다");
