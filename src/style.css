@@ -175,7 +175,7 @@ body {
   pointer-events: none;
 }
 
-/* #119: 다른 PDF · 미리보기 · 보기/편집을 제목 왼편에 모은다. */
+/* #119 → #212: 다른 PDF·미리보기는 왼편, 보기/편집 자물쇠는 오른편(쪽 넘김 옆). */
 .write-top-start {
   position: relative;
   z-index: 1;
@@ -211,7 +211,7 @@ body {
   z-index: 1;
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 8px;
   margin-left: auto;
 }
 

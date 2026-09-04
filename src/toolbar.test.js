@@ -294,11 +294,14 @@ describe("#94 종이 여백", () => {
 describe("#119 헤더로 옮긴 미리보기·보기/편집", () => {
   const top = html.slice(html.indexOf('class="write-top"'), html.indexOf('class="write-body"'));
 
-  it("puts 다른 PDF · 미리보기 · 보기/편집 left of the title", () => {
+  it("puts 다른 PDF · 미리보기 left, 보기/편집 right beside the pager (#212)", () => {
     const start = top.slice(top.indexOf('class="write-top-start"'), top.indexOf('class="doc-title"'));
     assert.match(start, /id="other-pdf"/);
     assert.match(start, /id="preview-btn"/);
-    assert.match(start, /id="interact-btn"/);
+    assert.doesNotMatch(start, /id="interact-btn"/, "the lock moved right (#212)");
+    const end = top.slice(top.indexOf('class="write-top-end"'));
+    assert.match(end, /id="interact-btn"/);
+    assert.ok(end.indexOf('id="interact-btn"') < end.indexOf('class="page-pager"'), "lock, then the pager");
     // The title comes after the left group, the pager stays on the right.
     assert.ok(top.indexOf('id="preview-btn"') < top.indexOf('class="doc-title"'));
     assert.ok(top.indexOf('class="doc-title"') < top.indexOf('id="next-btn"'));
