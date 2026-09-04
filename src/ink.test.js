@@ -216,7 +216,9 @@ describe("#135 부드럽고 빠른 펜", () => {
 
   it("draws the stroke in progress on its own layer", () => {
     assert.match(main, /liveCanvas\.className = "live-canvas"/);
-    assert.match(main, /stage\.append\(pdfCanvas, underCanvas, inkCanvas, liveCanvas, overCanvas, maskCanvas\)/);
+    // The live layer sits above the ink and below the pinned images (#180 added
+    // the link hints on top; the canvas order below it must not move).
+    assert.match(main, /stage\.append\(pdfCanvas, underCanvas, inkCanvas, liveCanvas, overCanvas, maskCanvas(, linkLayer)?\)/);
     assert.match(main, /function drawLiveLayer[\s\S]*paintItem\(ctx, stroke, strokeScale\(view\), canvas\)/);
     // A full repaint always wipes the live layer, so nothing is drawn twice.
     assert.match(main, /function drawStrokesOn\(view, liveStroke = null\) \{\s*clearLiveLayer\(view\)/);

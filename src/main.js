@@ -1088,7 +1088,10 @@ function makeStage(pageNum) {
   underCanvas.className = "under-canvas";
   const overCanvas = document.createElement("canvas");
   overCanvas.className = "over-canvas";
-  stage.append(pdfCanvas, underCanvas, inkCanvas, liveCanvas, overCanvas, maskCanvas);
+  // #180: where the file's own links are. Percent boxes, so zoom needs no redraw.
+  const linkLayer = document.createElement("div");
+  linkLayer.className = "pdf-link-layer";
+  stage.append(pdfCanvas, underCanvas, inkCanvas, liveCanvas, overCanvas, maskCanvas, linkLayer);
   return {
     pageNum,
     stage,
@@ -1098,6 +1101,7 @@ function makeStage(pageNum) {
     maskCanvas,
     underCanvas,
     overCanvas,
+    linkLayer,
     rendered: false,
     token: 0,
   };
@@ -1307,6 +1311,7 @@ function acquireStage(pageNum) {
   pooled.stage.dataset.page = String(pageNum);
   pooled.rendered = false;
   pooled.token += 1;
+  clearPdfLinkHints(pooled);
   return pooled;
 }
 
@@ -1390,6 +1395,7 @@ async function renderVisiblePages() {
     jobs.push(renderPageView(view).then(() => cachePageView(view)));
   }
   await Promise.all(jobs);
+  refreshPdfLinkHints();
 }
 
 async function syncScrollWindow() {
@@ -1616,18 +1622,21 @@ async function showPageInPlace(pageNum) {
     view.pageNum = pageNum;
     view.stage.dataset.page = String(pageNum);
     view.rendered = false;
+    clearPdfLinkHints(view);
   }
   const cached = pageCache.get(pageViewCacheKey(view));
   if (cached && restorePageBitmap(view, cached)) {
     drawStrokesOn(view, state.drawing && state.drawPage === view.pageNum ? state.currentStroke : null);
     updateMarquee();
     updateAreaHits();
+    refreshPdfLinkHints();
     return;
   }
   await renderPageView(view);
   cachePageView(view);
   updateMarquee();
   updateAreaHits();
+  refreshPdfLinkHints();
 }
 
 function applyPreviewAfterPageChange() {
@@ -3491,6 +3500,60 @@ function pdfLinkAt(pageNum, x, y) {
     }
   }
   return best;
+}
+
+/**
+ * Shows where the file's links are (#180). Without this you had to guess.
+ * CSS reveals them only in 보기, because that is the only mode a tap follows
+ * them in. Boxes are in percent, so zoom and page resize cost nothing.
+ */
+async function paintPdfLinkHints(view) {
+  const layer = view?.linkLayer;
+  if (!layer) {
+    return;
+  }
+  const leaf = leafAt(state.leaves, view.pageNum);
+  const key = leaf && leaf.kind !== "outline" && state.pdf ? pdfLinkCacheKey(leaf.pdfPage, leaf.rotate) : "";
+  if (layer.dataset.key === key) {
+    return;
+  }
+  if (!key) {
+    layer.dataset.key = "";
+    layer.replaceChildren();
+    return;
+  }
+  const items = await loadPdfLinks(leaf);
+  // The view may have been handed another page while we waited.
+  const stillHere = leafAt(state.leaves, view.pageNum);
+  if (!stillHere || pdfLinkCacheKey(stillHere.pdfPage, stillHere.rotate) !== key) {
+    return;
+  }
+  layer.dataset.key = key;
+  layer.replaceChildren(
+    ...items.map((item) => {
+      const box = document.createElement("span");
+      box.className = "pdf-link-hint";
+      box.style.left = `${item.x * 100}%`;
+      box.style.top = `${item.y * 100}%`;
+      box.style.width = `${item.w * 100}%`;
+      box.style.height = `${item.h * 100}%`;
+      return box;
+    }),
+  );
+}
+
+/** A pooled stage must not show the last page's links while the new one draws. */
+function clearPdfLinkHints(view) {
+  if (view?.linkLayer) {
+    view.linkLayer.dataset.key = "";
+    view.linkLayer.replaceChildren();
+  }
+}
+
+function refreshPdfLinkHints() {
+  for (const view of state.pageViews || []) {
+    paintPdfLinkHints(view);
+  }
 }
 
 async function followPdfLink(link, fromPage) {
