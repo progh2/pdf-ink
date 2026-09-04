@@ -73,7 +73,7 @@ function declaredNames(source) {
 }
 
 describe("모듈 배선", () => {
-  it("calls no helper that a sibling module exports without importing it", () => {
+  it("uses no helper or constant that a sibling module exports without importing it", () => {
     const sources = new Map(files.map((name) => [name, read(name)]));
     const exportsByFile = new Map([...sources].map(([name, code]) => [name, exportedNames(code)]));
     const problems = [];
@@ -90,6 +90,12 @@ describe("모듈 배선", () => {
           }
           if (new RegExp(`(?<![.\\w"'\`])${exported}\\s*\\(`).test(code)) {
             problems.push(`${name}: ${exported}() (exported by ${other})`);
+            continue;
+          }
+          // A constant is used as a value, never called, so the check above
+          // never saw it — #178 shipped a build that would have thrown.
+          if (/^[A-Z][A-Z0-9_]*$/.test(exported) && new RegExp(`(?<![.\\w"'\`])${exported}(?![\\w])`).test(code)) {
+            problems.push(`${name}: ${exported} (exported by ${other})`);
           }
         }
       }

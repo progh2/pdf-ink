@@ -79,6 +79,7 @@ import {
   canCreateInk,
   isStrokePointer,
   normFromRect,
+  PAN_TAP_SLOP_PX,
   finishInkPoints,
   interactModeLabel,
   penButtonAction,
@@ -111,6 +112,14 @@ import {
   rotatePageLeaves,
   sortedIndexes,
 } from "./pageOps.js";
+import {
+  leafPositionForPdfPage,
+  normalizedLinkRect,
+  pagePositionForAction,
+  pdfLinkCacheKey,
+  pdfLinkItem,
+  pdfLinkTarget,
+} from "./pdfLinks.js";
 import {
   acceptAreaUrl,
   areaItem,
@@ -493,6 +502,8 @@ const els = {
 
 const state = {
   pdf: null,
+  // #178: 파일이 들고 온 링크. 쪽·회전별로 한 번만 읽는다.
+  pdfLinks: new Map(),
   identity: null,
   fileName: "",
   buffer: null,
@@ -1676,6 +1687,8 @@ async function showUploadScreen() {
   await renderRecents();
   stopThumbWarming();
   state.thumbPackKeys = null;
+  // #178: another file's links must not answer for this one.
+  state.pdfLinks = new Map();
   if (state.pdf) {
     await state.pdf.destroy();
     state.pdf = null;
@@ -1775,6 +1788,27 @@ function placeStamp(view, point) {
  * computer sees them. What the reader edited here wins: the file is only read
  * when this browser has nothing for that document.
  */
+/**
+ * A destination is either a name the file has to look up or an explicit array
+ * whose first entry is a page reference. Used by the table of contents (#145)
+ * and by the file's own links (#178).
+ */
+async function pdfPageOfDest(dest, pdf = state.pdf) {
+  if (!pdf || dest === null || dest === undefined) {
+    return 0;
+  }
+  try {
+    const explicit = typeof dest === "string" ? await pdf.getDestination(dest) : dest;
+    const ref = explicit?.[0];
+    if (!ref) {
+      return 0;
+    }
+    return (await pdf.getPageIndex(ref)) + 1;
+  } catch {
+    return 0;
+  }
+}
+
 async function importPdfOutline(pdf) {
   let items = null;
   try {
@@ -1785,18 +1819,7 @@ async function importPdfOutline(pdf) {
   if (!items?.length) {
     return;
   }
-  const pageOfDest = async (dest) => {
-    try {
-      const explicit = typeof dest === "string" ? await pdf.getDestination(dest) : dest;
-      const ref = explicit?.[0];
-      if (!ref) {
-        return 0;
-      }
-      return (await pdf.getPageIndex(ref)) + 1;
-    } catch {
-      return 0;
-    }
-  };
+  const pageOfDest = (dest) => pdfPageOfDest(dest, pdf);
   if (!state.outline.length) {
     const entries = [];
     for (const item of flattenOutlineItems(items)) {
@@ -1825,6 +1848,7 @@ async function openPdfBuffer(buffer, { identity, name, page = 1, handle = null }
     state.driveDoc = null;
     state.driveSidecarId = "";
   }
+  state.pdfLinks = new Map();
   if (state.pdf) {
     await state.pdf.destroy();
     state.pdf = null;
@@ -3403,6 +3427,124 @@ async function renderAreaLinkDocs() {
     });
     els.areaLinkDocs.append(btn);
   }
+}
+
+/**
+ * The links the file came with, read once per page and rotation (#178).
+ * They are not ours to edit, so they live beside the ink, not in it.
+ */
+async function loadPdfLinks(leaf) {
+  if (!state.pdf || !leaf || leaf.kind === "outline") {
+    return [];
+  }
+  const key = pdfLinkCacheKey(leaf.pdfPage, leaf.rotate);
+  const cached = state.pdfLinks.get(key);
+  if (cached) {
+    return cached;
+  }
+  let items = [];
+  try {
+    const page = await state.pdf.getPage(leaf.pdfPage);
+    const rotation = ((page.rotate || 0) + (leaf.rotate || 0)) % 360;
+    const viewport = page.getViewport({ scale: 1, rotation });
+    const annotations = await page.getAnnotations({ intent: "display" });
+    for (const annotation of annotations || []) {
+      const target = pdfLinkTarget(annotation);
+      if (!target) {
+        continue;
+      }
+      const box = normalizedLinkRect(
+        viewport.convertToViewportRectangle(annotation.rect),
+        viewport.width,
+        viewport.height,
+      );
+      const item = pdfLinkItem(box, target);
+      if (item) {
+        items.push(item);
+      }
+    }
+  } catch {
+    // A file with broken annotations still reads fine; it just has no links.
+    items = [];
+  }
+  state.pdfLinks.set(key, items);
+  return items;
+}
+
+/** Which link, if any, sits under a tap on this page. Smallest wins if they overlap. */
+function pdfLinkAt(pageNum, x, y) {
+  const leaf = leafAt(state.leaves, pageNum);
+  if (!leaf) {
+    return null;
+  }
+  const items = state.pdfLinks.get(pdfLinkCacheKey(leaf.pdfPage, leaf.rotate));
+  if (!items?.length) {
+    return null;
+  }
+  let best = null;
+  for (const item of items) {
+    if (x < item.x || x > item.x + item.w || y < item.y || y > item.y + item.h) {
+      continue;
+    }
+    if (!best || item.w * item.h < best.w * best.h) {
+      best = item;
+    }
+  }
+  return best;
+}
+
+async function followPdfLink(link, fromPage) {
+  if (link?.kind === "url") {
+    // A document does not get to decide what our tab does.
+    window.open(link.href, "_blank", "noopener,noreferrer");
+    return true;
+  }
+  if (link?.kind === "action") {
+    const at = pagePositionForAction(link.action, fromPage, state.pageCount);
+    if (at && at !== fromPage) {
+      await goToPage(at);
+    }
+    return true;
+  }
+  if (link?.kind !== "dest") {
+    return false;
+  }
+  const pdfPage = await pdfPageOfDest(link.dest);
+  const at = leafPositionForPdfPage(state.leaves, pdfPage);
+  if (!at) {
+    notice("이 링크가 가리키는 쪽이 문서에 없습니다");
+    return true;
+  }
+  if (at !== fromPage) {
+    await goToPage(at);
+  }
+  return true;
+}
+
+/**
+ * A tap in 보기 mode follows the file's own links. In 편집 mode the same tap
+ * is a pen mark, so links stay out of the way while writing.
+ */
+async function followPdfLinkAtClient(client) {
+  if (state.interactMode !== "view" || !state.pdf) {
+    return false;
+  }
+  const stage = document.elementFromPoint(client.x, client.y)?.closest?.(".page-stage");
+  if (!stage) {
+    return false;
+  }
+  const pageNum = Number(stage.dataset.page) || 0;
+  const leaf = leafAt(state.leaves, pageNum);
+  if (!pageNum || !leaf) {
+    return false;
+  }
+  await loadPdfLinks(leaf);
+  const box = stage.getBoundingClientRect();
+  const hit = pdfLinkAt(pageNum, (client.x - box.left) / (box.width || 1), (client.y - box.top) / (box.height || 1));
+  if (!hit) {
+    return false;
+  }
+  return followPdfLink(hit.link, pageNum);
 }
 
 function updateAreaHits() {
@@ -7546,6 +7688,11 @@ function startPan(event) {
     type: "pan",
     lastX: event.clientX,
     lastY: event.clientY,
+    // #178: a pan that never really moved was a tap, and a tap may be a link.
+    downX: event.clientX,
+    downY: event.clientY,
+    moved: 0,
+    target: event.target,
   };
   try {
     els.workspace.setPointerCapture(event.pointerId);
@@ -7563,6 +7710,10 @@ function movePan(event) {
   const dy = event.clientY - gesture.lastY;
   gesture.lastX = event.clientX;
   gesture.lastY = event.clientY;
+  gesture.moved = Math.max(
+    gesture.moved || 0,
+    Math.hypot(event.clientX - (gesture.downX ?? event.clientX), event.clientY - (gesture.downY ?? event.clientY)),
+  );
   if (state.viewMode === "scroll") {
     els.workspace.scrollLeft -= dx;
     els.workspace.scrollTop -= dy;
@@ -7691,6 +7842,7 @@ function onWorkspacePointerUp(event) {
     return;
   }
   if (gesture?.type === "pan") {
+    const tapped = (gesture.moved || 0) <= PAN_TAP_SLOP_PX && event.type !== "pointercancel";
     gesture = null;
     if (event.pointerId != null) {
       try {
@@ -7698,6 +7850,9 @@ function onWorkspacePointerUp(event) {
       } catch {
         // already released
       }
+    }
+    if (tapped) {
+      followPdfLinkAtClient({ x: event.clientX, y: event.clientY });
     }
     return;
   }
