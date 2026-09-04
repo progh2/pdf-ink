@@ -1,4 +1,4 @@
-import { PDFDocument, PDFHexString, PDFName, degrees } from "pdf-lib";
+import { PDFDocument, PDFHexString, PDFName, PDFNull, PDFString, degrees } from "pdf-lib";
 import { BOOKMARK_GROUP_TITLE, bookmarkTitle, hasOutlineContent } from "./pdfOutline.js";
 import { normalizeRotation } from "./rotate.js";
 
@@ -77,10 +77,68 @@ export function viewSize(rotation, widthPt, heightPt) {
  * `renderRaster(leaf, { width, height })` returns a flattened page PNG,
  * both may return null when there is nothing to draw.
  */
+/**
+ * Links the file came with, written fresh onto the copied page (#184).
+ *
+ * pdf-lib's `copyPages` follows a destination's page reference and copies that
+ * page too — into an object that is not in the new page tree. The link survives
+ * but lands somewhere else, which is why every inside-the-document link was
+ * broken after 굽기 while web links were fine. So: drop what was copied, and
+ * write our own, pointing at the page that is really there now.
+ */
+function relinkPage(out, page, links, pageRefAt) {
+  const context = out.context;
+  const annots = page.node.Annots();
+  const kept = [];
+  if (annots) {
+    for (const entry of annots.asArray()) {
+      const dict = context.lookup(entry);
+      const subtype = dict?.get?.(PDFName.of("Subtype"));
+      if (String(subtype) !== "/Link") {
+        kept.push(entry);
+      }
+    }
+  }
+  for (const link of links || []) {
+    const rect = Array.isArray(link?.rect) ? link.rect.map(Number) : null;
+    if (!rect || rect.length !== 4 || !rect.every(Number.isFinite)) {
+      continue;
+    }
+    const shape = {
+      Type: "Annot",
+      Subtype: "Link",
+      Rect: rect,
+      Border: [0, 0, 0],
+      F: 4,
+    };
+    if (link.url) {
+      shape.A = context.obj({ Type: "Action", S: "URI", URI: PDFString.of(String(link.url)) });
+    } else {
+      const ref = pageRefAt(link.page);
+      if (!ref) {
+        continue;
+      }
+      const view = Array.isArray(link.view) && link.view.length ? link.view : ["Fit"];
+      shape.Dest = context.obj([
+        ref,
+        PDFName.of(String(view[0])),
+        ...view.slice(1).map((value) => (Number.isFinite(Number(value)) && value !== null ? Number(value) : PDFNull)),
+      ]);
+    }
+    kept.push(context.register(context.obj(shape)));
+  }
+  if (kept.length) {
+    page.node.set(PDFName.of("Annots"), context.obj(kept));
+  } else if (annots) {
+    page.node.delete(PDFName.of("Annots"));
+  }
+}
+
 export async function buildAnnotatedPdf({
   buffer,
   leaves,
   strokesOf,
+  linksOf,
   renderOverlay,
   renderRaster,
   outline = [],
@@ -137,6 +195,17 @@ export async function buildAnnotatedPdf({
     }
     const image = await out.embedPng(png);
     page.drawImage(image, overlayPlacementArgs(rotation, size.width, size.height));
+  }
+  if (linksOf) {
+    // Second pass: every page exists now, so a destination can name a real one.
+    const pages = out.getPages();
+    const pageRefAt = (position) => pages[Math.trunc(Number(position)) - 1]?.ref || null;
+    plans.forEach((plan, order) => {
+      if (!plan.copied || plan.flatten) {
+        return;
+      }
+      relinkPage(out, pages[order], linksOf(plan.leaf) || [], pageRefAt);
+    });
   }
   setPdfOutline(out, outline, bookmarkPages);
   return out.save();

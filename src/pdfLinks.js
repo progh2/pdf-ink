@@ -117,3 +117,27 @@ export function pdfLinkItem(box, target) {
 export function pdfLinkCacheKey(pdfPage, rotate) {
   return `${Math.trunc(Number(pdfPage)) || 0}:${Math.trunc(Number(rotate)) || 0}`;
 }
+
+/**
+ * How a destination wants the page shown (`/XYZ x y zoom`, `/Fit`, …).
+ * Kept so a rewritten link lands on the same spot, not just the same page.
+ */
+export function destView(explicit) {
+  const rest = Array.isArray(explicit) ? explicit.slice(1) : [];
+  const first = rest[0];
+  const name = typeof first === "string" ? first : first?.name;
+  if (typeof name !== "string" || !name) {
+    return ["Fit"];
+  }
+  return [name, ...rest.slice(1).map((value) => (Number.isFinite(Number(value)) && value !== null ? Number(value) : null))];
+}
+
+/** A rectangle in the page's own coordinates, as the file wrote it. */
+export function pdfSpaceRect(rect) {
+  const list = Array.isArray(rect) ? rect.map(Number) : [];
+  if (list.length < 4 || !list.every(Number.isFinite)) {
+    return null;
+  }
+  const box = [Math.min(list[0], list[2]), Math.min(list[1], list[3]), Math.max(list[0], list[2]), Math.max(list[1], list[3])];
+  return box[2] - box[0] > 0 && box[3] - box[1] > 0 ? box : null;
+}
