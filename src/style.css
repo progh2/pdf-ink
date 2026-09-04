@@ -2211,3 +2211,72 @@ body {
 .ink-move-doc[disabled] {
   opacity: 0.55;
 }
+
+.ink-move-row {
+  display: grid;
+  grid-template-columns: auto auto auto 1fr auto;
+  align-items: center;
+  gap: 8px;
+  padding: 6px;
+  border-radius: 10px;
+}
+
+/* 짐작으로 맞춘 줄은 눈에 띄어야 한다 — 사람이 확인하라는 뜻이다 (#202). */
+.ink-move-row.is-guess {
+  background: rgba(214, 158, 46, 0.1);
+}
+
+.ink-move-row.is-off {
+  opacity: 0.5;
+}
+
+.ink-move-thumb {
+  width: 44px;
+  height: auto;
+  max-height: 62px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: #fff;
+  object-fit: contain;
+}
+
+.ink-move-from {
+  font-size: 13px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.ink-move-row input {
+  width: 100%;
+  min-width: 56px;
+  height: 34px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--title);
+  font: inherit;
+}
+
+.ink-move-mode {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #5c574e;
+}
+
+.ink-move-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.ink-move-apply {
+  flex: 1 1 auto;
+  height: 40px;
+  border-radius: 12px;
+  background: #2f6f5e;
+  color: #fff;
+  border: 0;
+  font: inherit;
+}
