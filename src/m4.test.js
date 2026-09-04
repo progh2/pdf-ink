@@ -49,6 +49,7 @@ describe("M4 #31 chrome", () => {
       "bake",
       "saveas",
       "export",
+      "inkmove",
     ]);
     assert.match(toolbar, /id="undo-btn"/);
     assert.doesNotMatch(toolbar, /책갈피|이미지|회전/);

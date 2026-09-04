@@ -255,8 +255,10 @@ export const M4_OVERFLOW_ITEMS = [
   "bake",
   "saveas",
   "export",
+  "inkmove",
 ];
 export const M4_OVERFLOW_LABELS = {
+  inkmove: "필기 옮기기",
   capture: "영역캡처",
   fullscreen: "전체화면",
   image: "이미지",

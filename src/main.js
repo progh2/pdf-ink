@@ -114,6 +114,7 @@ import {
   rotatePageLeaves,
   sortedIndexes,
 } from "./pageOps.js";
+import { matchPages, matchSummary, textFingerprint } from "./pageMatch.js";
 import {
   anchorLinkFixes,
   clearLinkFix,
@@ -407,6 +408,11 @@ const els = {
   splitStage: document.querySelector("#split-stage"),
   areaLayer: document.querySelector("#area-layer"),
   areaLinkPanel: document.querySelector("#area-link-panel"),
+  inkMoveSheet: document.querySelector("#ink-move-sheet"),
+  inkMoveBackdrop: document.querySelector("#ink-move-backdrop"),
+  inkMoveHint: document.querySelector("#ink-move-hint"),
+  inkMoveDocs: document.querySelector("#ink-move-docs"),
+  inkMoveDone: document.querySelector("#ink-move-done"),
   linkFixPanel: document.querySelector("#link-fix-panel"),
   linkFixOrigin: document.querySelector("#link-fix-origin"),
   linkFixPage: document.querySelector("#link-fix-page"),
@@ -3807,6 +3813,151 @@ async function followPdfLink(link, fromPage) {
     await goToPage(at);
   }
   return true;
+}
+
+/* ---- 필기 옮기기 (#200) ---------------------------------------------- */
+
+/** 이 브라우저가 들고 있는 그 PDF의 쪽마다 글자 지문. */
+async function fingerprintsOf(buffer, pages = null) {
+  const pdf = await pdfjsLib.getDocument({ data: buffer.slice(0) }).promise;
+  const prints = {};
+  const list = pages || Array.from({ length: pdf.numPages }, (_, at) => at + 1);
+  for (const number of list) {
+    if (number < 1 || number > pdf.numPages) {
+      continue;
+    }
+    try {
+      const text = (await (await pdf.getPage(number)).getTextContent()).items.map((item) => item.str).join("");
+      prints[number] = textFingerprint(text);
+    } catch {
+      prints[number] = "";
+    }
+  }
+  const count = pdf.numPages;
+  await pdf.destroy();
+  return { prints, count };
+}
+
+/** 옛 문서에서 필기가 있는 쪽. 손댄 쪽만 맞추면 되므로 여기서 추린다. */
+function inkedPagesOf(record) {
+  const leaves = Array.isArray(record?.leaves) ? record.leaves : [];
+  const pages = new Set();
+  for (const [key, items] of Object.entries(record?.pages || {})) {
+    if (!Array.isArray(items) || !items.length) {
+      continue;
+    }
+    const leaf = leaves.find((row) => String(inkKey(row)) === String(key));
+    const at = leaf ? Number(leaf.pdfPage) : Number(key);
+    if (leaf?.kind === "outline") {
+      continue;
+    }
+    if (Number.isFinite(at) && at >= 1) {
+      pages.add(at);
+    }
+  }
+  return [...pages].sort((a, b) => a - b);
+}
+
+function inkItemsForPage(record, pdfPage) {
+  const leaves = Array.isArray(record?.leaves) ? record.leaves : [];
+  const out = [];
+  for (const [key, items] of Object.entries(record?.pages || {})) {
+    if (!Array.isArray(items) || !items.length) {
+      continue;
+    }
+    const leaf = leaves.find((row) => String(inkKey(row)) === String(key));
+    const at = leaf ? Number(leaf.pdfPage) : Number(key);
+    if (leaf?.kind !== "outline" && at === pdfPage) {
+      out.push(...cloneItems(items));
+    }
+  }
+  return out;
+}
+
+function closeInkMove() {
+  if (els.inkMoveSheet) {
+    els.inkMoveSheet.hidden = true;
+  }
+}
+
+async function openInkMove() {
+  if (!els.inkMoveSheet || !state.pdf) {
+    flashBanner("먼저 PDF를 여세요.");
+    return;
+  }
+  els.inkMoveDocs.replaceChildren();
+  els.inkMoveSheet.hidden = false;
+  els.inkMoveHint.textContent = "같은 자료의 다른 판에서 필기를 가져옵니다. 쪽에 적힌 글자로 같은 쪽을 찾습니다.";
+  let rows = [];
+  try {
+    rows = await listDocuments();
+  } catch {
+    rows = [];
+  }
+  const others = rows.filter((row) => row.identity !== state.identity);
+  if (!others.length) {
+    els.inkMoveHint.textContent = "이 브라우저가 아는 다른 문서가 없습니다.";
+    return;
+  }
+  for (const row of others) {
+    const record = loadStrokes(row.identity);
+    const inked = inkedPagesOf(record);
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "ink-move-doc";
+    button.disabled = !inked.length;
+    button.append(row.name || "문서.pdf");
+    const note = document.createElement("small");
+    note.textContent = inked.length ? `필기가 있는 쪽 ${inked.length}개` : "옮길 필기가 없습니다";
+    button.append(note);
+    button.addEventListener("click", () => moveInkFrom(row, record, inked));
+    els.inkMoveDocs.append(button);
+  }
+}
+
+/**
+ * 옛 문서의 필기를 지금 문서의 **같은 쪽**에 얹는다. 쪽 번호가 아니라 쪽에
+ * 적힌 글자로 찾으므로, 판이 달라 쪽 수가 안 맞아도 제자리를 찾는다.
+ * 있던 필기는 지우지 않고 그 위에 더한다.
+ */
+async function moveInkFrom(row, record, inked) {
+  els.inkMoveHint.textContent = "같은 쪽을 찾는 중…";
+  let plan;
+  try {
+    const from = await fingerprintsOf(row.buffer, inked);
+    const to = await fingerprintsOf(state.buffer);
+    plan = matchPages({
+      fromPrints: from.prints,
+      toPrints: to.prints,
+      wanted: inked,
+      fromCount: from.count,
+      toCount: to.count,
+    });
+  } catch {
+    els.inkMoveHint.textContent = "그 문서를 읽지 못했습니다.";
+    return;
+  }
+  if (!plan.pairs.length) {
+    els.inkMoveHint.textContent = "같은 쪽을 하나도 찾지 못했습니다. 글자가 없는 문서라면 이 방법으로는 못 옮깁니다.";
+    return;
+  }
+  let moved = 0;
+  commitBulkChange(() => {
+    for (const pair of plan.pairs) {
+      const items = inkItemsForPage(record, pair.from);
+      const leaf = state.leaves.find((one) => one.kind !== "outline" && Number(one.pdfPage) === pair.to);
+      if (!items.length || !leaf) {
+        continue;
+      }
+      const key = inkKey(leaf);
+      state.pages[key] = [...(state.pages[key] || []), ...items];
+      moved += 1;
+    }
+  });
+  persistStrokes();
+  await rebuildPages();
+  closeInkMove();
+  flashBanner(`${moved}쪽을 옮겼습니다 · ${matchSummary(plan)}`, 5200);
 }
 
 /* ---- 링크 고치기 (#190) ---------------------------------------------- */
@@ -8097,6 +8248,12 @@ function selectMoreAction(action) {
     exportDocument();
     return;
   }
+  if (action === "inkmove") {
+    closeMorePanel();
+    ignoreAfterPanel = true;
+    openInkMove();
+    return;
+  }
   if (action === "settings") {
     closeMorePanel();
     ignoreAfterPanel = true;
@@ -8972,6 +9129,8 @@ els.interactBtn.addEventListener("click", () => {
 });
 bindUndoHold(els.undoBtn, { onUndo: undoInk, onRedo: redoInk });
 bindLinkFixPanel();
+els.inkMoveDone?.addEventListener("click", closeInkMove);
+els.inkMoveBackdrop?.addEventListener("click", closeInkMove);
 els.redoBtn.addEventListener("click", (event) => {
   event.preventDefault();
   event.stopPropagation();
