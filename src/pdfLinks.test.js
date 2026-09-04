@@ -292,7 +292,8 @@ describe("#186 배선", () => {
 
   it("uses the page index instead of asking pdf.js to resolve it", () => {
     const resolve = main.slice(main.indexOf("async function pdfPageOfDest"), main.indexOf("async function exportLinksForLeaf"));
-    assert.match(resolve, /destTarget\(await explicitDest\(dest, pdf\)\)/);
+    assert.match(resolve, /return pageOfExplicitDest\(await explicitDest\(dest, pdf\), pdf\)/);
+    assert.match(resolve, /destTarget\(explicit\)/);
     assert.match(resolve, /target\.kind === "index"/);
     assert.match(resolve, /target\.page <= \(pdf\?\.numPages \|\| 0\)/, "a page the file does not have is still nothing");
     assert.match(resolve, /getPageIndex\(target\.ref\)/);
@@ -352,5 +353,33 @@ describe("#188 배선", () => {
     const scan = main.slice(main.indexOf("async function pageOfRefByScan"), main.indexOf("async function pdfPageOfDest"));
     assert.match(scan, /count > PAGE_REF_SCAN_LIMIT/, "a huge file is not scanned page by page");
     assert.match(scan, /Number\(page\.ref\.num\) === Number\(ref\.num\)/);
+  });
+});
+
+describe("#198 이름 목적지를 문서마다 한 번만 찾는다", () => {
+  const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+  const main = readFileSync(join(root, "src/main.js"), "utf8");
+
+  it("remembers a name it has already looked up", () => {
+    const resolve = main.slice(main.indexOf("async function explicitDest"), main.indexOf("async function pdfPageOfDest"));
+    assert.match(resolve, /if \(mine && state\.destCache\.has\(dest\)\) \{\s*return state\.destCache\.get\(dest\);/);
+    assert.match(resolve, /state\.destCache\.set\(dest, found\)/);
+  });
+
+  it("does not look up something that is already an answer", () => {
+    const resolve = main.slice(main.indexOf("async function explicitDest"), main.indexOf("async function pdfPageOfDest"));
+    assert.match(resolve, /if \(typeof dest !== "string"\) \{\s*return dest;/);
+  });
+
+  it("only trusts the cache for the document it belongs to", () => {
+    const resolve = main.slice(main.indexOf("async function explicitDest"), main.indexOf("async function pdfPageOfDest"));
+    assert.match(resolve, /const mine = pdf === state\.pdf/);
+    assert.equal((main.match(/state\.destCache = new Map\(\)/g) || []).length, 2, "both paths that swap the file");
+  });
+
+  it("resolves a link once when baking, not twice", () => {
+    const build = main.slice(main.indexOf("async function exportLinksForLeaf"), main.indexOf("async function exportLinkMap"));
+    assert.equal((build.match(/await explicitDest\(/g) || []).length, 1);
+    assert.match(build, /await pageOfExplicitDest\(explicit\)/);
   });
 });
