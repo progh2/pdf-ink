@@ -119,6 +119,27 @@ export function pdfLinkCacheKey(pdfPage, rotate) {
 }
 
 /**
+ * What a destination's first entry points at (#186).
+ *
+ * Normally it is an indirect reference to a page object, and pdf.js turns that
+ * into a page number for us. But the format also allows a **plain page index**,
+ * and some writers use it — `pdf.getPageIndex()` refuses those ("Invalid
+ * pageIndex request"), which is how a whole document's inside links went dead
+ * while its web links were fine.
+ */
+export function destTarget(explicit) {
+  const first = Array.isArray(explicit) ? explicit[0] : null;
+  if (Number.isInteger(first)) {
+    // Zero-based in the file, one-based everywhere in this app.
+    return { kind: "index", page: first + 1 };
+  }
+  if (first && typeof first === "object") {
+    return { kind: "ref", ref: first };
+  }
+  return null;
+}
+
+/**
  * How a destination wants the page shown (`/XYZ x y zoom`, `/Fit`, …).
  * Kept so a rewritten link lands on the same spot, not just the same page.
  */

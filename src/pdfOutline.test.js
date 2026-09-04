@@ -76,8 +76,11 @@ describe("#145 배선", () => {
   it("reads the file's outline when opening", () => {
     assert.match(main, /await importPdfOutline\(pdf\)/);
     assert.match(main, /pdf\.getOutline\(\)/);
-    assert.match(main, /await pdf\.getPageIndex\(ref\)/);
+    // #186: the same resolver, so a table of contents written with plain page
+    // indexes reads too.
+    assert.match(main, /await pdf\.getPageIndex\(target\.ref\)/);
     assert.match(main, /getDestination\(dest\)/);
+    assert.match(main, /const pageOfDest = \(dest\) => pdfPageOfDest\(dest, pdf\)/);
   });
 
   it("lets what the reader edited here win", () => {

@@ -2,6 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { PDFDocument, PDFName, PDFNumber, PDFString } from "pdf-lib";
 import { buildAnnotatedPdf } from "./exportPdf.js";
+import { destTarget, destView } from "./pdfLinks.js";
 
 /**
  * A real round trip, because this bug was invisible to every unit test (#184):
@@ -116,5 +117,44 @@ describe("#184 구운 PDF의 페이지 간 참조", () => {
     const leaves = [{ id: "a", kind: "pdf", pdfPage: 1, rotate: 0 }];
     const after = await readLinks(await bake(buffer, leaves, undefined));
     assert.equal(after.links.length, 2, "예전 동작 그대로");
+  });
+});
+
+describe("#186 쪽 번호로 적힌 목적지", () => {
+  it("resolves a destination that names a page index, and baking rewrites it as a reference", async () => {
+    const doc = await PDFDocument.create();
+    const first = doc.addPage([600, 800]);
+    doc.addPage([600, 800]);
+    const context = doc.context;
+    // 첫 항목이 참조가 아니라 정수 1(0부터 세므로 2쪽)이다.
+    first.node.set(
+      PDFName.of("Annots"),
+      context.obj([
+        context.obj({
+          Type: "Annot",
+          Subtype: "Link",
+          Rect: [50, 700, 300, 730],
+          Dest: [PDFNumber.of(1), PDFName.of("XYZ"), PDFNumber.of(0), PDFNumber.of(800), PDFNumber.of(0)],
+        }),
+      ]),
+    );
+    const buffer = new Uint8Array(await doc.save());
+
+    const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+    const read = await pdfjs.getDocument({ data: Uint8Array.from(buffer) }).promise;
+    const [link] = await (await read.getPage(1)).getAnnotations({ intent: "display" });
+    const target = destTarget(link.dest);
+    assert.deepEqual(target, { kind: "index", page: 2 }, "pdf.js hands us a number, not a reference");
+    await assert.rejects(() => read.getPageIndex(link.dest[0]), "and refuses to look it up itself");
+
+    const leaves = [
+      { id: "a", kind: "pdf", pdfPage: 1, rotate: 0 },
+      { id: "b", kind: "pdf", pdfPage: 2, rotate: 0 },
+    ];
+    const baked = await readLinks(
+      await bake(buffer, leaves, (leaf) =>
+        leaf.pdfPage === 1 ? [{ rect: [50, 700, 300, 730], page: target.page, view: destView(link.dest) }] : []),
+    );
+    assert.deepEqual(baked.links.map((item) => item.to), [2], "굽고 나면 참조로 제대로 적힌다");
   });
 });
