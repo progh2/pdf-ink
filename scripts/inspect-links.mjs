@@ -7,6 +7,7 @@
  * 안쪽 링크가 → 로 쪽 번호를 못 보여 주면 그 파일 자체가 끊겨 있는 것이다.
  */
 import { readFileSync } from "node:fs";
+import { destTarget } from "../src/pdfLinks.js";
 
 const file = process.argv[2];
 if (!file) {
@@ -38,9 +39,14 @@ for (let number = 1; number <= pdf.numPages; number += 1) {
     }
     try {
       const explicit = typeof link.dest === "string" ? await pdf.getDestination(link.dest) : link.dest;
-      const at = (await pdf.getPageIndex(explicit?.[0])) + 1;
+      const target = destTarget(explicit);
+      if (!target) {
+        throw new Error("목적지가 비었다");
+      }
+      const at = target.kind === "index" ? target.page : (await pdf.getPageIndex(target.ref)) + 1;
       inside += 1;
-      console.log(`  ${number}쪽 → ${at}쪽  ${typeof link.dest === "string" ? `(이름: ${link.dest})` : ""}`);
+      const how = target.kind === "index" ? "(쪽 번호로 적힌 링크)" : typeof link.dest === "string" ? `(이름: ${link.dest})` : "";
+      console.log(`  ${number}쪽 → ${at}쪽  ${how}`);
     } catch (error) {
       broken += 1;
       console.log(`  ${number}쪽 → 끊김: ${error?.message}`);

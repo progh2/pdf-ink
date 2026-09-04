@@ -113,6 +113,7 @@ import {
   sortedIndexes,
 } from "./pageOps.js";
 import {
+  destTarget,
   destView,
   leafPositionForPdfPage,
   normalizedLinkRect,
@@ -1819,13 +1820,16 @@ async function explicitDest(dest, pdf = state.pdf) {
 }
 
 async function pdfPageOfDest(dest, pdf = state.pdf) {
-  const explicit = await explicitDest(dest, pdf);
-  const ref = explicit?.[0];
-  if (!ref) {
+  const target = destTarget(await explicitDest(dest, pdf));
+  if (!target) {
     return 0;
   }
+  if (target.kind === "index") {
+    // Already a page number; pdf.js would only refuse to look it up (#186).
+    return target.page >= 1 && target.page <= (pdf?.numPages || 0) ? target.page : 0;
+  }
   try {
-    return (await pdf.getPageIndex(ref)) + 1;
+    return (await pdf.getPageIndex(target.ref)) + 1;
   } catch {
     return 0;
   }

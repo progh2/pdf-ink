@@ -11,6 +11,7 @@ import {
   pdfLinkCacheKey,
   pdfLinkItem,
   pdfLinkTarget,
+  destTarget,
   destView,
   pdfSpaceRect,
 } from "./pdfLinks.js";
@@ -243,5 +244,50 @@ describe("#184 구울 때 링크를 다시 잇기", () => {
     assert.deepEqual(pdfSpaceRect([300, 700, 50, 640]), [50, 640, 300, 700]);
     assert.equal(pdfSpaceRect([50, 640, 50, 700]), null, "no width");
     assert.equal(pdfSpaceRect([50, 640, 300]), null);
+  });
+});
+
+describe("#186 목적지가 쪽 번호로 적힌 링크", () => {
+  it("reads a page reference, as most files write it", () => {
+    assert.deepEqual(destTarget([{ num: 5, gen: 0 }, { name: "Fit" }]), {
+      kind: "ref",
+      ref: { num: 5, gen: 0 },
+    });
+  });
+
+  it("reads a plain page index too — pdf.js refuses to look those up", () => {
+    assert.deepEqual(destTarget([1, { name: "XYZ" }, 0, 800, 0]), { kind: "index", page: 2 });
+  });
+
+  it("counts from zero the way the file does", () => {
+    assert.deepEqual(destTarget([0, { name: "Fit" }]), { kind: "index", page: 1 });
+  });
+
+  it("does not take a number that is not a whole page", () => {
+    assert.equal(destTarget([1.5, { name: "Fit" }]), null);
+    assert.equal(destTarget(["1", { name: "Fit" }]), null);
+  });
+
+  it("says nothing when there is no destination at all", () => {
+    assert.equal(destTarget(null), null);
+    assert.equal(destTarget([]), null);
+    assert.equal(destTarget([null]), null);
+  });
+
+  it("keeps the view whichever form the destination took", () => {
+    assert.deepEqual(destView([1, { name: "XYZ" }, 0, 800, 0]), ["XYZ", 0, 800, 0]);
+  });
+});
+
+describe("#186 배선", () => {
+  const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+  const main = readFileSync(join(root, "src/main.js"), "utf8");
+
+  it("uses the page index instead of asking pdf.js to resolve it", () => {
+    const resolve = main.slice(main.indexOf("async function pdfPageOfDest"), main.indexOf("async function exportLinksForLeaf"));
+    assert.match(resolve, /destTarget\(await explicitDest\(dest, pdf\)\)/);
+    assert.match(resolve, /target\.kind === "index"/);
+    assert.match(resolve, /target\.page <= \(pdf\?\.numPages \|\| 0\)/, "a page the file does not have is still nothing");
+    assert.match(resolve, /getPageIndex\(target\.ref\)/);
   });
 });
