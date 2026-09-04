@@ -376,20 +376,22 @@
 
       <div class="slot-panel link-fix-panel" id="link-fix-panel" hidden>
         <p class="area-link-label" id="link-fix-origin">링크 고치기</p>
-        <div class="area-link-page-row">
-          <input id="link-fix-page" type="number" min="1" step="1" inputmode="numeric" aria-label="갈 페이지" />
-          <button type="button" id="link-fix-page-go">쪽으로</button>
-        </div>
-        <p class="area-link-label">웹 주소</p>
-        <div class="area-link-url-row">
-          <input id="link-fix-url" type="url" placeholder="https://" aria-label="웹 주소" />
-          <button type="button" id="link-fix-url-go">저장</button>
-        </div>
+        <label class="link-fix-field">
+          <span>이 문서의 쪽</span>
+          <input id="link-fix-page" type="number" min="1" step="1" inputmode="numeric" placeholder="예: 12" />
+        </label>
+        <label class="link-fix-field">
+          <span>또는 웹 주소</span>
+          <input id="link-fix-url" type="url" placeholder="https://" />
+        </label>
         <label class="link-fix-bulk">
           <input type="checkbox" id="link-fix-bulk" />
           <span>같은 곳을 가리키던 링크 전부</span>
         </label>
-        <button type="button" class="link-fix-clear" id="link-fix-clear">고친 것 되돌리기</button>
+        <div class="link-fix-actions">
+          <button type="button" class="link-fix-clear" id="link-fix-clear">되돌리기</button>
+          <button type="button" class="link-fix-save" id="link-fix-save">저장</button>
+        </div>
       </div>
 
       <div class="select-layer" id="select-layer" hidden>

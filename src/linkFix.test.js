@@ -156,6 +156,28 @@ describe("#190 배선", () => {
     assert.match(main, /const bulk = Boolean\(els\.linkFixBulk\?\.checked\)/);
   });
 
+  it("has one 저장, so it is never a question which button does what (#192)", () => {
+    assert.equal((html.match(/id="link-fix-save"/g) || []).length, 1);
+    assert.doesNotMatch(html, /link-fix-page-go|link-fix-url-go/, "two saves were two meanings");
+    const save = main.slice(main.indexOf("function saveLinkFixFromPanel"), main.indexOf("function bindLinkFixPanel"));
+    assert.match(save, /if \(href\)/);
+    assert.match(save, /page >= 1/);
+    assert.match(save, /갈 쪽이나 주소를 넣어 주세요/, "and says so when both are empty");
+    assert.match(main, /els\.linkFixUrl\.value = ""/, "filling one empties the other");
+  });
+
+  it("puts the buttons on their own row, where a narrow screen cannot push them out", () => {
+    assert.match(css, /\.link-fix-actions \{\s*display: flex;/);
+    assert.match(css, /\.link-fix-field input \{[\s\S]*?width: 100%;/);
+    assert.match(html, /class="link-fix-actions"[\s\S]{0,200}id="link-fix-save"/);
+  });
+
+  it("places itself against the part of the screen the reader can see", () => {
+    const open = main.slice(main.indexOf("function openLinkFixPanel"), main.indexOf("function persistLinkFixes"));
+    assert.match(open, /window\.visualViewport/);
+    assert.match(open, /els\.linkFixPanel\.style\.visibility = "hidden"/, "measured before it is shown");
+  });
+
   it("keeps the corrections with the document, not with this browser only", () => {
     assert.match(main, /saveLinkFixes\(state\.identity, state\.linkFixes\)/);
     assert.match(main, /state\.linkFixes = sanitizeLinkFixes\(loadLinkFixes\(identity\)\)/);

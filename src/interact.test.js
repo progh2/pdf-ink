@@ -424,9 +424,14 @@ describe("#171·#172 배선", () => {
   });
 
   it("keeps the live layer off the CPU path", () => {
-    assert.match(main, /function liveCanvas2d\(canvas\) \{\s*return canvas\.getContext\("2d", \{ desynchronized: true \}\);/);
+    assert.match(main, /function liveCanvas2d\(canvas\) \{\s*return canvas\.getContext\("2d"\);/);
     const live = main.slice(main.indexOf("function clearLiveLayer"), main.indexOf("function drawStrokesOn"));
     assert.doesNotMatch(live, /canvas2d\(/, "the live layer never takes the willReadFrequently context");
+  });
+
+  it("does not ask for a low-latency surface over the page (#192)", () => {
+    assert.doesNotMatch(main, /desynchronized: true/, "on some Android GPUs it comes up opaque and blacks the page");
+    assert.match(main, /canvas\.style\.height = `\$\{cssHeight\}px`;\s*\}\s*\/\/ #192[\s\S]{0,120}clearLiveLayer\(view\);/, "a resized layer starts empty");
   });
 });
 
