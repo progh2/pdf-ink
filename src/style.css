@@ -766,6 +766,29 @@ body {
   cursor: grab;
 }
 
+/*
+ * 파일이 들고 온 링크 자리 (#180). 보기일 때만 보인다 — 편집일 때는
+ * 눌러도 필기가 되므로 있지도 않은 버튼을 그려 두면 안 된다.
+ */
+.pdf-link-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  display: none;
+}
+
+.write-screen[data-interact="view"] .pdf-link-layer {
+  display: block;
+}
+
+.pdf-link-hint {
+  position: absolute;
+  background: rgba(93, 173, 226, 0.18);
+  border: 1px solid rgba(93, 173, 226, 0.34);
+  border-radius: 2px;
+  box-sizing: border-box;
+}
+
 .slot-panel {
   position: fixed;
   z-index: 8;

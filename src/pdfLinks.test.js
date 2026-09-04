@@ -167,3 +167,37 @@ describe("#178 배선", () => {
     assert.equal((main.match(/state\.pdfLinks = new Map\(\)/g) || []).length, 2, "both paths that swap the file");
   });
 });
+
+describe("#180 링크 자리 표시", () => {
+  const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+  const main = readFileSync(join(root, "src/main.js"), "utf8");
+  const css = readFileSync(join(root, "src/style.css"), "utf8");
+
+  it("shows them only while the page is locked, where a tap follows them", () => {
+    assert.match(css, /\.pdf-link-layer \{[\s\S]*?display: none;[\s\S]*?\}/);
+    assert.match(css, /\.write-screen\[data-interact="view"\] \.pdf-link-layer \{\s*display: block;/);
+  });
+
+  it("is a pale blue that never eats a touch", () => {
+    assert.match(css, /\.pdf-link-hint \{[\s\S]*?background: rgba\(93, 173, 226, 0\.18\)/);
+    assert.match(css, /\.pdf-link-layer \{[\s\S]*?pointer-events: none;/);
+  });
+
+  it("places the boxes in percent, so zoom does not repaint them", () => {
+    const paint = main.slice(main.indexOf("async function paintPdfLinkHints"), main.indexOf("function clearPdfLinkHints"));
+    assert.match(paint, /box\.style\.left = `\$\{item\.x \* 100\}%`/);
+    assert.match(paint, /box\.style\.height = `\$\{item\.h \* 100\}%`/);
+    assert.doesNotMatch(paint, /getBoundingClientRect/);
+  });
+
+  it("repaints only when the page or its rotation changed", () => {
+    const paint = main.slice(main.indexOf("async function paintPdfLinkHints"), main.indexOf("function clearPdfLinkHints"));
+    assert.match(paint, /if \(layer\.dataset\.key === key\) \{\s*return;/);
+    assert.match(paint, /pdfLinkCacheKey\(stillHere\.pdfPage, stillHere\.rotate\) !== key/, "the view may hold another page by now");
+  });
+
+  it("never leaves the last page's boxes on a reused stage", () => {
+    assert.match(main, /pooled\.token \+= 1;\s*clearPdfLinkHints\(pooled\)/);
+    assert.match(main, /view\.rendered = false;\s*clearPdfLinkHints\(view\)/);
+  });
+});
