@@ -129,8 +129,9 @@ describe("#167 자동 저장", () => {
   });
 
   it("does not lose the last stroke when the page goes away", () => {
-    assert.match(main, /window\.addEventListener\("pagehide", flushInkAutosave\)/);
-    assert.match(main, /if \(document\.hidden\) \{\s*flushInkAutosave\(\);/);
+    // #208부터 pagehide는 로컬 저장도 함께 민다.
+    assert.match(main, /window\.addEventListener\("pagehide", \(\) => \{\s*writeStrokesNow\(\);\s*flushInkAutosave\(\);/);
+    assert.match(main, /if \(document\.hidden\) \{\s*writeStrokesNow\(\);\s*flushInkAutosave\(\);/);
   });
 
   it("keeps the name box above the list, with the folder shown", () => {

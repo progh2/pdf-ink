@@ -667,6 +667,8 @@ let lockedStrokePoints = null;
 // #171: the one pointer this stroke answers to.
 let strokePointerId = null;
 let strokeRect = null;
+// #208: 브라우저가 내다본 펜의 다음 위치. 화면에만 그려지고 저장되지 않는다.
+let predictedTail = [];
 let chipMenuBox = null;
 let frozenEndClient = null;
 let renderGen = 0;
@@ -826,16 +828,49 @@ function noticeViewMode() {
   }, VIEW_NOTICE_MS);
 }
 
-function persistStrokes() {
-  if (!state.identity) {
+let strokesDirty = false;
+let strokeSaveTimer = 0;
+
+/**
+ * 이 저장이 획 사이의 끊김이었다 (#208): 획 하나 끝날 때마다 **문서 전체**
+ * 필기를 stringify해서, 필기가 쌓일수록 입력이 밀렸다. 이제 더럽다고 표시만
+ * 하고 한가할 때 쓴다. 떠날 때(pagehide·숨김·다른 문서)는 그 자리에서 쓴다.
+ */
+function writeStrokesNow() {
+  if (!strokesDirty || !state.identity) {
     return;
   }
-  scheduleInkAutosave();
+  strokesDirty = false;
   try {
     saveStrokes(state.identity, state.pages, state.leaves, state.outline);
   } catch {
     showBanner("필기를 저장하지 못했습니다. 브라우저 저장 공간이 부족할 수 있습니다.");
   }
+}
+
+function scheduleStrokeSave() {
+  if (strokeSaveTimer) {
+    return;
+  }
+  const idle = window.requestIdleCallback || ((fn) => window.setTimeout(fn, 250));
+  strokeSaveTimer = idle(() => {
+    strokeSaveTimer = 0;
+    if (state.drawing) {
+      // 손이 종이에 있는 동안은 절대 안 쓴다.
+      scheduleStrokeSave();
+      return;
+    }
+    writeStrokesNow();
+  }, { timeout: 1500 });
+}
+
+function persistStrokes() {
+  if (!state.identity) {
+    return;
+  }
+  scheduleInkAutosave();
+  strokesDirty = true;
+  scheduleStrokeSave();
 }
 
 function syncHistoryButtons() {
@@ -946,7 +981,61 @@ function liveCanvas2d(canvas) {
   return canvas.getContext("2d");
 }
 
+/*
+ * 그리는 중인 획을 워커가 칠한다 (#208). 메인 스레드가 잠깐 막혀도 획이
+ * 화면에서 끊기지 않는다. OffscreenCanvas가 없는 브라우저는 예전 경로.
+ */
+let liveWorker = null;
+let liveCanvasSeq = 0;
+
+function liveWorkerReady() {
+  if (liveWorker !== null) {
+    return liveWorker;
+  }
+  liveWorker = false;
+  try {
+    if (typeof Worker === "function" && "transferControlToOffscreen" in HTMLCanvasElement.prototype) {
+      liveWorker = new Worker(new URL("./livePaint.worker.js", import.meta.url), { type: "module" });
+    }
+  } catch {
+    liveWorker = false;
+  }
+  return liveWorker;
+}
+
+function adoptLiveCanvas(view) {
+  const worker = liveWorkerReady();
+  if (!worker) {
+    return;
+  }
+  try {
+    const off = view.liveCanvas.transferControlToOffscreen();
+    liveCanvasSeq += 1;
+    view.liveId = liveCanvasSeq;
+    worker.postMessage({ type: "canvas", id: view.liveId, canvas: off }, [off]);
+  } catch {
+    view.liveId = null;
+  }
+}
+
+function postLiveSize(view, width, height) {
+  if (view.liveId != null && liveWorker) {
+    liveWorker.postMessage({ type: "size", id: view.liveId, width, height });
+  }
+}
+
+function dropLiveCanvas(view) {
+  if (view?.liveId != null && liveWorker) {
+    liveWorker.postMessage({ type: "drop", id: view.liveId });
+    view.liveId = null;
+  }
+}
+
 function clearLiveLayer(view) {
+  if (view?.liveId != null && liveWorker) {
+    liveWorker.postMessage({ type: "clear", id: view.liveId });
+    return;
+  }
   const canvas = view?.liveCanvas;
   if (canvas) {
     liveCanvas2d(canvas).clearRect(0, 0, canvas.width, canvas.height);
@@ -959,10 +1048,25 @@ function drawLiveLayer(view, stroke) {
   if (!canvas) {
     return;
   }
+  // #208: 브라우저가 예측한 다음 위치까지 그려 펜 끝이 손을 따라붙는다.
+  // 예측 꼬리는 여기서만 보이고, 획에 저장되지는 않는다.
+  const shown =
+    predictedTail.length && stroke?.points?.length
+      ? { ...stroke, points: [...stroke.points, ...predictedTail] }
+      : stroke;
+  if (view.liveId != null && liveWorker) {
+    liveWorker.postMessage({
+      type: "stroke",
+      id: view.liveId,
+      item: shown?.points?.length ? shown : null,
+      scale: strokeScale(view),
+    });
+    return;
+  }
   const ctx = liveCanvas2d(canvas);
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  if (stroke?.points?.length) {
-    paintItem(ctx, stroke, strokeScale(view), canvas);
+  if (shown?.points?.length) {
+    paintItem(ctx, shown, strokeScale(view), canvas);
   }
 }
 
@@ -1168,7 +1272,7 @@ function makeStage(pageNum) {
   const linkLayer = document.createElement("div");
   linkLayer.className = "pdf-link-layer";
   stage.append(pdfCanvas, underCanvas, inkCanvas, liveCanvas, overCanvas, maskCanvas, linkLayer);
-  return {
+  const view = {
     pageNum,
     stage,
     pdfCanvas,
@@ -1181,6 +1285,8 @@ function makeStage(pageNum) {
     rendered: false,
     token: 0,
   };
+  adoptLiveCanvas(view);
+  return view;
 }
 
 function applyPageSize(view, cssWidth, cssHeight, pixelWidth, pixelHeight) {
@@ -1196,14 +1302,18 @@ function applyPageSize(view, cssWidth, cssHeight, pixelWidth, pixelHeight) {
     view.overCanvas,
     view.maskCanvas,
   ]) {
-    canvas.width = pixelWidth;
-    canvas.height = pixelHeight;
+    if (!(canvas === view.liveCanvas && view.liveId != null)) {
+      canvas.width = pixelWidth;
+      canvas.height = pixelHeight;
+    }
     canvas.style.width = `${cssWidth}px`;
     canvas.style.height = `${cssHeight}px`;
   }
   // #192: the layer over the page must be empty after a resize, not whatever
   // the last page left behind.
   clearLiveLayer(view);
+  // #208: 넘긴 캔버스의 픽셀 크기는 워커만 만질 수 있다.
+  postLiveSize(view, pixelWidth, pixelHeight);
 }
 
 /** Blank page size: the same paper as the page it was put next to (#118). */
@@ -1615,6 +1725,9 @@ function scheduleZoomRender() {
 
 async function rebuildPages() {
   const gen = ++renderGen;
+  for (const view of [...state.pageViews, ...stagePool]) {
+    dropLiveCanvas(view);
+  }
   stagePool.length = 0;
   state.pageViews = [];
   els.pageStack.replaceChildren();
@@ -2048,6 +2161,8 @@ async function importPdfOutline(pdf) {
 }
 
 async function openPdfBuffer(buffer, { identity, name, page = 1, handle = null }) {
+  // #208: 아직 안 쓴 필기는 지금 문서 것이다 — 정체가 바뀌기 전에 쓴다.
+  writeStrokesNow();
   // Always replace: a handle from the previous file must never write this one.
   state.fileHandle = handle;
   if (!String(identity || "").startsWith("dbx::")) {
@@ -2476,6 +2591,7 @@ function startStroke(event, stage) {
   lockedStrokePoints = null;
   frozenEndClient = null;
   state.drawing = true;
+  predictedTail = [];
   // 지우개는 그 획만 지우고 도구는 그대로 (#137).
   state.currentStroke = newStroke(point, penAction === "eraser");
   state.currentStroke.points = beginInkPoints(point, client, lastInkUpClient);
@@ -2534,11 +2650,14 @@ function moveStroke(event) {
     }
     batch.push({ norm: normFromRect(strokeRect, client), client });
     state.currentStroke.points = appendInkPoints(state.currentStroke.points, batch, lastInkUpClient);
+    const ahead = typeof event.getPredictedEvents === "function" ? event.getPredictedEvents() : [];
+    predictedTail = ahead.map((sample) => normFromRect(strokeRect, { x: sample.clientX, y: sample.clientY }));
     if (canShapeHold(state.currentStroke.type)) {
       shapeHold.rememberPoints(state.currentStroke.points);
       frozenEndClient = client;
     }
   } else if (canShapeHold(state.currentStroke.type)) {
+    predictedTail = [];
     restoreFrozenStroke();
     if (!chipHit && (chipsUp || state.shapeOffer) && !shapeHold.isOffering()) {
       dismissShapeChips();
@@ -2591,6 +2710,8 @@ function endStroke(event) {
     }
   }
   const client = { x: event.clientX, y: event.clientY };
+  // 예측은 예측일 뿐이다: 손을 뗀 획에 남으면 없는 선이 저장된다.
+  predictedTail = [];
   if (canShapeHold(state.currentStroke.type)) {
     restoreFrozenStroke();
   }
@@ -9364,12 +9485,16 @@ els.syncDismiss?.addEventListener("click", hideSyncNote);
 window.addEventListener("focus", () => checkRemote());
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) {
+    writeStrokesNow();
     flushInkAutosave();
     return;
   }
   checkRemote();
 });
-window.addEventListener("pagehide", flushInkAutosave);
+window.addEventListener("pagehide", () => {
+  writeStrokesNow();
+  flushInkAutosave();
+});
 els.dropboxOpen?.addEventListener("click", openDropboxSheet);
 els.dropboxSaveGo?.addEventListener("click", saveCopyToDropbox);
 document.querySelectorAll("#dropbox-ink-choices [data-ink-copy]").forEach((btn) => {
