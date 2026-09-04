@@ -113,12 +113,14 @@ import {
   sortedIndexes,
 } from "./pageOps.js";
 import {
+  destView,
   leafPositionForPdfPage,
   normalizedLinkRect,
   pagePositionForAction,
   pdfLinkCacheKey,
   pdfLinkItem,
   pdfLinkTarget,
+  pdfSpaceRect,
 } from "./pdfLinks.js";
 import {
   acceptAreaUrl,
@@ -1804,20 +1806,74 @@ function placeStamp(view, point) {
  * whose first entry is a page reference. Used by the table of contents (#145)
  * and by the file's own links (#178).
  */
-async function pdfPageOfDest(dest, pdf = state.pdf) {
+async function explicitDest(dest, pdf = state.pdf) {
   if (!pdf || dest === null || dest === undefined) {
+    return null;
+  }
+  try {
+    // A name has to be looked up in the file; an array is already the answer.
+    return typeof dest === "string" ? await pdf.getDestination(dest) : dest;
+  } catch {
+    return null;
+  }
+}
+
+async function pdfPageOfDest(dest, pdf = state.pdf) {
+  const explicit = await explicitDest(dest, pdf);
+  const ref = explicit?.[0];
+  if (!ref) {
     return 0;
   }
   try {
-    const explicit = typeof dest === "string" ? await pdf.getDestination(dest) : dest;
-    const ref = explicit?.[0];
-    if (!ref) {
-      return 0;
-    }
     return (await pdf.getPageIndex(ref)) + 1;
   } catch {
     return 0;
   }
+}
+
+/**
+ * What to write back onto a page we are baking (#184). Rectangles stay in the
+ * page's own coordinates, and a destination becomes the **position that page
+ * holds now**, so reordering or deleting pages cannot leave a link dangling.
+ */
+async function exportLinksForLeaf(leaf) {
+  if (!state.pdf || !leaf || leaf.kind === "outline") {
+    return [];
+  }
+  const out = [];
+  try {
+    const page = await state.pdf.getPage(leaf.pdfPage);
+    for (const annotation of (await page.getAnnotations({ intent: "display" })) || []) {
+      const target = pdfLinkTarget(annotation);
+      const rect = target ? pdfSpaceRect(annotation.rect) : null;
+      if (!rect) {
+        continue;
+      }
+      if (target.kind === "url") {
+        out.push({ rect, url: target.href });
+        continue;
+      }
+      if (target.kind !== "dest") {
+        continue;
+      }
+      const explicit = await explicitDest(target.dest);
+      const at = leafPositionForPdfPage(state.leaves, await pdfPageOfDest(target.dest));
+      if (at) {
+        out.push({ rect, page: at, view: destView(explicit) });
+      }
+    }
+  } catch {
+    // A page whose annotations will not read simply keeps none.
+  }
+  return out;
+}
+
+async function exportLinkMap() {
+  const map = new Map();
+  for (const leaf of state.leaves || []) {
+    map.set(leaf.id, await exportLinksForLeaf(leaf));
+  }
+  return map;
 }
 
 async function importPdfOutline(pdf) {
@@ -5782,9 +5838,11 @@ function exportCssWidth(leaf, base) {
 async function annotatedPdfBlob() {
   const { buildAnnotatedPdf } = await loadExportPdf();
   const base = await basePageCss();
+  const links = await exportLinkMap();
   const bytes = await buildAnnotatedPdf({
     buffer: state.buffer,
     leaves: state.leaves,
+    linksOf: (leaf) => links.get(leaf.id) || [],
     outline: state.outline.map((entry) => ({
       title: entry.title,
       page: outlineDestPage(entry, state.leaves),

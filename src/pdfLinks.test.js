@@ -11,6 +11,8 @@ import {
   pdfLinkCacheKey,
   pdfLinkItem,
   pdfLinkTarget,
+  destView,
+  pdfSpaceRect,
 } from "./pdfLinks.js";
 
 describe("#178 PDF 안의 링크", () => {
@@ -219,5 +221,27 @@ describe("#180 링크 자리 표시", () => {
   it("never leaves the last page's boxes on a reused stage", () => {
     assert.match(main, /pooled\.token \+= 1;\s*clearPdfLinkHints\(pooled\)/);
     assert.match(main, /view\.rendered = false;\s*clearPdfLinkHints\(view\)/);
+  });
+});
+
+describe("#184 구울 때 링크를 다시 잇기", () => {
+  it("keeps the spot a destination asked for", () => {
+    assert.deepEqual(destView([{ num: 5, gen: 0 }, { name: "XYZ" }, 0, 800, 0]), ["XYZ", 0, 800, 0]);
+    assert.deepEqual(destView([{ num: 5, gen: 0 }, { name: "Fit" }]), ["Fit"]);
+  });
+
+  it("keeps a null where the file left one, instead of inventing a zero", () => {
+    assert.deepEqual(destView([{ num: 5 }, { name: "XYZ" }, null, 700, null]), ["XYZ", null, 700, null]);
+  });
+
+  it("falls back to whole-page when there is no usable view", () => {
+    assert.deepEqual(destView(null), ["Fit"]);
+    assert.deepEqual(destView([{ num: 5 }]), ["Fit"]);
+  });
+
+  it("takes a rectangle in the page's own coordinates, sorted", () => {
+    assert.deepEqual(pdfSpaceRect([300, 700, 50, 640]), [50, 640, 300, 700]);
+    assert.equal(pdfSpaceRect([50, 640, 50, 700]), null, "no width");
+    assert.equal(pdfSpaceRect([50, 640, 300]), null);
   });
 });
