@@ -407,9 +407,9 @@ const els = {
   linkFixPanel: document.querySelector("#link-fix-panel"),
   linkFixOrigin: document.querySelector("#link-fix-origin"),
   linkFixPage: document.querySelector("#link-fix-page"),
-  linkFixPageGo: document.querySelector("#link-fix-page-go"),
+
   linkFixUrl: document.querySelector("#link-fix-url"),
-  linkFixUrlGo: document.querySelector("#link-fix-url-go"),
+  linkFixSave: document.querySelector("#link-fix-save"),
   linkFixBulk: document.querySelector("#link-fix-bulk"),
   linkFixClear: document.querySelector("#link-fix-clear"),
   areaLinkPage: document.querySelector("#area-link-page"),
@@ -888,12 +888,17 @@ function canvas2d(canvas) {
 
 /**
  * The layer under the pen tip, and the only one repainted every frame (#172).
- * `willReadFrequently` would put it back on the CPU, and we never read it back;
- * `desynchronized` lets the compositor show it without waiting for the frame,
- * which is the shortest path from the nib to the glass.
+ * `willReadFrequently` would put it back on the CPU and we never read it back,
+ * so it does not get that.
+ *
+ * It does not get `desynchronized` either (#192). A low-latency surface is the
+ * shortest path from the nib to the glass, but this layer sits **over the
+ * page** and has to stay transparent — on some Android GPUs that surface comes
+ * up opaque, and then the whole page reads black. Speed is not worth a page
+ * you cannot see.
  */
 function liveCanvas2d(canvas) {
-  return canvas.getContext("2d", { desynchronized: true });
+  return canvas.getContext("2d");
 }
 
 function clearLiveLayer(view) {
@@ -1151,6 +1156,9 @@ function applyPageSize(view, cssWidth, cssHeight, pixelWidth, pixelHeight) {
     canvas.style.width = `${cssWidth}px`;
     canvas.style.height = `${cssHeight}px`;
   }
+  // #192: the layer over the page must be empty after a resize, not whatever
+  // the last page left behind.
+  clearLiveLayer(view);
 }
 
 /** Blank page size: the same paper as the page it was put next to (#118). */
@@ -3806,12 +3814,21 @@ function openLinkFixPanel(spot, item, index) {
   els.linkFixUrl.value = current?.kind === "url" ? current.href : "";
   els.linkFixBulk.checked = false;
   els.linkFixClear.hidden = !current;
+  els.linkFixPanel.style.visibility = "hidden";
   els.linkFixPanel.hidden = false;
   const box = els.linkFixPanel.getBoundingClientRect();
-  const left = Math.min(Math.max(8, spot.client.x - box.width / 2), window.innerWidth - box.width - 8);
-  const top = Math.min(Math.max(8, spot.client.y + 16), window.innerHeight - box.height - 8);
-  els.linkFixPanel.style.left = `${left}px`;
-  els.linkFixPanel.style.top = `${top}px`;
+  // #192: on a pinched phone the visible area is not the layout viewport, and
+  // a panel placed against the wrong one puts its buttons off screen.
+  const view = window.visualViewport;
+  const viewLeft = view?.offsetLeft || 0;
+  const viewTop = view?.offsetTop || 0;
+  const viewWidth = view?.width || window.innerWidth;
+  const viewHeight = view?.height || window.innerHeight;
+  const fit = (want, start, size, room) =>
+    Math.min(Math.max(start + 8, want), start + Math.max(8, room - size - 8));
+  els.linkFixPanel.style.left = `${fit(spot.client.x - box.width / 2, viewLeft, box.width, viewWidth)}px`;
+  els.linkFixPanel.style.top = `${fit(spot.client.y + 16, viewTop, box.height, viewHeight)}px`;
+  els.linkFixPanel.style.visibility = "";
   flashPdfLinkHint(spot.pageNum, index);
 }
 
@@ -3846,23 +3863,44 @@ function undoLinkFix() {
   persistLinkFixes();
 }
 
+/** 쪽이든 주소든 하나만 채운다. 그래야 「저장」이 무엇을 뜻하는지 분명하다. */
+function saveLinkFixFromPanel() {
+  const href = String(els.linkFixUrl?.value || "").trim();
+  const page = Number(els.linkFixPage?.value);
+  if (href) {
+    applyLinkFix({ kind: "url", href });
+    return;
+  }
+  if (page >= 1) {
+    applyLinkFix({ kind: "page", page });
+    return;
+  }
+  flashBanner("갈 쪽이나 주소를 넣어 주세요");
+}
+
 function bindLinkFixPanel() {
   if (!els.linkFixPanel) {
     return;
   }
   els.linkFixPanel.addEventListener("pointerdown", (event) => event.stopPropagation());
-  els.linkFixPageGo?.addEventListener("click", () => {
-    applyLinkFix({ kind: "page", page: Number(els.linkFixPage.value) });
-  });
-  els.linkFixUrlGo?.addEventListener("click", () => {
-    applyLinkFix({ kind: "url", href: els.linkFixUrl.value });
-  });
+  els.linkFixSave?.addEventListener("click", saveLinkFixFromPanel);
   els.linkFixClear?.addEventListener("click", undoLinkFix);
+  // Filling one empties the other: a link goes to one place.
+  els.linkFixPage?.addEventListener("input", () => {
+    if (els.linkFixPage.value) {
+      els.linkFixUrl.value = "";
+    }
+  });
+  els.linkFixUrl?.addEventListener("input", () => {
+    if (els.linkFixUrl.value) {
+      els.linkFixPage.value = "";
+    }
+  });
   for (const input of [els.linkFixPage, els.linkFixUrl]) {
     input?.addEventListener("keydown", (event) => {
       if (event.key === "Enter") {
         event.preventDefault();
-        (input === els.linkFixPage ? els.linkFixPageGo : els.linkFixUrlGo)?.click();
+        saveLinkFixFromPanel();
       }
     });
   }
