@@ -188,7 +188,11 @@
           <input id="slot-opacity" type="range" min="1" max="100" step="1" value="40" aria-label="투명도" />
         </div>
         <div class="slot-width-row" id="slot-width-row">
-          <input id="slot-width" type="range" min="1" max="10" step="1" aria-label="굵기" />
+          <input id="slot-width" type="range" min="0.5" max="10" step="0.5" aria-label="굵기" />
+          <output class="slot-width-value" id="slot-width-value" aria-hidden="true">2</output>
+          <button type="button" class="eyedrop-btn" id="eyedrop-btn" aria-label="스포이드">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.7 4.3a2.4 2.4 0 0 0-3.4 0l-2.1 2.1-.9-.9-1.4 1.4.9.9-7.3 7.3a1 1 0 0 0-.26.45l-.9 3.3a.7.7 0 0 0 .86.86l3.3-.9a1 1 0 0 0 .45-.26l7.3-7.3.9.9 1.4-1.4-.9-.9 2.1-2.1a2.4 2.4 0 0 0 0-3.4zM7.9 17.5l-2.2.6.6-2.2 6.9-6.9 1.6 1.6z" fill="currentColor"/></svg>
+          </button>
         </div>
       </div>
 
@@ -360,6 +364,15 @@
       </div>
 
       <div class="area-layer" id="area-layer" hidden></div>
+      <div class="slot-panel wheel-panel" id="wheel-panel" hidden>
+        <canvas id="wheel-disc" width="220" height="220" aria-label="색상환"></canvas>
+        <div class="wheel-value-row">
+          <input id="wheel-value" type="range" min="0" max="100" step="1" aria-label="밝기" />
+          <span class="wheel-preview" id="wheel-preview" aria-hidden="true"></span>
+          <output class="wheel-hex" id="wheel-hex">#1A1A1A</output>
+        </div>
+      </div>
+
       <div class="slot-panel area-link-panel" id="area-link-panel" hidden>
         <p class="area-link-label">이 문서</p>
         <div class="area-link-page-row">

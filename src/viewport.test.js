@@ -45,10 +45,12 @@ describe("inkCanvasScale", () => {
 });
 
 describe("slotLineWidth", () => {
-  it("clamps 1–10", () => {
-    assert.equal(slotLineWidth(0), 1);
-    assert.equal(slotLineWidth(11), 10);
-    assert.equal(slotLineWidth(2.4), 2);
+  it("clamps 0.5–10 in half steps (#206)", () => {
+    assert.equal(slotLineWidth(0.5), 0.5);
+    assert.equal(slotLineWidth(0), 0.5);
+    assert.equal(slotLineWidth(2.4), 2.5);
+    assert.equal(slotLineWidth(99), 10);
+    assert.equal(slotLineWidth("잘못"), 2);
   });
 });
 
