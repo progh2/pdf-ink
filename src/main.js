@@ -6,6 +6,7 @@ import {
   listDocuments,
   loadDocument,
   loadLastSession,
+  loadLinkFixes,
   loadPenOnly,
   loadStickerFolders,
   listThumbKeys,
@@ -15,6 +16,7 @@ import {
   loadStrokes,
   migrateLastIntoFiles,
   saveDocument,
+  saveLinkFixes,
   savePenOnly,
   saveStickerFolders,
   saveStickers,
@@ -113,6 +115,15 @@ import {
   sortedIndexes,
 } from "./pageOps.js";
 import {
+  clearLinkFix,
+  findLinkFix,
+  sanitizeLinkFixes,
+  linkFixTarget,
+  linkGroupKey,
+  linkSpotKey,
+  setLinkFix,
+} from "./linkFix.js";
+import {
   describeLink,
   destTarget,
   destView,
@@ -123,6 +134,7 @@ import {
   pdfLinkItem,
   pdfLinkTarget,
   pdfSpaceRect,
+  shortJson,
 } from "./pdfLinks.js";
 import {
   acceptAreaUrl,
@@ -392,6 +404,14 @@ const els = {
   splitStage: document.querySelector("#split-stage"),
   areaLayer: document.querySelector("#area-layer"),
   areaLinkPanel: document.querySelector("#area-link-panel"),
+  linkFixPanel: document.querySelector("#link-fix-panel"),
+  linkFixOrigin: document.querySelector("#link-fix-origin"),
+  linkFixPage: document.querySelector("#link-fix-page"),
+  linkFixPageGo: document.querySelector("#link-fix-page-go"),
+  linkFixUrl: document.querySelector("#link-fix-url"),
+  linkFixUrlGo: document.querySelector("#link-fix-url-go"),
+  linkFixBulk: document.querySelector("#link-fix-bulk"),
+  linkFixClear: document.querySelector("#link-fix-clear"),
   areaLinkPage: document.querySelector("#area-link-page"),
   areaLinkPageGo: document.querySelector("#area-link-page-go"),
   areaLinkDocs: document.querySelector("#area-link-docs"),
@@ -508,6 +528,8 @@ const state = {
   pdf: null,
   // #178: 파일이 들고 온 링크. 쪽·회전별로 한 번만 읽는다.
   pdfLinks: new Map(),
+  // #190: 그중 사람이 고쳐 준 것.
+  linkFixes: {},
   identity: null,
   fileName: "",
   buffer: null,
@@ -1704,6 +1726,7 @@ async function showUploadScreen() {
   state.thumbPackKeys = null;
   // #178: another file's links must not answer for this one.
   state.pdfLinks = new Map();
+  hideLinkFixPanel();
   if (state.pdf) {
     await state.pdf.destroy();
     state.pdf = null;
@@ -1879,6 +1902,16 @@ async function exportLinksForLeaf(leaf) {
       if (!rect) {
         continue;
       }
+      // #190: what the reader corrected is what gets written into the PDF.
+      const fix = fixFor(leaf, { rect, link: target });
+      if (fix?.kind === "url") {
+        out.push({ rect, url: fix.href });
+        continue;
+      }
+      if (fix?.kind === "page") {
+        out.push({ rect, page: fix.page, view: ["Fit"] });
+        continue;
+      }
       if (target.kind === "url") {
         out.push({ rect, url: target.href });
         continue;
@@ -1946,6 +1979,7 @@ async function openPdfBuffer(buffer, { identity, name, page = 1, handle = null }
     state.driveSidecarId = "";
   }
   state.pdfLinks = new Map();
+  hideLinkFixPanel();
   if (state.pdf) {
     await state.pdf.destroy();
     state.pdf = null;
@@ -1958,6 +1992,8 @@ async function openPdfBuffer(buffer, { identity, name, page = 1, handle = null }
   state.fileName = name;
   state.buffer = buffer;
   const stored = loadStrokes(identity);
+  // #190: the corrections this browser knows; a sidecar may add more.
+  state.linkFixes = sanitizeLinkFixes(loadLinkFixes(identity));
   state.leaves = normalizeLeaves(stored.leaves, pdf.numPages);
   state.pageCount = state.leaves.length;
   state.page = Math.min(Math.max(1, page), state.pageCount);
@@ -2755,6 +2791,7 @@ function hideSelectUi() {
 }
 
 function closeAllPanels() {
+  hideLinkFixPanel();
   closeSlotPanel();
   closeEraserPanel();
   closeMorePanel();
@@ -3555,7 +3592,7 @@ async function loadPdfLinks(leaf) {
         viewport.width,
         viewport.height,
       );
-      const item = pdfLinkItem(box, target);
+      const item = pdfLinkItem(box, target, annotation.rect);
       if (item) {
         items.push(item);
       }
@@ -3595,14 +3632,14 @@ function pdfLinkAt(pageNum, x, y) {
  * CSS reveals them only in 보기, because that is the only mode a tap follows
  * them in. Boxes are in percent, so zoom and page resize cost nothing.
  */
-async function paintPdfLinkHints(view) {
+async function paintPdfLinkHints(view, force = false) {
   const layer = view?.linkLayer;
   if (!layer) {
     return;
   }
   const leaf = leafAt(state.leaves, view.pageNum);
   const key = leaf && leaf.kind !== "outline" && state.pdf ? pdfLinkCacheKey(leaf.pdfPage, leaf.rotate) : "";
-  if (layer.dataset.key === key) {
+  if (layer.dataset.key === key && !force) {
     return;
   }
   if (!key) {
@@ -3620,7 +3657,8 @@ async function paintPdfLinkHints(view) {
   layer.replaceChildren(
     ...items.map((item) => {
       const box = document.createElement("span");
-      box.className = "pdf-link-hint";
+      // #190: a link someone corrected reads differently, so it is marked.
+      box.className = fixFor(leaf, item) ? "pdf-link-hint is-fixed" : "pdf-link-hint";
       box.style.left = `${item.x * 100}%`;
       box.style.top = `${item.y * 100}%`;
       box.style.width = `${item.w * 100}%`;
@@ -3638,9 +3676,9 @@ function clearPdfLinkHints(view) {
   }
 }
 
-function refreshPdfLinkHints() {
+function refreshPdfLinkHints(force = false) {
   for (const view of state.pageViews || []) {
-    paintPdfLinkHints(view);
+    paintPdfLinkHints(view, force);
   }
 }
 
@@ -3684,6 +3722,15 @@ async function followPdfLink(link, fromPage) {
     openLinkTab(link.href);
     return true;
   }
+  if (link?.kind === "fixedPage") {
+    // Set by hand (#190), so it is already a position in this document.
+    const at = Math.min(Math.max(1, link.page), state.pageCount || 1);
+    flashBanner(`고친 링크: ${at}쪽으로`);
+    if (at !== fromPage) {
+      await goToPage(at);
+    }
+    return true;
+  }
   if (link?.kind === "action") {
     flashBanner(describeLink({ link }));
     const at = pagePositionForAction(link.action, fromPage, state.pageCount);
@@ -3715,6 +3762,112 @@ async function followPdfLink(link, fromPage) {
   return true;
 }
 
+/* ---- 링크 고치기 (#190) ---------------------------------------------- */
+
+let linkFixHoldTimer = 0;
+let editingLink = null;
+
+function hideLinkFixPanel() {
+  editingLink = null;
+  if (els.linkFixPanel) {
+    els.linkFixPanel.hidden = true;
+  }
+}
+
+function cancelLinkFixHold() {
+  window.clearTimeout(linkFixHoldTimer);
+  linkFixHoldTimer = 0;
+}
+
+function describeOriginalLink(item) {
+  if (item?.link?.kind === "url") {
+    return `원래: ${shortJson(item.link.href, 60)}`;
+  }
+  if (item?.link?.kind === "dest") {
+    return `원래: ${shortJson(item.link.dest, 46)}`;
+  }
+  return "원래: 가리키는 곳 없음";
+}
+
+/**
+ * Opens the editor over a link. Some files — GoodNotes exports among them —
+ * carry destinations that are already dangling inside the PDF, and no amount
+ * of reading fixes those. So the reader says where it should go (#190).
+ */
+function openLinkFixPanel(spot, item, index) {
+  if (!els.linkFixPanel || !item) {
+    return;
+  }
+  const keys = linkKeysFor(spot.leaf, item);
+  editingLink = { ...keys, pageNum: spot.pageNum, leaf: spot.leaf, item, index };
+  const current = findLinkFix(state.linkFixes, keys.spotKey, keys.groupKey);
+  els.linkFixOrigin.textContent = describeOriginalLink(item);
+  els.linkFixPage.value = current?.kind === "page" ? String(current.page) : "";
+  els.linkFixUrl.value = current?.kind === "url" ? current.href : "";
+  els.linkFixBulk.checked = false;
+  els.linkFixClear.hidden = !current;
+  els.linkFixPanel.hidden = false;
+  const box = els.linkFixPanel.getBoundingClientRect();
+  const left = Math.min(Math.max(8, spot.client.x - box.width / 2), window.innerWidth - box.width - 8);
+  const top = Math.min(Math.max(8, spot.client.y + 16), window.innerHeight - box.height - 8);
+  els.linkFixPanel.style.left = `${left}px`;
+  els.linkFixPanel.style.top = `${top}px`;
+  flashPdfLinkHint(spot.pageNum, index);
+}
+
+function persistLinkFixes() {
+  if (state.identity) {
+    saveLinkFixes(state.identity, state.linkFixes);
+  }
+  scheduleInkAutosave();
+  refreshPdfLinkHints(true);
+}
+
+function applyLinkFix(fix) {
+  if (!editingLink) {
+    return;
+  }
+  const bulk = Boolean(els.linkFixBulk?.checked);
+  state.linkFixes = setLinkFix(state.linkFixes, { ...editingLink, bulk, fix });
+  const where = fix?.kind === "page" ? `${fix.page}쪽` : shortJson(fix?.href, 40);
+  flashBanner(bulk ? `같은 링크 전부 → ${where}` : `이 링크 → ${where}`);
+  hideLinkFixPanel();
+  persistLinkFixes();
+}
+
+function undoLinkFix() {
+  if (!editingLink) {
+    return;
+  }
+  const bulk = Boolean(els.linkFixBulk?.checked);
+  state.linkFixes = clearLinkFix(state.linkFixes, { ...editingLink, bulk });
+  flashBanner("원래대로 되돌렸습니다");
+  hideLinkFixPanel();
+  persistLinkFixes();
+}
+
+function bindLinkFixPanel() {
+  if (!els.linkFixPanel) {
+    return;
+  }
+  els.linkFixPanel.addEventListener("pointerdown", (event) => event.stopPropagation());
+  els.linkFixPageGo?.addEventListener("click", () => {
+    applyLinkFix({ kind: "page", page: Number(els.linkFixPage.value) });
+  });
+  els.linkFixUrlGo?.addEventListener("click", () => {
+    applyLinkFix({ kind: "url", href: els.linkFixUrl.value });
+  });
+  els.linkFixClear?.addEventListener("click", undoLinkFix);
+  for (const input of [els.linkFixPage, els.linkFixUrl]) {
+    input?.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        (input === els.linkFixPage ? els.linkFixPageGo : els.linkFixUrlGo)?.click();
+      }
+    });
+  }
+}
+
 /** Blinks the box that was hit, so a tap always shows it landed (#182). */
 function flashPdfLinkHint(pageNum, index) {
   const view = (state.pageViews || []).find((item) => item.pageNum === pageNum);
@@ -3744,9 +3897,23 @@ function pdfLinkSpotAtClient(client) {
   return {
     pageNum,
     leaf,
+    client,
     x: (client.x - box.left) / (box.width || 1),
     y: (client.y - box.top) / (box.height || 1),
   };
+}
+
+/** The two keys this link answers to: this one, and everything like it (#190). */
+function linkKeysFor(leaf, item) {
+  return {
+    spotKey: linkSpotKey(leaf?.pdfPage, item?.rect),
+    groupKey: linkGroupKey(item?.link),
+  };
+}
+
+function fixFor(leaf, item) {
+  const keys = linkKeysFor(leaf, item);
+  return findLinkFix(state.linkFixes, keys.spotKey, keys.groupKey);
 }
 
 function actOnPdfLink(spot) {
@@ -3756,7 +3923,8 @@ function actOnPdfLink(spot) {
     return false;
   }
   flashPdfLinkHint(spot.pageNum, items.indexOf(hit));
-  followPdfLink(hit.link, spot.pageNum);
+  const fixed = linkFixTarget(fixFor(spot.leaf, hit));
+  followPdfLink(fixed || hit.link, spot.pageNum);
   return true;
 }
 
@@ -6597,6 +6765,7 @@ async function saveCopyToDropbox() {
             pages: state.pages,
             leaves: state.leaves,
             outline: state.outline,
+            linkFixes: state.linkFixes,
             name: meta.name || name,
             savedAt: Date.now(),
           }),
@@ -6637,6 +6806,7 @@ async function saveDriveSidecar() {
     pages: state.pages,
     leaves: state.leaves,
     outline: state.outline,
+    linkFixes: state.linkFixes,
     name: state.fileName,
     shareThumbs: state.shareThumbs,
     savedAt: Date.now(),
@@ -6698,6 +6868,10 @@ async function loadDriveSidecar(doc) {
   state.outline = normalizeOutline(remote.outline, state.leaves);
   state.inkSavedAt = remote.savedAt;
   state.shareThumbs = Boolean(remote.shareThumbs);
+  if (remote.linkFixes && Object.keys(remote.linkFixes).length) {
+    state.linkFixes = remote.linkFixes;
+    saveLinkFixes(state.identity, state.linkFixes);
+  }
   persistStrokes();
 }
 
@@ -6866,6 +7040,7 @@ async function saveInkSidecar() {
     pages: state.pages,
     leaves: state.leaves,
     outline: state.outline,
+    linkFixes: state.linkFixes,
     name: state.fileName,
     shareThumbs: state.shareThumbs,
     savedAt: Date.now(),
@@ -6923,6 +7098,10 @@ async function loadInkSidecar(doc) {
   state.outline = normalizeOutline(remote.outline, state.leaves);
   state.inkSavedAt = remote.savedAt;
   state.shareThumbs = Boolean(remote.shareThumbs);
+  if (remote.linkFixes && Object.keys(remote.linkFixes).length) {
+    state.linkFixes = remote.linkFixes;
+    saveLinkFixes(state.identity, state.linkFixes);
+  }
   persistStrokes();
 }
 
@@ -7920,6 +8099,23 @@ function movePinch() {
 }
 
 function startPan(event) {
+  cancelLinkFixHold();
+  if (state.interactMode === "view") {
+    const at = { x: event.clientX, y: event.clientY };
+    linkFixHoldTimer = window.setTimeout(() => {
+      linkFixHoldTimer = 0;
+      const spot = pdfLinkSpotAtClient(at);
+      const items = spot ? state.pdfLinks.get(pdfLinkCacheKey(spot.leaf.pdfPage, spot.leaf.rotate)) : null;
+      const hit = spot && items ? pdfLinkAt(spot.pageNum, spot.x, spot.y) : null;
+      if (hit) {
+        // The tap that follows must not also open the link (#190).
+        if (gesture?.type === "pan") {
+          gesture.held = true;
+        }
+        openLinkFixPanel(spot, hit, items.indexOf(hit));
+      }
+    }, PAGE_HOLD_MS);
+  }
   gesture = {
     type: "pan",
     lastX: event.clientX,
@@ -7950,6 +8146,9 @@ function movePan(event) {
     gesture.moved || 0,
     Math.hypot(event.clientX - (gesture.downX ?? event.clientX), event.clientY - (gesture.downY ?? event.clientY)),
   );
+  if (gesture.moved > PAGE_DRAG_SLOP_PX) {
+    cancelLinkFixHold();
+  }
   if (state.viewMode === "scroll") {
     els.workspace.scrollLeft -= dx;
     els.workspace.scrollTop -= dy;
@@ -7973,6 +8172,10 @@ function onWorkspacePointerDown(event) {
   }
   if (event.target.closest(".toolbar, .write-top, .sheet, .slot-panel, .m4-bar, .more-panel, .marquee, .preview-drawer, .select-hud, .float-bar, #float-bar, .select-layer, #select-layer, .shape-chips")) {
     return;
+  }
+  if (els.linkFixPanel && !els.linkFixPanel.hidden) {
+    // A tap anywhere else puts the link editor away (#190).
+    hideLinkFixPanel();
   }
 
   pointers.set(event.pointerId, { x: event.clientX, y: event.clientY, type: event.pointerType });
@@ -8078,7 +8281,8 @@ function onWorkspacePointerUp(event) {
     return;
   }
   if (gesture?.type === "pan") {
-    const tapped = (gesture.moved || 0) <= PAN_TAP_SLOP_PX && event.type !== "pointercancel";
+    cancelLinkFixHold();
+    const tapped = !gesture.held && (gesture.moved || 0) <= PAN_TAP_SLOP_PX && event.type !== "pointercancel";
     gesture = null;
     if (event.pointerId != null) {
       try {
@@ -8674,6 +8878,7 @@ els.interactBtn.addEventListener("click", () => {
   setInteractMode(state.interactMode === "view" ? "edit" : "view");
 });
 bindUndoHold(els.undoBtn, { onUndo: undoInk, onRedo: redoInk });
+bindLinkFixPanel();
 els.redoBtn.addEventListener("click", (event) => {
   event.preventDefault();
   event.stopPropagation();

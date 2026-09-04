@@ -422,7 +422,8 @@ body {
   touch-action: none;
 }
 
-.area-link-panel {
+.area-link-panel,
+.link-fix-panel {
   position: fixed;
   z-index: 9;
   width: min(280px, calc(100vw - 24px));
@@ -440,7 +441,9 @@ body {
   gap: 8px;
 }
 
-.area-link-panel input {
+.area-link-panel input,
+.link-fix-panel input[type="number"],
+.link-fix-panel input[type="url"] {
   flex: 1 1 0;
   min-width: 0;
   height: 36px;
@@ -793,6 +796,18 @@ body {
 /* 눌린 것이 보여야 «안 눌렸다»와 «눌렸는데 못 갔다»를 구분한다 (#182). */
 .pdf-link-hint.is-hit {
   background: rgba(93, 173, 226, 0.45);
+}
+
+/* 사람이 고쳐 준 링크 (#190). 파일이 시키는 대로가 아니라는 표시. */
+.pdf-link-hint.is-fixed {
+  background: rgba(47, 111, 94, 0.16);
+  border-color: rgba(47, 111, 94, 0.34);
+}
+
+.link-fix-panel .area-link-page-row button,
+.link-fix-panel .area-link-url-row button {
+  height: 36px;
+  padding: 0 12px;
 }
 
 .slot-panel {
@@ -2112,5 +2127,31 @@ body {
 
 .source-link {
   color: inherit;
+  text-underline-offset: 3px;
+}
+
+/* 링크 고치기 (#190). 영역 연결 패널과 같은 옷을 입는다. */
+.link-fix-panel {
+  display: grid;
+  gap: 8px;
+  min-width: 232px;
+}
+
+.link-fix-bulk {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #5c574e;
+}
+
+.link-fix-clear {
+  border: 0;
+  background: none;
+  padding: 4px 0 0;
+  font-size: 13px;
+  color: #8B8378;
+  text-align: left;
+  text-decoration: underline;
   text-underline-offset: 3px;
 }

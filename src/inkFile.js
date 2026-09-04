@@ -1,3 +1,5 @@
+import { sanitizeLinkFixes } from "./linkFix.js";
+
 /**
  * 사이드카 (#147). The ink travels beside the PDF as a small JSON file, so it
  * stays editable, saves in kilobytes, and follows the document to another
@@ -25,6 +27,7 @@ export function buildInkFile({
   savedAt = Date.now(),
   name = "",
   shareThumbs = false,
+  linkFixes = {},
 } = {}) {
   return {
     version: INK_FILE_VERSION,
@@ -37,6 +40,8 @@ export function buildInkFile({
     pages: pages || {},
     leaves: Array.isArray(leaves) ? leaves : [],
     outline: Array.isArray(outline) ? outline : [],
+    // #190: 파일이 들고 온 링크 중 사람이 고쳐 준 것. PDF는 안 건드린다.
+    linkFixes: linkFixes && typeof linkFixes === "object" ? linkFixes : {},
   };
 }
 
@@ -57,6 +62,7 @@ export function parseInkFile(text) {
       pages: data.pages,
       leaves: Array.isArray(data.leaves) ? data.leaves : [],
       outline: Array.isArray(data.outline) ? data.outline : [],
+      linkFixes: sanitizeLinkFixes(data.linkFixes),
     };
   } catch {
     return null;

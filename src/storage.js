@@ -294,3 +294,32 @@ export async function loadThumbEntries(identity, keys) {
   }
   return out;
 }
+
+/**
+ * 고친 링크는 필기와 따로 둔다 (#190). 문서 하나에 몇 개뿐이고, 필기를
+ * 저장하지 않는 순간에도 남아 있어야 하기 때문이다.
+ */
+const LINK_FIX_PREFIX = "pdf-ink:link-fixes:";
+
+export function loadLinkFixes(identity) {
+  try {
+    const raw = localStorage.getItem(LINK_FIX_PREFIX + identity);
+    const data = raw ? JSON.parse(raw) : null;
+    return data && typeof data === "object" ? data : {};
+  } catch {
+    return {};
+  }
+}
+
+export function saveLinkFixes(identity, fixes) {
+  try {
+    const key = LINK_FIX_PREFIX + identity;
+    if (!fixes || !Object.keys(fixes).length) {
+      localStorage.removeItem(key);
+      return;
+    }
+    localStorage.setItem(key, JSON.stringify(fixes));
+  } catch {
+    // storage is best effort
+  }
+}
