@@ -115,8 +115,10 @@ import {
   sortedIndexes,
 } from "./pageOps.js";
 import {
+  anchorLinkFixes,
   clearLinkFix,
   findLinkFix,
+  linkFixForPage,
   sanitizeLinkFixes,
   linkFixTarget,
   linkGroupKey,
@@ -139,6 +141,7 @@ import {
 import {
   acceptAreaUrl,
   areaItem,
+  areaLinkPage,
   areaLinkOf,
   clampPageTarget,
   hasAreaLink,
@@ -1916,8 +1919,13 @@ async function exportLinksForLeaf(leaf) {
         out.push({ rect, url: fix.href });
         continue;
       }
-      if (fix?.kind === "page") {
-        out.push({ rect, page: fix.page, view: ["Fit"] });
+      const fixedPage = linkFixTarget(fix, state.leaves);
+      if (fixedPage?.kind === "fixedPage") {
+        out.push({ rect, page: fixedPage.page, view: ["Fit"] });
+        continue;
+      }
+      if (fixedPage?.kind === "goneLeaf") {
+        // The page it pointed at is not in this document; write no link.
         continue;
       }
       if (target.kind === "url") {
@@ -2007,6 +2015,7 @@ async function openPdfBuffer(buffer, { identity, name, page = 1, handle = null }
   state.page = Math.min(Math.max(1, page), state.pageCount);
   state.pages = stored.pages;
   state.outline = normalizeOutline(stored.outline, state.leaves);
+  anchorLinkFixesNow();
   await importPdfOutline(pdf);
   state.baseCss = { width: 0, height: 0 };
   resetEditorExtras();
@@ -3453,7 +3462,9 @@ async function renderSplitStage() {
 }
 
 function openAreaLink(link) {
-  const tab = splitTabFromLink(link);
+  // #194: a page link means that sheet of paper, wherever it sits now.
+  const at = areaLinkPage(link, state.leaves);
+  const tab = splitTabFromLink(at ? { ...link, page: at } : link);
   if (!tab) {
     return;
   }
@@ -3730,6 +3741,10 @@ async function followPdfLink(link, fromPage) {
     openLinkTab(link.href);
     return true;
   }
+  if (link?.kind === "goneLeaf") {
+    flashBanner("고쳐 둔 쪽이 문서에서 지워졌습니다");
+    return true;
+  }
   if (link?.kind === "fixedPage") {
     // Set by hand (#190), so it is already a position in this document.
     const at = Math.min(Math.max(1, link.page), state.pageCount || 1);
@@ -3810,7 +3825,8 @@ function openLinkFixPanel(spot, item, index) {
   editingLink = { ...keys, pageNum: spot.pageNum, leaf: spot.leaf, item, index };
   const current = findLinkFix(state.linkFixes, keys.spotKey, keys.groupKey);
   els.linkFixOrigin.textContent = describeOriginalLink(item);
-  els.linkFixPage.value = current?.kind === "page" ? String(current.page) : "";
+  const now = linkFixTarget(current, state.leaves);
+  els.linkFixPage.value = now?.kind === "fixedPage" ? String(now.page) : "";
   els.linkFixUrl.value = current?.kind === "url" ? current.href : "";
   els.linkFixBulk.checked = false;
   els.linkFixClear.hidden = !current;
@@ -3830,6 +3846,18 @@ function openLinkFixPanel(spot, item, index) {
   els.linkFixPanel.style.top = `${fit(spot.client.y + 16, viewTop, box.height, viewHeight)}px`;
   els.linkFixPanel.style.visibility = "";
   flashPdfLinkHint(spot.pageNum, index);
+}
+
+/**
+ * Ties every correction to the page it means, once the leaves are known (#194).
+ * Anything saved as a bare slot number would drift the moment a page is added.
+ */
+function anchorLinkFixesNow() {
+  const result = anchorLinkFixes(state.linkFixes, state.leaves);
+  state.linkFixes = result.fixes;
+  if (result.changed && state.identity) {
+    saveLinkFixes(state.identity, state.linkFixes);
+  }
 }
 
 function persistLinkFixes() {
@@ -3872,7 +3900,8 @@ function saveLinkFixFromPanel() {
     return;
   }
   if (page >= 1) {
-    applyLinkFix({ kind: "page", page });
+    // #194: the paper, not the slot number — inserting a page must not move it.
+    applyLinkFix(linkFixForPage(page, state.leaves));
     return;
   }
   flashBanner("갈 쪽이나 주소를 넣어 주세요");
@@ -3961,7 +3990,7 @@ function actOnPdfLink(spot) {
     return false;
   }
   flashPdfLinkHint(spot.pageNum, items.indexOf(hit));
-  const fixed = linkFixTarget(fixFor(spot.leaf, hit));
+  const fixed = linkFixTarget(fixFor(spot.leaf, hit), state.leaves);
   followPdfLink(fixed || hit.link, spot.pageNum);
   return true;
 }
@@ -6908,6 +6937,7 @@ async function loadDriveSidecar(doc) {
   state.shareThumbs = Boolean(remote.shareThumbs);
   if (remote.linkFixes && Object.keys(remote.linkFixes).length) {
     state.linkFixes = remote.linkFixes;
+    anchorLinkFixesNow();
     saveLinkFixes(state.identity, state.linkFixes);
   }
   persistStrokes();
@@ -7138,6 +7168,7 @@ async function loadInkSidecar(doc) {
   state.shareThumbs = Boolean(remote.shareThumbs);
   if (remote.linkFixes && Object.keys(remote.linkFixes).length) {
     state.linkFixes = remote.linkFixes;
+    anchorLinkFixesNow();
     saveLinkFixes(state.identity, state.linkFixes);
   }
   persistStrokes();
@@ -9102,7 +9133,8 @@ if (els.areaLinkPageGo) {
   els.areaLinkPageGo.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
-    saveAreaLink({ kind: "page", page: clampPageTarget(els.areaLinkPage?.value, state.pageCount) });
+    const at = clampPageTarget(els.areaLinkPage?.value, state.pageCount);
+    saveAreaLink({ kind: "page", page: at, leafId: state.leaves[at - 1]?.id });
   });
 }
 if (els.areaLinkUrlGo) {

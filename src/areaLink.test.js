@@ -7,6 +7,7 @@ import {
   acceptAreaUrl,
   areaItem,
   areaLinkOf,
+  areaLinkPage,
   clampPageTarget,
   hasAreaLink,
   normalizeAreaLink,
@@ -88,4 +89,29 @@ test("#72 분할은 탭이고 마지막을 닫으면 끝난다", () => {
   assert.match(main, /emptySplit/);
   assert.doesNotMatch(html, /data-tool="area"|data-tool="link"/);
   assert.doesNotMatch(main, /#float-bar[\s\S]{0,200}연결/);
+});
+
+const leaves194 = [{ id: "a" }, { id: "b" }, { id: "c" }];
+
+test("#194 영역 연결도 쪽 번호가 아니라 그 쪽 자체를 붙든다", () => {
+  assert.deepEqual(normalizeAreaLink({ kind: "page", page: 2, leafId: "b" }), {
+    kind: "page",
+    page: 2,
+    leafId: "b",
+  });
+  // 앞에 한 장을 끼워도 같은 종이로 간다.
+  const link = normalizeAreaLink({ kind: "page", page: 2, leafId: "b" });
+  assert.equal(areaLinkPage(link, [{ id: "새" }, ...leaves194]), 3);
+});
+
+test("#194 예전에 만든 연결과 지워진 쪽은 옛 번호 그대로", () => {
+  assert.deepEqual(normalizeAreaLink({ kind: "page", page: 2 }), { kind: "page", page: 2 });
+  assert.equal(areaLinkPage({ kind: "page", page: 2 }, leaves194), 2);
+  assert.equal(areaLinkPage({ kind: "page", page: 2, leafId: "없음" }, leaves194), 2);
+  assert.equal(areaLinkPage({ kind: "url", href: "https://a.kr/" }, leaves194), 0);
+});
+
+test("#194 만들 때 잎을 함께 적고, 열 때 지금 자리를 쓴다", () => {
+  assert.match(main, /saveAreaLink\(\{ kind: "page", page: at, leafId: state\.leaves\[at - 1\]\?\.id \}\)/);
+  assert.match(main, /const at = areaLinkPage\(link, state\.leaves\)/);
 });

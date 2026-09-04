@@ -4,9 +4,11 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  anchorLinkFixes,
   clearLinkFix,
   countLinkFixes,
   findLinkFix,
+  linkFixForPage,
   linkFixTarget,
   linkGroupKey,
   linkSpotKey,
@@ -144,7 +146,7 @@ describe("#190 배선", () => {
 
   it("lets a correction win over what the file says", () => {
     const act = main.slice(main.indexOf("function actOnPdfLink"), main.indexOf("function followPdfLinkAtClient"));
-    assert.match(act, /const fixed = linkFixTarget\(fixFor\(spot\.leaf, hit\)\)/);
+    assert.match(act, /const fixed = linkFixTarget\(fixFor\(spot\.leaf, hit\), state\.leaves\)/, "resolved against the pages as they are now");
     assert.match(act, /followPdfLink\(fixed \|\| hit\.link, spot\.pageNum\)/);
   });
 
@@ -206,12 +208,90 @@ describe("#190 고친 링크가 파일에도 들어간다", () => {
     const build = main.slice(main.indexOf("async function exportLinksForLeaf"), main.indexOf("async function exportLinkMap"));
     assert.match(build, /const fix = fixFor\(leaf, \{ rect, link: target \}\)/);
     assert.match(build, /fix\?\.kind === "url"/);
-    assert.match(build, /fix\?\.kind === "page"/);
+    assert.match(build, /const fixedPage = linkFixTarget\(fix, state\.leaves\)/);
+    assert.match(build, /fixedPage\?\.kind === "goneLeaf"/, "a page that was deleted gets no link at all");
     assert.ok(build.indexOf("const fix =") < build.indexOf('target.kind === "url"'), "the correction is consulted first");
   });
 
   it("keeps the source rectangle on every link, or one fix would hit them all", () => {
     assert.match(main, /pdfLinkItem\(box, target, annotation\.rect\)/);
     assert.match(main, /spotKey: linkSpotKey\(leaf\?\.pdfPage, item\?\.rect\)/);
+  });
+});
+
+describe("#194 쪽을 중간에 끼워도 고친 링크가 안 흔들린다", () => {
+  const leaves = [
+    { id: "a", kind: "pdf", pdfPage: 1 },
+    { id: "b", kind: "pdf", pdfPage: 2 },
+    { id: "c", kind: "pdf", pdfPage: 3 },
+  ];
+
+  it("holds the page itself, the way the table of contents does", () => {
+    assert.deepEqual(linkFixForPage(2, leaves), { kind: "leaf", leafId: "b" });
+  });
+
+  it("still points at the same paper after a page is inserted before it", () => {
+    const fix = linkFixForPage(2, leaves);
+    const grown = [leaves[0], { id: "새", kind: "outline" }, leaves[1], leaves[2]];
+    assert.deepEqual(linkFixTarget(fix, grown), { kind: "fixedPage", page: 3 });
+  });
+
+  it("follows the page when it is moved, not the slot it used to be in", () => {
+    const fix = linkFixForPage(3, leaves);
+    const shuffled = [leaves[2], leaves[0], leaves[1]];
+    assert.deepEqual(linkFixTarget(fix, shuffled), { kind: "fixedPage", page: 1 });
+  });
+
+  it("says the page is gone rather than sending the reader somewhere else", () => {
+    const fix = linkFixForPage(2, leaves);
+    assert.deepEqual(linkFixTarget(fix, [leaves[0], leaves[2]]), { kind: "goneLeaf" });
+  });
+
+  it("falls back to a plain number when there is no page to hold", () => {
+    assert.deepEqual(linkFixForPage(4, leaves), { kind: "page", page: 4 });
+    assert.deepEqual(linkFixTarget({ kind: "page", page: 4 }, leaves), { kind: "fixedPage", page: 4 });
+    assert.equal(linkFixForPage(0, leaves), null);
+  });
+
+  it("anchors what was saved as a bare number the first time it can", () => {
+    const { fixes, changed } = anchorLinkFixes({ one: { kind: "page", page: 3 } }, leaves);
+    assert.deepEqual(fixes.one, { kind: "leaf", leafId: "c" });
+    assert.equal(changed, true, "so it gets written back");
+  });
+
+  it("leaves already anchored fixes and web addresses alone", () => {
+    const before = { one: { kind: "leaf", leafId: "b" }, two: { kind: "url", href: "https://a.kr/" } };
+    const { fixes, changed } = anchorLinkFixes(before, leaves);
+    assert.deepEqual(fixes, before);
+    assert.equal(changed, false);
+  });
+
+  it("survives a sidecar entry that means nothing", () => {
+    const { fixes } = anchorLinkFixes({ junk: { kind: "doc" }, ok: { kind: "leaf", leafId: "a" } }, leaves);
+    assert.deepEqual(fixes, { ok: { kind: "leaf", leafId: "a" } });
+  });
+});
+
+describe("#194 배선", () => {
+  const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+  const main = readFileSync(join(root, "src/main.js"), "utf8");
+
+  it("saves the page a reader typed as the page itself", () => {
+    assert.match(main, /applyLinkFix\(linkFixForPage\(page, state\.leaves\)\)/);
+  });
+
+  it("ties down old corrections as soon as the pages are known", () => {
+    assert.match(main, /state\.outline = normalizeOutline\(stored\.outline, state\.leaves\);\s*anchorLinkFixesNow\(\)/);
+    assert.equal((main.match(/anchorLinkFixesNow\(\)/g) || []).length, 4, "on open, on both sidecar loads, and the function");
+  });
+
+  it("shows the page a correction means today, not the one it was made on", () => {
+    const open = main.slice(main.indexOf("function openLinkFixPanel"), main.indexOf("function anchorLinkFixesNow"));
+    assert.match(open, /const now = linkFixTarget\(current, state\.leaves\)/);
+  });
+
+  it("says so when the page a correction pointed at was deleted", () => {
+    assert.match(main, /link\?\.kind === "goneLeaf"/);
+    assert.match(main, /고쳐 둔 쪽이 문서에서 지워졌습니다/);
   });
 });

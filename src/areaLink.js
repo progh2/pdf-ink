@@ -25,7 +25,10 @@ export function normalizeAreaLink(raw) {
   if (kind === "page") {
     const page = Math.trunc(Number(raw.page));
     if (!Number.isFinite(page) || page < 1) return null;
-    return { kind: "page", page };
+    // #194: 자리 번호는 중간에 한 장만 끼워도 어긋난다. 잎을 함께 적어 두고,
+    // 열 때 그 잎이 지금 있는 자리를 쓴다. 옛 항목은 번호만 있어도 그대로 돈다.
+    const leafId = String(raw.leafId ?? "").trim();
+    return leafId ? { kind: "page", page, leafId } : { kind: "page", page };
   }
   if (kind === "doc") {
     const name = String(raw.name ?? "").trim();
@@ -84,4 +87,18 @@ export function recentDocsForLink(list, currentName, limit = 8) {
     if (out.length >= limit) break;
   }
   return out;
+}
+
+/** 영역 연결이 가리키는 쪽. 잎을 적어 두었으면 그 잎이 지금 있는 자리 (#194). */
+export function areaLinkPage(link, leaves) {
+  if (link?.kind !== "page") {
+    return 0;
+  }
+  if (link.leafId) {
+    const at = (leaves || []).findIndex((leaf) => leaf?.id === link.leafId);
+    if (at >= 0) {
+      return at + 1;
+    }
+  }
+  return Math.max(0, Math.trunc(Number(link.page)) || 0);
 }

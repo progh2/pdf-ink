@@ -337,7 +337,7 @@ describe("#188 배선", () => {
 
   it("says what the link was on every tap, not only when it fails", () => {
     const follow = main.slice(main.indexOf("async function followPdfLink("), main.indexOf("링크 고치기 (#190)"));
-    assert.equal((follow.match(/flashBanner\(/g) || []).length, 4, "url · 고친 것 · action · dest");
+    assert.equal((follow.match(/flashBanner\(/g) || []).length, 5, "url · 지워진 쪽 · 고친 것 · action · dest");
     assert.match(follow, /flashBanner\(describeLink\(\{ link \}\)\)/);
   });
 
