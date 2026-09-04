@@ -377,12 +377,21 @@
 
       <div class="sheet" id="ink-move-sheet" hidden>
         <button type="button" class="sheet-backdrop" id="ink-move-backdrop" aria-label="닫기"></button>
-        <div class="sheet-card" role="dialog" aria-labelledby="ink-move-title">
+        <div class="sheet-card ink-move-sheet-card" role="dialog" aria-labelledby="ink-move-title">
           <h2 id="ink-move-title">필기 옮기기</h2>
           <p class="ink-move-hint" id="ink-move-hint">
             같은 자료의 다른 판에서 필기를 가져옵니다. 쪽에 적힌 글자로 같은 쪽을 찾습니다.
           </p>
           <div class="ink-move-docs" id="ink-move-docs"></div>
+          <div class="ink-move-modebar" id="ink-move-modebar" hidden>
+            <button type="button" id="ink-move-mode-add" class="is-selected">탭한 쪽에 겹치기</button>
+            <button type="button" id="ink-move-mode-insert">탭한 쪽 뒤에 새 쪽</button>
+            <button type="button" id="ink-move-skip">안 옮김</button>
+          </div>
+          <div class="ink-move-panes" id="ink-move-panes" hidden>
+            <div class="ink-move-pane" id="ink-move-left" aria-label="옛 문서"></div>
+            <div class="ink-move-pane" id="ink-move-right" aria-label="지금 문서"></div>
+          </div>
           <label class="ink-move-mode" id="ink-move-mode" hidden>
             <input type="checkbox" id="ink-move-replace" />
             <span>있던 필기를 지우고 덮어쓰기 (기본은 더하기)</span>

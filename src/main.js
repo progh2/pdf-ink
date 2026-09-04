@@ -426,6 +426,13 @@ const els = {
   inkMoveApply: document.querySelector("#ink-move-apply"),
   inkMoveMode: document.querySelector("#ink-move-mode"),
   inkMoveReplace: document.querySelector("#ink-move-replace"),
+  inkMovePanes: document.querySelector("#ink-move-panes"),
+  inkMoveLeft: document.querySelector("#ink-move-left"),
+  inkMoveRight: document.querySelector("#ink-move-right"),
+  inkMoveModebar: document.querySelector("#ink-move-modebar"),
+  inkMoveModeAdd: document.querySelector("#ink-move-mode-add"),
+  inkMoveModeInsert: document.querySelector("#ink-move-mode-insert"),
+  inkMoveSkip: document.querySelector("#ink-move-skip"),
   linkFixPanel: document.querySelector("#link-fix-panel"),
   linkFixOrigin: document.querySelector("#link-fix-origin"),
   linkFixPage: document.querySelector("#link-fix-page"),
@@ -3832,8 +3839,8 @@ async function followPdfLink(link, fromPage) {
 
 /** 견줄 때 쓰는 쪽 그림 크기. 작아도 되고, 작아야 빠르다. */
 const MATCH_SHOT_PX = 96;
-/** 고르는 화면에 보여 줄 그림 크기. */
-const MATCH_THUMB_PX = 132;
+/** 양쪽 창에 보여 줄 그림 폭(px). 알아볼 수 있어야 하므로 견줄 때보다 크다. */
+const MATCH_PANE_PX = 220;
 
 /**
  * 이 브라우저가 들고 있는 그 PDF에서 쪽마다 지문을 뜬다 (#200·#202).
@@ -3843,7 +3850,6 @@ async function fingerprintsOf(buffer, pages = null, onStep = null) {
   const pdf = await pdfjsLib.getDocument({ data: buffer.slice(0) }).promise;
   const prints = {};
   const hashes = {};
-  const thumbs = {};
   const list = pages || Array.from({ length: pdf.numPages }, (_, at) => at + 1);
   const canvas = document.createElement("canvas");
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
@@ -3868,7 +3874,6 @@ async function fingerprintsOf(buffer, pages = null, onStep = null) {
       await page.render({ canvasContext: ctx, viewport }).promise;
       const shot = ctx.getImageData(0, 0, canvas.width, canvas.height);
       hashes[number] = dHash(grayGrid(shot.data, canvas.width, canvas.height));
-      thumbs[number] = canvas.toDataURL("image/jpeg", 0.6);
     } catch {
       prints[number] = "";
       hashes[number] = "";
@@ -3880,7 +3885,7 @@ async function fingerprintsOf(buffer, pages = null, onStep = null) {
   }
   const count = pdf.numPages;
   await pdf.destroy();
-  return { prints, hashes, thumbs, count };
+  return { prints, hashes, count };
 }
 
 /** 옛 문서에서 필기가 있는 쪽. 손댄 쪽만 맞추면 되므로 여기서 추린다. */
@@ -3920,16 +3925,24 @@ function inkItemsForPage(record, pdfPage) {
 }
 
 function closeInkMove() {
+  for (const watcher of inkMoveObservers) {
+    watcher.disconnect();
+  }
+  inkMoveObservers = [];
+  if (inkMovePlan?.oldPdf) {
+    inkMovePlan.oldPdf.destroy();
+  }
   inkMovePlan = null;
   if (els.inkMoveSheet) {
     els.inkMoveSheet.hidden = true;
   }
-  if (els.inkMoveApply) {
-    els.inkMoveApply.hidden = true;
+  for (const part of [els.inkMoveApply, els.inkMoveMode, els.inkMovePanes, els.inkMoveModebar]) {
+    if (part) {
+      part.hidden = true;
+    }
   }
-  if (els.inkMoveMode) {
-    els.inkMoveMode.hidden = true;
-  }
+  els.inkMoveLeft?.replaceChildren();
+  els.inkMoveRight?.replaceChildren();
 }
 
 async function openInkMove() {
@@ -3968,11 +3981,12 @@ async function openInkMove() {
 }
 
 let inkMovePlan = null;
+let inkMoveObservers = [];
 
 /**
- * 옛 문서의 필기를 지금 문서의 **같은 쪽**에 얹는다. 쪽 번호가 아니라 쪽에
- * 적힌 글자로, 글자가 없으면 **쪽 그림**으로 찾으므로 판이 달라 쪽 수가
- * 안 맞아도 제자리를 찾는다. 짝은 제안일 뿐이고, 사람이 고칠 수 있다.
+ * 옛 문서의 필기를 지금 문서로 옮긴다 (#200·#202·#204). 짝은 글자·그림
+ * 지문으로 먼저 제안하고, 마지막 말은 사람이 한다 — 양쪽 문서를 나란히
+ * 놓고 왼쪽에서 쪽을 고른 뒤 오른쪽에서 갈 곳을 탭한다.
  */
 async function moveInkFrom(row, record, inked) {
   els.inkMoveDocs.replaceChildren();
@@ -3982,9 +3996,12 @@ async function moveInkFrom(row, record, inked) {
   say("옛 문서를 읽는 중…");
   let from;
   let to;
+  let oldPdf;
   try {
     from = await fingerprintsOf(row.buffer, inked, (at, all) => say(`옛 문서 ${at}/${all}쪽…`));
     to = await fingerprintsOf(state.buffer, null, (at, all) => say(`지금 문서 ${at}/${all}쪽…`));
+    // 창에 크게 그릴 때 다시 쓰므로 열어 둔다. 닫을 때 destroy.
+    oldPdf = await pdfjsLib.getDocument({ data: row.buffer.slice(0) }).promise;
   } catch {
     say("그 문서를 읽지 못했습니다.");
     return;
@@ -4005,67 +4022,230 @@ async function moveInkFrom(row, record, inked) {
     toCount: to.count,
   });
   const plan = mergeMatches(byText, byImage);
-  inkMovePlan = { record, from, to, plan, name: row.name || "문서.pdf" };
-  showInkMovePlan();
+  const rows = [
+    ...plan.pairs.map((pair) => ({ from: pair.from, to: pair.to, mode: "add", sure: pair.sure })),
+    ...plan.missing.map((page) => ({ from: page, to: 0, mode: "skip", sure: false })),
+  ].sort((a, b) => a.from - b.from);
+  inkMovePlan = { record, oldPdf, rows, name: row.name || "문서.pdf", summary: matchSummary(plan), selected: null };
+  openInkMovePanes();
 }
 
-/** 제안한 짝을 한 줄씩 보여 주고, 쪽 번호를 고치면 그림이 따라 바뀐다. */
-function showInkMovePlan() {
-  const { from, to, plan, name } = inkMovePlan;
-  const rows = [
-    ...plan.pairs.map((pair) => ({ ...pair })),
-    ...plan.missing.map((page) => ({ from: page, to: 0, sure: false })),
-  ].sort((a, b) => a.from - b.from);
-  inkMovePlan.rows = rows;
-  els.inkMoveHint.textContent = `${name} · ${matchSummary(plan)} · 틀린 짝은 쪽 번호를 고치세요. 0이면 안 옮깁니다.`;
-  els.inkMoveDocs.replaceChildren();
-  for (const row of rows) {
-    const line = document.createElement("div");
-    line.className = "ink-move-row";
-    const oldShot = document.createElement("img");
-    oldShot.className = "ink-move-thumb";
-    oldShot.alt = "";
-    oldShot.src = from.thumbs[row.from] || "";
-    const label = document.createElement("span");
-    label.className = "ink-move-from";
-    label.textContent = `${row.from}쪽`;
-    const input = document.createElement("input");
-    input.type = "number";
-    input.min = "0";
-    input.max = String(to.count);
-    input.value = String(row.to || 0);
-    input.setAttribute("aria-label", `${row.from}쪽을 옮길 곳`);
-    const newShot = document.createElement("img");
-    newShot.className = "ink-move-thumb";
-    newShot.alt = "";
-    newShot.src = to.thumbs[row.to] || "";
-    if (!row.sure) {
-      line.classList.add("is-guess");
-    }
-    input.addEventListener("input", () => {
-      row.to = Math.max(0, Math.min(to.count, Number(input.value) || 0));
-      newShot.src = to.thumbs[row.to] || "";
-      line.classList.toggle("is-off", !row.to);
-    });
-    line.classList.toggle("is-off", !row.to);
-    line.append(oldShot, label, document.createTextNode("→"), input, newShot);
-    els.inkMoveDocs.append(line);
+/** 옛 쪽을 창에 그린다: 종이 위에 그때의 필기까지 (#204). */
+async function renderOldMoveThumb(canvas, pageNum) {
+  const pdf = inkMovePlan?.oldPdf;
+  if (!pdf) {
+    return;
   }
+  try {
+    const page = await pdf.getPage(pageNum);
+    const base = page.getViewport({ scale: 1 });
+    const viewport = page.getViewport({ scale: MATCH_PANE_PX / Math.max(1, base.width) });
+    canvas.width = Math.max(1, Math.round(viewport.width));
+    canvas.height = Math.max(1, Math.round(viewport.height));
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = "#FFFFFF";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    await page.render({ canvasContext: ctx, viewport }).promise;
+    const items = inkItemsForPage(inkMovePlan.record, pageNum);
+    if (items.length) {
+      const layers = await exportInkCanvas(items, { width: canvas.width, height: canvas.height }, base.width);
+      ctx.drawImage(layers, 0, 0);
+    }
+  } catch {
+    // 못 그린 쪽은 빈 채로 둔다. 번호는 남는다.
+  }
+}
+
+/** 지금 문서 쪽도 필기까지 (preview 서랍과 같은 경로). */
+async function renderNewMoveThumb(canvas, position) {
+  const leaf = leafAt(state.leaves, position);
+  if (!leaf) {
+    return;
+  }
+  await renderThumbPage(canvas, leaf, { width: MATCH_PANE_PX / 2, height: MATCH_PANE_PX * 0.7 });
+  await paintThumbInk(canvas, leaf);
+}
+
+/** 창 안에 실제로 보이는 그림만 그린다 — 277쪽을 미리 다 그리면 폰이 죽는다. */
+function watchMoveThumbs(pane, render) {
+  const watcher = new IntersectionObserver((entries) => {
+    for (const entry of entries) {
+      if (!entry.isIntersecting) {
+        continue;
+      }
+      const canvas = entry.target;
+      watcher.unobserve(canvas);
+      render(canvas, Number(canvas.dataset.page));
+    }
+  }, { root: pane, rootMargin: "160px" });
+  inkMoveObservers.push(watcher);
+  return watcher;
+}
+
+function moveRowLabel(row) {
+  if (row.mode === "insert" && row.to) {
+    return `→ ${row.to}쪽 뒤에 새 쪽`;
+  }
+  if (row.mode === "add" && row.to) {
+    return `→ ${row.to}쪽`;
+  }
+  return "안 옮김";
+}
+
+function refreshMoveRowCard(row) {
+  const card = els.inkMoveLeft?.querySelector(`[data-from="${row.from}"]`);
+  if (!card) {
+    return;
+  }
+  card.querySelector(".ink-move-target").textContent = moveRowLabel(row);
+  card.classList.toggle("is-guess", row.sure === false && row.mode !== "skip" && Boolean(row.to));
+  card.classList.toggle("is-off", row.mode === "skip" || !row.to);
+}
+
+function selectMoveRow(row) {
+  inkMovePlan.selected = row;
+  for (const card of els.inkMoveLeft.querySelectorAll(".ink-move-card")) {
+    card.classList.toggle("is-selected", Number(card.dataset.from) === row.from);
+  }
+  // 순서가 크게 다르지 않으니, 제안한 자리(없으면 같은 번호)로 오른쪽을 데려간다.
+  const near = Math.min(state.leaves.length, Math.max(1, row.to || row.from));
+  els.inkMoveRight.querySelector(`[data-page="${near}"]`)?.scrollIntoView({ block: "center" });
+}
+
+/** 오른쪽 쪽을 탭하면, 고른 옛 쪽이 그리로 간다. 모드가 「새 쪽」이면 그 뒤에 끼운다. */
+function assignMoveTarget(position) {
+  const row = inkMovePlan?.selected;
+  if (!row) {
+    flashBanner("먼저 왼쪽에서 옮길 쪽을 고르세요.");
+    return;
+  }
+  row.to = position;
+  row.mode = inkMoveAssignMode;
+  row.sure = true;
+  refreshMoveRowCard(row);
+  // 다음 확인거리로 넘어간다: 아직 짝 없는 첫 쪽.
+  const next = inkMovePlan.rows.find((one) => one.mode === "skip" || !one.to);
+  if (next) {
+    selectMoveRow(next);
+  }
+}
+
+let inkMoveAssignMode = "add";
+
+function setInkMoveAssignMode(mode) {
+  inkMoveAssignMode = mode;
+  els.inkMoveModeAdd?.classList.toggle("is-selected", mode === "add");
+  els.inkMoveModeInsert?.classList.toggle("is-selected", mode === "insert");
+}
+
+function openInkMovePanes() {
+  const { rows, name, summary } = inkMovePlan;
+  els.inkMoveHint.textContent = `${name} · ${summary} · 왼쪽에서 쪽을 고르고 오른쪽에서 갈 곳을 탭하세요.`;
+  els.inkMoveDocs.replaceChildren();
+  els.inkMovePanes.hidden = false;
+  els.inkMoveModebar.hidden = false;
   els.inkMoveApply.hidden = false;
   els.inkMoveMode.hidden = false;
+  setInkMoveAssignMode("add");
+
+  els.inkMoveLeft.replaceChildren();
+  const leftWatch = watchMoveThumbs(els.inkMoveLeft, renderOldMoveThumb);
+  for (const row of rows) {
+    const card = document.createElement("button");
+    card.type = "button";
+    card.className = "ink-move-card";
+    card.dataset.from = String(row.from);
+    const shot = document.createElement("canvas");
+    shot.className = "ink-move-shot";
+    shot.dataset.page = String(row.from);
+    const label = document.createElement("span");
+    label.className = "ink-move-label";
+    label.textContent = `${row.from}쪽`;
+    const target = document.createElement("span");
+    target.className = "ink-move-target";
+    target.textContent = moveRowLabel(row);
+    card.append(shot, label, target);
+    card.addEventListener("click", () => selectMoveRow(row));
+    els.inkMoveLeft.append(card);
+    leftWatch.observe(shot);
+    refreshMoveRowCard(row);
+  }
+
+  els.inkMoveRight.replaceChildren();
+  const rightWatch = watchMoveThumbs(els.inkMoveRight, renderNewMoveThumb);
+  for (let position = 1; position <= state.leaves.length; position += 1) {
+    const card = document.createElement("button");
+    card.type = "button";
+    card.className = "ink-move-card";
+    card.dataset.page = String(position);
+    const shot = document.createElement("canvas");
+    shot.className = "ink-move-shot";
+    shot.dataset.page = String(position);
+    const label = document.createElement("span");
+    label.className = "ink-move-label";
+    label.textContent = `${position}쪽`;
+    card.append(shot, label);
+    card.addEventListener("click", () => assignMoveTarget(position));
+    els.inkMoveRight.append(card);
+    rightWatch.observe(shot);
+  }
+
+  const first = rows.find((one) => !one.sure) || rows[0];
+  if (first) {
+    selectMoveRow(first);
+  }
 }
 
-function applyInkMove() {
+/** 굿노트에서 새로 만든 쪽: 그 쪽 그림을 통째로 깔고 필기를 얹은 빈 쪽이 된다 (#204). */
+async function insertPayloadFor(row) {
+  const pdf = inkMovePlan.oldPdf;
+  const page = await pdf.getPage(row.from);
+  const base = page.getViewport({ scale: 1 });
+  const viewport = page.getViewport({ scale: 1000 / Math.max(1, base.width) });
+  const canvas = offscreenCanvas(Math.round(viewport.width), Math.round(viewport.height));
+  const ctx = canvas2d(canvas);
+  ctx.fillStyle = "#FFFFFF";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  await page.render({ canvasContext: ctx, viewport }).promise;
+  return {
+    row,
+    image: imageItem({
+      x: 0,
+      y: 0,
+      w: 1,
+      h: 1,
+      src: canvas.toDataURL("image/jpeg", 0.82),
+      locked: true,
+    }),
+    items: inkItemsForPage(inkMovePlan.record, row.from),
+  };
+}
+
+async function applyInkMove() {
   if (!inkMovePlan?.rows) {
     return;
   }
   const { record, rows } = inkMovePlan;
   const replace = els.inkMoveReplace?.checked;
+  const merges = rows.filter((row) => row.mode === "add" && row.to);
+  const inserts = rows.filter((row) => row.mode === "insert" && row.to);
+  els.inkMoveApply.disabled = true;
+  let payloads = [];
+  try {
+    payloads = [];
+    for (const row of inserts) {
+      payloads.push(await insertPayloadFor(row));
+    }
+  } catch {
+    els.inkMoveApply.disabled = false;
+    flashBanner("가져올 쪽을 그리지 못했습니다.");
+    return;
+  }
   let moved = 0;
   commitBulkChange(() => {
-    for (const row of rows) {
-      const items = row.to ? inkItemsForPage(record, row.from) : [];
-      const leaf = state.leaves.find((one) => one.kind !== "outline" && Number(one.pdfPage) === row.to);
+    for (const row of merges) {
+      const items = inkItemsForPage(record, row.from);
+      const leaf = leafAt(state.leaves, row.to);
       if (!items.length || !leaf) {
         continue;
       }
@@ -4073,9 +4253,16 @@ function applyInkMove() {
       state.pages[key] = replace ? items : [...(state.pages[key] || []), ...items];
       moved += 1;
     }
+    // 뒤에서부터 끼워야 앞 자리 번호가 흔들리지 않는다.
+    for (const payload of payloads.sort((a, b) => b.row.to - a.row.to)) {
+      const id = `o:mv-${Date.now().toString(36)}-${payload.row.from}`;
+      state.leaves = insertOutlineAfter(state.leaves, payload.row.to - 1, id);
+      state.pages[id] = [payload.image, ...payload.items];
+      moved += 1;
+    }
   });
   persistStrokes();
-  inkMovePlan = null;
+  els.inkMoveApply.disabled = false;
   closeInkMove();
   rebuildPages();
   flashBanner(`${moved}쪽을 옮겼습니다. 마음에 안 들면 되돌리기 한 번.`, 5200);
@@ -9252,6 +9439,16 @@ bindUndoHold(els.undoBtn, { onUndo: undoInk, onRedo: redoInk });
 bindLinkFixPanel();
 els.inkMoveDone?.addEventListener("click", closeInkMove);
 els.inkMoveApply?.addEventListener("click", applyInkMove);
+els.inkMoveModeAdd?.addEventListener("click", () => setInkMoveAssignMode("add"));
+els.inkMoveModeInsert?.addEventListener("click", () => setInkMoveAssignMode("insert"));
+els.inkMoveSkip?.addEventListener("click", () => {
+  const row = inkMovePlan?.selected;
+  if (row) {
+    row.to = 0;
+    row.mode = "skip";
+    refreshMoveRowCard(row);
+  }
+});
 els.inkMoveBackdrop?.addEventListener("click", closeInkMove);
 els.redoBtn.addEventListener("click", (event) => {
   event.preventDefault();
