@@ -2394,3 +2394,15 @@ body {
   color: #8B8378;
   font-variant-numeric: tabular-nums;
 }
+
+/* S펜 호버: 닿을 자리와 지금 색·굵기 (#210). 그림일 뿐, 아무것도 안 먹는다. */
+.pen-hover {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 7;
+  pointer-events: none;
+  border-radius: 50%;
+  border: 1.5px solid var(--swatch, #1A1A1A);
+  background: color-mix(in srgb, var(--swatch, #1A1A1A) 22%, transparent);
+}

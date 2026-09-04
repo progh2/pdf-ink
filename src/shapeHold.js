@@ -2,7 +2,8 @@ export const SHAPE_HOLD_MS = 400;
 export const SHAPE_HOLD_GHOST_ALPHA = 0.4;
 export const SHAPE_HOLD_CHIP_HEIGHT = 36;
 export const SHAPE_HOLD_CHIP_GAP_PX = 24;
-export const SHAPE_HOLD_MOVE_SLOP_PX = 16;
+// #210: 16이었는데, 한글 획 하나가 그보다 작아 홀드 뒤 글씨가 먹혔다.
+export const SHAPE_HOLD_MOVE_SLOP_PX = 6;
 export const SHAPE_HOLD_DISMISS_MS = 8000;
 export const SHAPE_HOLD_MIN_SPAN = 0.045;
 export const SHAPE_HOLD_CIRCLE_ASPECT = 1.14;
@@ -405,6 +406,9 @@ export function createShapeHold({
     freezeFrom(source);
     const next = shapeOfferFromStroke(frozen);
     if (!next) {
+      // 도형이 될 수 없는 획(짧은 글씨 획)을 얼려 두면, 이어지는 작은
+      // 움직임이 전부 버려져 글씨가 끊긴다 (#210). 지킬 것이 없으면 놓는다.
+      frozen = null;
       return;
     }
     offer = next;

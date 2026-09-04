@@ -438,6 +438,7 @@ const els = {
   inkMoveModeAdd: document.querySelector("#ink-move-mode-add"),
   inkMoveModeInsert: document.querySelector("#ink-move-mode-insert"),
   inkMoveSkip: document.querySelector("#ink-move-skip"),
+  penHover: document.querySelector("#pen-hover"),
   linkFixPanel: document.querySelector("#link-fix-panel"),
   linkFixOrigin: document.querySelector("#link-fix-origin"),
   linkFixPage: document.querySelector("#link-fix-page"),
@@ -2651,7 +2652,9 @@ function moveStroke(event) {
     batch.push({ norm: normFromRect(strokeRect, client), client });
     state.currentStroke.points = appendInkPoints(state.currentStroke.points, batch, lastInkUpClient);
     const ahead = typeof event.getPredictedEvents === "function" ? event.getPredictedEvents() : [];
-    predictedTail = ahead.map((sample) => normFromRect(strokeRect, { x: sample.clientX, y: sample.clientY }));
+    // #210: 예측을 다 그리면 곡선에서 과예측이 물러나며 아른거린다. 두 점이면
+    // 펜 끝을 따라붙는 효과는 그대로고 흔들림은 안 보인다.
+    predictedTail = ahead.slice(0, 2).map((sample) => normFromRect(strokeRect, { x: sample.clientX, y: sample.clientY }));
     if (canShapeHold(state.currentStroke.type)) {
       shapeHold.rememberPoints(state.currentStroke.points);
       frozenEndClient = client;
@@ -3441,13 +3444,16 @@ function selectInkTool(kind) {
   syncRectTool();
 }
 
-function selectEraserPixel() {
+/**
+ * 짧은 탭은 지우개를 켤 뿐, 모드는 쓰던 그대로다 (#210). 예전에는 탭마다
+ * 픽셀 모드를 강제하고 저장까지 해서, 획 지우개로 정해 둔 것이 소리 없이
+ * 뒤집혔다. 모드는 길게 눌러 여는 패널에서만 바꾼다.
+ */
+function selectEraser() {
   state.tool = "eraser";
-  state.eraseMode = "pixel";
   state.rectTool = null;
   clearSelection();
   hideMarquee();
-  persistEraser();
   closeAllPanels();
   syncToolSelection();
   syncRectTool();
@@ -9107,7 +9113,46 @@ function onWorkspacePointerDown(event) {
   }
 }
 
+/**
+ * S펜이 종이 위를 떠 있을 때 닿을 자리를 보여 준다 (#210). 펜만 —
+ * 손가락 호버는 없고, 마우스는 이미 제 커서가 있다.
+ */
+function trackPenHover(event) {
+  const dot = els.penHover;
+  if (!dot) {
+    return;
+  }
+  const inkTool = state.tool !== "select" && !state.rectTool;
+  const show =
+    event.pointerType === "pen" &&
+    event.buttons === 0 &&
+    state.interactMode !== "view" &&
+    inkTool &&
+    !overlayOpen() &&
+    Boolean(event.target.closest?.(".page-stage"));
+  dot.hidden = !show;
+  if (!show) {
+    return;
+  }
+  const slot = state.tool === "eraser" ? { width: state.eraserWidth, color: "#8B8378" } : activeSlot();
+  const view = state.pageViews.find((item) => item.stage === event.target.closest(".page-stage"));
+  const cssWidth = view?.cssWidth || 1;
+  const box = view?.stage?.getBoundingClientRect();
+  const px = Math.max(4, (Number(slot.width) || 2) * ((box?.width || cssWidth) / cssWidth));
+  dot.style.width = `${px}px`;
+  dot.style.height = `${px}px`;
+  dot.style.transform = `translate(${event.clientX - px / 2}px, ${event.clientY - px / 2}px)`;
+  dot.style.setProperty("--swatch", slot.color || "#1A1A1A");
+}
+
+function hidePenHover() {
+  if (els.penHover) {
+    els.penHover.hidden = true;
+  }
+}
+
 function onWorkspacePointerMove(event) {
+  trackPenHover(event);
   if (pointers.has(event.pointerId)) {
     pointers.set(event.pointerId, { x: event.clientX, y: event.clientY, type: event.pointerType });
   }
@@ -9412,7 +9457,7 @@ for (const kind of ["pen", "highlighter", "pencil", "stamp"]) {
   });
 }
 bindHold(els.eraserBtn, {
-  onShort: selectEraserPixel,
+  onShort: selectEraser,
   onLong: openEraserEditor,
 });
 els.selectBtn.addEventListener("click", () => {
@@ -10045,6 +10090,8 @@ els.workspace.addEventListener("pointerdown", onWorkspacePointerDown);
 els.workspace.addEventListener("pointermove", onWorkspacePointerMove);
 els.workspace.addEventListener("pointerup", onWorkspacePointerUp);
 els.workspace.addEventListener("pointercancel", onWorkspacePointerUp);
+els.workspace.addEventListener("pointerleave", hidePenHover);
+els.workspace.addEventListener("pointerdown", hidePenHover);
 els.workspace.addEventListener("scroll", () => {
   if (restoreHeldPaperScroll()) {
     return;

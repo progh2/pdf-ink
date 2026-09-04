@@ -149,7 +149,7 @@ describe("#51 400ms hold offers chips, does not auto-convert", () => {
     assert.equal(SHAPE_HOLD_GHOST_ALPHA, 0.4);
     assert.equal(SHAPE_HOLD_CHIP_HEIGHT, 36);
     assert.equal(SHAPE_HOLD_CHIP_GAP_PX, 24);
-    assert.equal(SHAPE_HOLD_MOVE_SLOP_PX, 16);
+    assert.equal(SHAPE_HOLD_MOVE_SLOP_PX, 6);
     assert.equal(SHAPE_HOLD_DISMISS_MS, 8000);
     assert.deepEqual(SHAPE_HOLD_TOOLS, ["pen", "highlighter", "pencil"]);
     assert.equal(canShapeHold("pen"), true);
@@ -263,8 +263,8 @@ describe("#51 400ms hold offers chips, does not auto-convert", () => {
       clock.advance(50);
       hold.noteMove({
         client: {
-          x: 200 + (index % 2 ? 8 : -8),
-          y: 40 + (index % 2 ? 5 : -5),
+          x: 200 + (index % 2 ? 4 : -4),
+          y: 40 + (index % 2 ? 3 : -3),
         },
         getPoints: () => dragged,
         onOffer: (next) => {
@@ -383,9 +383,11 @@ describe("#70 hold-end jitter must not turn ink into a triangle", () => {
   }
 
   it("treats SHAPE_HOLD_MOVE_SLOP as freeze, not a new point", () => {
-    assert.equal(SHAPE_HOLD_MOVE_SLOP_PX, 16);
+    assert.equal(SHAPE_HOLD_MOVE_SLOP_PX, 6);
     assert.equal(isShapeHoldJitter({ x: 200, y: 40 }, { x: 200, y: 40 }), true);
-    assert.equal(isShapeHoldJitter({ x: 208, y: 45 }, { x: 200, y: 40 }), true);
+    assert.equal(isShapeHoldJitter({ x: 204, y: 43 }, { x: 200, y: 40 }), true);
+    // 한글 획 하나 크기의 움직임은 지터가 아니라 글씨다 (#210).
+    assert.equal(isShapeHoldJitter({ x: 208, y: 45 }, { x: 200, y: 40 }), false);
     assert.equal(isShapeHoldJitter({ x: 220, y: 40 }, { x: 200, y: 40 }), false);
     assert.equal(isShapeHoldJitter({ x: 200, y: 40 }, null), false);
   });
@@ -422,8 +424,8 @@ describe("#70 hold-end jitter must not turn ink into a triangle", () => {
     for (let index = 0; index < 10; index += 1) {
       clock.advance(40);
       const jitterClient = {
-        x: endClient.x + (index % 2 ? 8 : -7),
-        y: endClient.y + (index % 2 ? 6 : -5),
+        x: endClient.x + (index % 2 ? 4 : -3),
+        y: endClient.y + (index % 2 ? 3 : -2),
       };
       live = recordHoldMove(hold, live, jitterClient, fan[index % fan.length], onOffer);
       assert.equal(hold.noteMove({ client: jitterClient, getPoints: () => live, onOffer }), false);
@@ -466,7 +468,7 @@ describe("#70 hold-end jitter must not turn ink into a triangle", () => {
     clock.advance(200);
     assert.equal(
       hold.noteMove({
-        client: { x: 198, y: 36 },
+        client: { x: 194, y: 33 },
         getPoints: () => dragged,
       }),
       false,
@@ -948,5 +950,26 @@ describe("#172 이동마다 복사하지 않기", () => {
     hold.begin({ tool: "pen", client: { x: 0, y: 0 } });
     hold.rememberPoints([{ x: 0, y: 0 }, { x: NaN, y: 1 }, { x: 1, y: 1 }]);
     assert.equal(hold.frozenPoints().length, 2);
+  });
+});
+
+describe("#210 글씨를 얼리지 않는다", () => {
+  it("lets go when the frozen stroke cannot become a shape", () => {
+    const hold = createShapeHold({ holdMs: 10, now: () => 100, setTimeoutFn: (fn) => { fn(); return 1; }, clearTimeoutFn: () => {} });
+    // 글씨 획: 너무 짧아 도형 후보가 아니다.
+    const tiny = [{ x: 0.5, y: 0.5 }, { x: 0.505, y: 0.505 }];
+    hold.begin({ tool: "pen", client: { x: 10, y: 10 }, getPoints: () => tiny });
+    hold.rememberPoints(tiny);
+    assert.equal(hold.isOffering(), false, "제안이 없고");
+    assert.equal(hold.isFrozen(), false, "얼려 두지도 않는다 — 다음 획이 먹히지 않게");
+  });
+
+  it("still freezes when there is a real shape to protect", () => {
+    const hold = createShapeHold({ holdMs: 10, now: () => 100, setTimeoutFn: (fn) => { fn(); return 1; }, clearTimeoutFn: () => {} });
+    const line = [{ x: 0.1, y: 0.5 }, { x: 0.5, y: 0.5 }, { x: 0.9, y: 0.5 }];
+    hold.begin({ tool: "pen", client: { x: 10, y: 10 }, getPoints: () => line });
+    hold.rememberPoints(line);
+    assert.equal(hold.isOffering(), true);
+    assert.equal(hold.isFrozen(), true);
   });
 });
