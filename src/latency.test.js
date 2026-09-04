@@ -28,7 +28,7 @@ describe("#208 획 사이의 끊김 — 저장을 한가할 때로", () => {
 describe("#208 예측 이벤트", () => {
   it("draws the browser's predicted tip, but never saves it", () => {
     assert.match(main, /event\.getPredictedEvents === "function" \? event\.getPredictedEvents\(\) : \[\]/);
-    assert.match(main, /predictedTail = ahead\.map/);
+    assert.match(main, /predictedTail = ahead\.slice\(0, 2\)\.map/, "two points: enough to follow, too few to shimmer (#210)");
     const end = main.slice(main.indexOf("function endStroke"), main.indexOf("async function pickFile"));
     assert.match(end, /predictedTail = \[\]/, "cleared before the stroke is committed");
     assert.doesNotMatch(main, /points: \[\.\.\.stroke\.points, \.\.\.predictedTail\][\s\S]{0,400}commitPageChange/, "the tail lives only on the live layer");
