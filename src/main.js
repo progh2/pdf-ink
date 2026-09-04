@@ -1588,6 +1588,8 @@ async function rebuildPages() {
   applyViewport();
   updatePager();
   updateMarquee();
+  // #182: page mode renders its one view here, so nothing else asks for hints.
+  refreshPdfLinkHints();
   updateAreaHits();
   if (state.split?.tabs?.length) {
     renderSplitStage();
@@ -3556,10 +3558,42 @@ function refreshPdfLinkHints() {
   }
 }
 
+/**
+ * Opening a tab is only allowed while the tap is still "live", so this runs
+ * with no await in front of it (#182). If the browser blocks it anyway, say so
+ * instead of doing nothing at all.
+ */
+function openLinkTab(href) {
+  let opened = null;
+  try {
+    opened = window.open(href, "_blank", "noopener,noreferrer");
+  } catch {
+    opened = null;
+  }
+  if (opened) {
+    return;
+  }
+  // Some browsers only follow a real anchor.
+  try {
+    const a = document.createElement("a");
+    a.href = href;
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
+    a.style.display = "none";
+    document.body.append(a);
+    a.click();
+    a.remove();
+    return;
+  } catch {
+    // fall through
+  }
+  flashBanner(`링크를 열지 못했습니다: ${href}`, 3200);
+}
+
 async function followPdfLink(link, fromPage) {
   if (link?.kind === "url") {
     // A document does not get to decide what our tab does.
-    window.open(link.href, "_blank", "noopener,noreferrer");
+    openLinkTab(link.href);
     return true;
   }
   if (link?.kind === "action") {
@@ -3575,7 +3609,7 @@ async function followPdfLink(link, fromPage) {
   const pdfPage = await pdfPageOfDest(link.dest);
   const at = leafPositionForPdfPage(state.leaves, pdfPage);
   if (!at) {
-    notice("이 링크가 가리키는 쪽이 문서에 없습니다");
+    flashBanner("이 링크가 가리키는 쪽이 문서에 없습니다");
     return true;
   }
   if (at !== fromPage) {
@@ -3584,30 +3618,70 @@ async function followPdfLink(link, fromPage) {
   return true;
 }
 
-/**
- * A tap in 보기 mode follows the file's own links. In 편집 mode the same tap
- * is a pen mark, so links stay out of the way while writing.
- */
-async function followPdfLinkAtClient(client) {
+/** Blinks the box that was hit, so a tap always shows it landed (#182). */
+function flashPdfLinkHint(pageNum, index) {
+  const view = (state.pageViews || []).find((item) => item.pageNum === pageNum);
+  const box = view?.linkLayer?.children?.[index];
+  if (!box) {
+    return;
+  }
+  box.classList.add("is-hit");
+  window.setTimeout(() => box.classList.remove("is-hit"), 320);
+}
+
+/** Where a tap landed on this page, in page coordinates. */
+function pdfLinkSpotAtClient(client) {
   if (state.interactMode !== "view" || !state.pdf) {
-    return false;
+    return null;
   }
   const stage = document.elementFromPoint(client.x, client.y)?.closest?.(".page-stage");
   if (!stage) {
-    return false;
+    return null;
   }
   const pageNum = Number(stage.dataset.page) || 0;
   const leaf = leafAt(state.leaves, pageNum);
   if (!pageNum || !leaf) {
-    return false;
+    return null;
   }
-  await loadPdfLinks(leaf);
   const box = stage.getBoundingClientRect();
-  const hit = pdfLinkAt(pageNum, (client.x - box.left) / (box.width || 1), (client.y - box.top) / (box.height || 1));
+  return {
+    pageNum,
+    leaf,
+    x: (client.x - box.left) / (box.width || 1),
+    y: (client.y - box.top) / (box.height || 1),
+  };
+}
+
+function actOnPdfLink(spot) {
+  const items = state.pdfLinks.get(pdfLinkCacheKey(spot.leaf.pdfPage, spot.leaf.rotate)) || [];
+  const hit = pdfLinkAt(spot.pageNum, spot.x, spot.y);
   if (!hit) {
     return false;
   }
-  return followPdfLink(hit.link, pageNum);
+  flashPdfLinkHint(spot.pageNum, items.indexOf(hit));
+  followPdfLink(hit.link, spot.pageNum);
+  return true;
+}
+
+/**
+ * A tap in 보기 mode follows the file's own links. In 편집 mode the same tap
+ * is a pen mark, so links stay out of the way while writing.
+ *
+ * Deliberately not async: a browser only lets us open a tab while the tap is
+ * still fresh, and an await in front of `window.open` loses that (#182). The
+ * links are already in hand — the hints read them when the page drew.
+ */
+function followPdfLinkAtClient(client) {
+  const spot = pdfLinkSpotAtClient(client);
+  if (!spot) {
+    return false;
+  }
+  if (state.pdfLinks.has(pdfLinkCacheKey(spot.leaf.pdfPage, spot.leaf.rotate))) {
+    return actOnPdfLink(spot);
+  }
+  // Only if a page was tapped before it had ever been drawn.
+  loadPdfLinks(spot.leaf).then(() => actOnPdfLink(spot));
+  return false;
 }
 
 function updateAreaHits() {
