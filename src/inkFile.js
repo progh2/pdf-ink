@@ -1,3 +1,4 @@
+import { sanitizeGone } from "./inkMerge.js";
 import { sanitizeLinkFixes } from "./linkFix.js";
 
 /**
@@ -28,6 +29,7 @@ export function buildInkFile({
   name = "",
   shareThumbs = false,
   linkFixes = {},
+  gone = {},
 } = {}) {
   return {
     version: INK_FILE_VERSION,
@@ -42,6 +44,8 @@ export function buildInkFile({
     outline: Array.isArray(outline) ? outline : [],
     // #190: 파일이 들고 온 링크 중 사람이 고쳐 준 것. PDF는 안 건드린다.
     linkFixes: linkFixes && typeof linkFixes === "object" ? linkFixes : {},
+    // #83: 지운 항목의 무덤. 병합이 이걸 보고 부활을 막는다.
+    gone: gone && typeof gone === "object" ? gone : {},
   };
 }
 
@@ -63,6 +67,7 @@ export function parseInkFile(text) {
       leaves: Array.isArray(data.leaves) ? data.leaves : [],
       outline: Array.isArray(data.outline) ? data.outline : [],
       linkFixes: sanitizeLinkFixes(data.linkFixes),
+      gone: sanitizeGone(data.gone),
     };
   } catch {
     return null;

@@ -126,6 +126,14 @@ import {
   textFingerprint,
 } from "./pageMatch.js";
 import {
+  countNewFrom,
+  goneAfterChange,
+  mergeGone,
+  mergePages,
+  newItemId,
+  sanitizeGone,
+} from "./inkMerge.js";
+import {
   anchorLinkFixes,
   clearLinkFix,
   findLinkFix,
@@ -574,6 +582,8 @@ const state = {
   destCache: new Map(),
   // #190: 그중 사람이 고쳐 준 것.
   linkFixes: {},
+  // #83: 지운 항목의 무덤 — 병합이 부활을 막는 근거.
+  inkGone: {},
   identity: null,
   fileName: "",
   buffer: null,
@@ -843,7 +853,7 @@ function writeStrokesNow() {
   }
   strokesDirty = false;
   try {
-    saveStrokes(state.identity, state.pages, state.leaves, state.outline);
+    saveStrokes(state.identity, state.pages, state.leaves, state.outline, state.inkGone);
   } catch {
     showBanner("필기를 저장하지 못했습니다. 브라우저 저장 공간이 부족할 수 있습니다.");
   }
@@ -885,6 +895,7 @@ function commitPageChange(pageNum, apply) {
   const leavesBefore = cloneItems(state.leaves);
   apply(key);
   const after = cloneItems(pageStrokes(pageNum));
+  state.inkGone = goneAfterChange(before, after, state.inkGone);
   recordChange(state.history, {
     page: key,
     before,
@@ -1973,6 +1984,8 @@ function newStroke(point, forceEraser = false) {
   const slot = activeSlot();
   return {
     type: slot.type,
+    // #83: 병합이 획을 구분하는 이름표.
+    id: newItemId(),
     points: [point],
     color: slot.type === "pencil" ? PENCIL_COLOR : slot.color,
     width: slot.width,
@@ -2188,6 +2201,7 @@ async function openPdfBuffer(buffer, { identity, name, page = 1, handle = null }
   state.fileName = name;
   state.buffer = buffer;
   const stored = loadStrokes(identity);
+  state.inkGone = sanitizeGone(stored.gone);
   // #190: the corrections this browser knows; a sidecar may add more.
   state.linkFixes = sanitizeLinkFixes(loadLinkFixes(identity));
   state.leaves = normalizeLeaves(stored.leaves, pdf.numPages);
@@ -5948,6 +5962,10 @@ function commitBulkChange(apply) {
   const leavesBefore = cloneItems(state.leaves);
   const pagesBefore = cloneItems(state.pages);
   apply();
+  // #83: 일괄 삭제(여러 쪽 지우기)도 무덤에 남아야 다른 기기에서 안 살아난다.
+  for (const pageKey of new Set([...Object.keys(pagesBefore), ...Object.keys(state.pages)])) {
+    state.inkGone = goneAfterChange(pagesBefore[pageKey], state.pages[pageKey], state.inkGone);
+  }
   recordChange(state.history, {
     page: key,
     before: cloneItems(state.pages[key] || []),
@@ -7630,6 +7648,7 @@ async function saveCopyToDropbox() {
             leaves: state.leaves,
             outline: state.outline,
             linkFixes: state.linkFixes,
+    gone: state.inkGone,
             name: meta.name || name,
             savedAt: Date.now(),
           }),
@@ -7671,6 +7690,7 @@ async function saveDriveSidecar() {
     leaves: state.leaves,
     outline: state.outline,
     linkFixes: state.linkFixes,
+    gone: state.inkGone,
     name: state.fileName,
     shareThumbs: state.shareThumbs,
     savedAt: Date.now(),
@@ -7722,22 +7742,27 @@ async function loadDriveSidecar(doc) {
   if (!remote) {
     return;
   }
+  // #83: 더 최근 쪽이 문서 구조(잎·목차)를 정하고, **필기는 합집합**이다.
+  // 두 기기가 서로 다른 쪽에 쓴 것이 어느 쪽도 지워지지 않는다.
   const local = { savedAt: state.inkSavedAt || 0, pages: state.pages };
-  if (pickNewer(local, remote) !== "remote") {
-    return;
-  }
-  state.pages = remote.pages;
-  state.leaves = normalizeLeaves(remote.leaves, state.pageCount || remote.leaves.length);
-  state.pageCount = state.leaves.length;
-  state.outline = normalizeOutline(remote.outline, state.leaves);
-  state.inkSavedAt = remote.savedAt;
-  state.shareThumbs = Boolean(remote.shareThumbs);
-  if (remote.linkFixes && Object.keys(remote.linkFixes).length) {
-    state.linkFixes = remote.linkFixes;
-    anchorLinkFixesNow();
-    saveLinkFixes(state.identity, state.linkFixes);
+  const takeStructure = pickNewer(local, remote) === "remote";
+  state.inkGone = mergeGone(state.inkGone, remote.gone);
+  const added = countNewFrom(remote.pages, state.pages, state.inkGone);
+  state.pages = mergePages(state.pages, remote.pages, state.inkGone);
+  if (takeStructure) {
+    state.leaves = normalizeLeaves(remote.leaves, state.pageCount || remote.leaves.length);
+    state.pageCount = state.leaves.length;
+    state.outline = normalizeOutline(remote.outline, state.leaves);
+    state.inkSavedAt = remote.savedAt;
+    state.shareThumbs = Boolean(remote.shareThumbs);
+    if (remote.linkFixes && Object.keys(remote.linkFixes).length) {
+      state.linkFixes = remote.linkFixes;
+      anchorLinkFixesNow();
+      saveLinkFixes(state.identity, state.linkFixes);
+    }
   }
   persistStrokes();
+  return added;
 }
 
 /* ---- 자동 저장 (#167) ---- */
@@ -7906,6 +7931,7 @@ async function saveInkSidecar() {
     leaves: state.leaves,
     outline: state.outline,
     linkFixes: state.linkFixes,
+    gone: state.inkGone,
     name: state.fileName,
     shareThumbs: state.shareThumbs,
     savedAt: Date.now(),
@@ -7953,22 +7979,27 @@ async function loadInkSidecar(doc) {
   if (!remote) {
     return;
   }
+  // #83: 더 최근 쪽이 문서 구조(잎·목차)를 정하고, **필기는 합집합**이다.
+  // 두 기기가 서로 다른 쪽에 쓴 것이 어느 쪽도 지워지지 않는다.
   const local = { savedAt: state.inkSavedAt || 0, pages: state.pages };
-  if (pickNewer(local, remote) !== "remote") {
-    return;
-  }
-  state.pages = remote.pages;
-  state.leaves = normalizeLeaves(remote.leaves, state.pageCount || remote.leaves.length);
-  state.pageCount = state.leaves.length;
-  state.outline = normalizeOutline(remote.outline, state.leaves);
-  state.inkSavedAt = remote.savedAt;
-  state.shareThumbs = Boolean(remote.shareThumbs);
-  if (remote.linkFixes && Object.keys(remote.linkFixes).length) {
-    state.linkFixes = remote.linkFixes;
-    anchorLinkFixesNow();
-    saveLinkFixes(state.identity, state.linkFixes);
+  const takeStructure = pickNewer(local, remote) === "remote";
+  state.inkGone = mergeGone(state.inkGone, remote.gone);
+  const added = countNewFrom(remote.pages, state.pages, state.inkGone);
+  state.pages = mergePages(state.pages, remote.pages, state.inkGone);
+  if (takeStructure) {
+    state.leaves = normalizeLeaves(remote.leaves, state.pageCount || remote.leaves.length);
+    state.pageCount = state.leaves.length;
+    state.outline = normalizeOutline(remote.outline, state.leaves);
+    state.inkSavedAt = remote.savedAt;
+    state.shareThumbs = Boolean(remote.shareThumbs);
+    if (remote.linkFixes && Object.keys(remote.linkFixes).length) {
+      state.linkFixes = remote.linkFixes;
+      anchorLinkFixesNow();
+      saveLinkFixes(state.identity, state.linkFixes);
+    }
   }
   persistStrokes();
+  return added;
 }
 
 /* ---- 다른 기기의 변경 알아채기 (#127) ---- */
@@ -8009,6 +8040,34 @@ async function checkDropboxRemote() {
 function checkRemote() {
   checkDropboxRemote();
   checkDriveRemote();
+  pullRemoteInk();
+}
+
+let pullingInk = false;
+
+/**
+ * 다른 기기의 필기를 알아서 받아 합친다 (#83). 병합은 안전하므로 묻지 않고,
+ * 실제로 새 항목이 왔을 때만 알리고 다시 그린다. 사이드카는 몇 KB다.
+ */
+async function pullRemoteInk() {
+  if (pullingInk || state.drawing || !cloudDocOpen() || els.writeScreen.hidden) {
+    return;
+  }
+  pullingInk = true;
+  try {
+    const added = await (state.driveDoc ? loadDriveSidecar(state.driveDoc) : loadInkSidecar(state.dropboxDoc));
+    if (added > 0) {
+      for (const view of state.pageViews || []) {
+        drawStrokesOn(view);
+      }
+      refreshPdfLinkHints(true);
+      flashBanner(`다른 기기의 필기 ${added}개를 받았습니다`, 2400);
+    }
+  } catch {
+    // 다음 바퀴에 다시
+  } finally {
+    pullingInk = false;
+  }
 }
 
 function startSyncWatch() {
