@@ -268,3 +268,66 @@ export function slotAriaLabel(slot) {
   const name = colorLabel(slot.color, kind);
   return `${name} ${SLOT_KIND_LABELS[kind]}, 굵기 ${slot.width}`;
 }
+
+/* ---- 색상환 (#206) ----------------------------------------------------- */
+
+/**
+ * 옛 페인터의 색상환처럼: 각도가 색상(H), 중심에서의 거리가 채도(S),
+ * 밝기(V)는 옆의 미끄럼대. 순수 계산만 여기 두고 그리기는 배선이 한다.
+ */
+export function hsvToHex(h, s, v) {
+  const hue = ((Number(h) % 360) + 360) % 360;
+  const sat = Math.min(1, Math.max(0, Number(s) || 0));
+  const val = Math.min(1, Math.max(0, Number(v) || 0));
+  const c = val * sat;
+  const x = c * (1 - Math.abs(((hue / 60) % 2) - 1));
+  const m = val - c;
+  let rgb = [0, 0, 0];
+  if (hue < 60) rgb = [c, x, 0];
+  else if (hue < 120) rgb = [x, c, 0];
+  else if (hue < 180) rgb = [0, c, x];
+  else if (hue < 240) rgb = [0, x, c];
+  else if (hue < 300) rgb = [x, 0, c];
+  else rgb = [c, 0, x];
+  const to = (part) => Math.round((part + m) * 255).toString(16).padStart(2, "0");
+  return `#${to(rgb[0])}${to(rgb[1])}${to(rgb[2])}`.toUpperCase();
+}
+
+export function hexToHsv(hex) {
+  const value = normalizeHex(hex, "#1A1A1A");
+  const r = Number.parseInt(value.slice(1, 3), 16) / 255;
+  const g = Number.parseInt(value.slice(3, 5), 16) / 255;
+  const b = Number.parseInt(value.slice(5, 7), 16) / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const d = max - min;
+  let h = 0;
+  if (d > 0) {
+    if (max === r) h = 60 * (((g - b) / d) % 6);
+    else if (max === g) h = 60 * ((b - r) / d + 2);
+    else h = 60 * ((r - g) / d + 4);
+  }
+  return { h: (h + 360) % 360, s: max === 0 ? 0 : d / max, v: max };
+}
+
+/** 원판 위의 한 점 → 색상·채도. 원 밖을 눌러도 가장자리 색으로 잡아 준다. */
+export function wheelPick(x, y, cx, cy, radius) {
+  const dx = Number(x) - Number(cx);
+  const dy = Number(y) - Number(cy);
+  const dist = Math.hypot(dx, dy);
+  const h = ((Math.atan2(dy, dx) * 180) / Math.PI + 360) % 360;
+  return { h, s: Math.min(1, radius > 0 ? dist / radius : 0) };
+}
+
+/** 색상·채도 → 원판 위의 자리. 지금 색을 점으로 보여 줄 때 쓴다. */
+export function wheelSpot(h, s, cx, cy, radius) {
+  const angle = (((Number(h) || 0) % 360) * Math.PI) / 180;
+  const dist = Math.min(1, Math.max(0, Number(s) || 0)) * radius;
+  return { x: cx + Math.cos(angle) * dist, y: cy + Math.sin(angle) * dist };
+}
+
+/** 굵기 표시는 한 자리면 된다: 0.5 → "0.5", 3 → "3". */
+export function widthLabel(width) {
+  const value = Math.round((Number(width) || 0) * 10) / 10;
+  return Number.isInteger(value) ? String(value) : value.toFixed(1);
+}

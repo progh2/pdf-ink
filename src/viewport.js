@@ -35,9 +35,13 @@ export function defaultToolbarPosition(width, height) {
   return narrowPortrait ? "top" : "bottom";
 }
 
-export function slotLineWidth(step) {
-  const n = Math.round(Number(step));
-  return clamp(Number.isFinite(n) ? n : 2, 1, 10);
+export function slotLineWidth(value) {
+  const width = Number(value);
+  if (!Number.isFinite(width)) {
+    return 2;
+  }
+  // #206: 가는 글씨용 0.5까지. 반 칸 단위로 맞춘다.
+  return Math.min(10, Math.max(0.5, Math.round(width * 2) / 2));
 }
 
 /**

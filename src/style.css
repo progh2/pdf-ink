@@ -2330,3 +2330,67 @@ body {
   border: 0;
   font: inherit;
 }
+
+/* 굵기 숫자와 스포이드 (#206). */
+.slot-width-value {
+  min-width: 30px;
+  text-align: right;
+  font-size: 13px;
+  color: #5c574e;
+  font-variant-numeric: tabular-nums;
+}
+
+.eyedrop-btn {
+  width: 32px;
+  height: 32px;
+  padding: 5px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #fff;
+  color: #5c574e;
+}
+
+.eyedrop-btn svg {
+  width: 100%;
+  height: 100%;
+}
+
+/* 색상환 (#206): 각도가 색, 거리가 채도, 미끄럼대가 밝기. */
+.wheel-panel {
+  display: grid;
+  gap: 10px;
+  justify-items: center;
+}
+
+#wheel-disc {
+  width: 220px;
+  height: 220px;
+  border-radius: 50%;
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.wheel-value-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.wheel-value-row input[type="range"] {
+  flex: 1 1 0;
+}
+
+.wheel-preview {
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--swatch, #1A1A1A);
+}
+
+.wheel-hex {
+  font-size: 12px;
+  color: #8B8378;
+  font-variant-numeric: tabular-nums;
+}

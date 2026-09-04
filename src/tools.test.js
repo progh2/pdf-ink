@@ -5,29 +5,34 @@ import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import {
   HIGHLIGHTER_OPACITY_DEFAULT,
-  RECENT_COLOR_LIMIT,
-  addRecentColor,
-  isLightHex,
   HIGHLIGHTER_PALETTE,
-  PEN_PALETTE,
   PENCIL_COLOR,
+  PEN_PALETTE,
+  RECENT_COLOR_LIMIT,
   SLOT_KINDS,
   STAMP_ASPECT,
   STAMP_COLOR,
   STAMP_HANDLE_CSS,
   STAMP_HEIGHT_CSS,
-  STAMP_WIDTH_CSS,
-  TOOLBAR_STAMP_CIRCLE,
   STAMP_LABELS,
-  resizeStamp,
-  stampPaintLayout,
+  STAMP_WIDTH_CSS,
   TOOLBAR_COLOR_CHIPS,
+  TOOLBAR_STAMP_CIRCLE,
+  addRecentColor,
   colorInPalette,
   defaultColorForKind,
+  hexToHsv,
   highlighterAlpha,
   highlighterStrokeStyle,
+  hsvToHex,
+  isLightHex,
   paletteHexes,
+  resizeStamp,
   slotAriaLabel,
+  stampPaintLayout,
+  wheelPick,
+  wheelSpot,
+  widthLabel,
 } from "./tools.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -138,7 +143,9 @@ describe("toolbar", () => {
     assert.match(html, /id="stamp-preview"/);
     assert.match(html, /id="stamp-phrases"/);
     assert.deepEqual(STAMP_LABELS, ["참 잘했어요", "반려", "승인", "진행해", "응아냐"]);
-    assert.doesNotMatch(html, /스포이드|eyedropper/i);
+    // #206부터 스포이드가 있다 — 단, 바가 아니라 팔레트 패널 안에.
+    assert.doesNotMatch(toolbar, /eyedrop/);
+    assert.match(html, /id="eyedrop-btn"/);
     assert.deepEqual(SLOT_KINDS, ["pen", "highlighter", "pencil", "stamp"]);
     assert.match(toolbar, /id="undo-btn"/);
     assert.match(toolbar, /id="more-btn"/);
@@ -247,5 +254,91 @@ describe("#158·#161 배선", () => {
   it("gives a white swatch an edge", () => {
     assert.match(cssSrc, /\.slot-color\[data-light="1"\][\s\S]*box-shadow: inset 0 0 0 1px/);
     assert.match(mainSrc, /if \(isLightHex\(item\.hex\)\)/);
+  });
+});
+
+describe("#206 색상환", () => {
+  it("goes hex → wheel → hex and comes back the same", () => {
+    for (const hex of ["#C42B2B", "#1E4B8C", "#FFE566", "#1A1A1A", "#FFFFFF"]) {
+      const { h, s, v } = hexToHsv(hex);
+      assert.equal(hsvToHex(h, s, v), hex.toUpperCase(), hex);
+    }
+  });
+
+  it("puts the primaries where a colour wheel puts them", () => {
+    assert.equal(hsvToHex(0, 1, 1), "#FF0000");
+    assert.equal(hsvToHex(120, 1, 1), "#00FF00");
+    assert.equal(hsvToHex(240, 1, 1), "#0000FF");
+    assert.equal(hsvToHex(0, 0, 1), "#FFFFFF", "채도 0은 흰색");
+    assert.equal(hsvToHex(0, 0, 0), "#000000", "밝기 0은 검정");
+  });
+
+  it("reads a tap on the disc as hue and saturation", () => {
+    const right = wheelPick(200, 100, 100, 100, 100);
+    assert.equal(Math.round(right.h), 0, "3시 방향이 0도");
+    assert.equal(right.s, 1, "가장자리는 채도 1");
+    const center = wheelPick(100, 100, 100, 100, 100);
+    assert.equal(center.s, 0, "중심은 무채색");
+  });
+
+  it("clamps a tap outside the disc to its edge", () => {
+    assert.equal(wheelPick(300, 100, 100, 100, 100).s, 1);
+  });
+
+  it("puts the dot back where the colour lives", () => {
+    const { h, s } = hexToHsv("#C42B2B");
+    const spot = wheelSpot(h, s, 100, 100, 100);
+    const back = wheelPick(spot.x, spot.y, 100, 100, 100);
+    assert.ok(Math.abs(back.h - h) < 0.01 && Math.abs(back.s - s) < 0.01);
+  });
+
+  it("shows a width with at most one decimal", () => {
+    assert.equal(widthLabel(0.5), "0.5");
+    assert.equal(widthLabel(3), "3");
+    assert.equal(widthLabel(2.0000001), "2");
+  });
+});
+
+describe("#206 배선", () => {
+  const root3 = join(dirname(fileURLToPath(import.meta.url)), "..");
+  const mainSrc2 = readFileSync(join(root3, "src/main.js"), "utf8");
+  const htmlSrc2 = readFileSync(join(root3, "index.html"), "utf8");
+
+  it("goes down to a 0.5 nib and says which size it is", () => {
+    assert.match(htmlSrc2, /id="slot-width" type="range" min="0.5" max="10" step="0.5"/);
+    assert.match(htmlSrc2, /id="slot-width-value"/);
+    assert.match(mainSrc2, /els\.slotWidthValue\.textContent = widthLabel\(slot\.width\)/);
+    assert.match(mainSrc2, /els\.slotWidthValue\.textContent = widthLabel\(els\.slotWidth\.value\)/);
+  });
+
+  it("keeps a half-step width instead of rounding it away", async () => {
+    const { slotLineWidth } = await import("./viewport.js");
+    assert.equal(slotLineWidth(0.5), 0.5);
+    assert.equal(slotLineWidth(0.3), 0.5, "그보다 가늘게는 안 내려간다");
+    assert.equal(slotLineWidth(2.4), 2.5);
+    assert.equal(slotLineWidth("잘못"), 2);
+  });
+
+  it("holds the eyedropper next to the width, and reads what the eye sees", () => {
+    assert.match(htmlSrc2, /id="slot-width-value"[\s\S]{0,400}id="eyedrop-btn"/);
+    const sample = mainSrc2.slice(mainSrc2.indexOf("function samplePaperColor"), mainSrc2.indexOf("function pickPaperColor"));
+    assert.match(sample, /view\.pdfCanvas, view\.underCanvas, view\.inkCanvas, view\.overCanvas, view\.maskCanvas/, "layers in paint order");
+    assert.match(sample, /fillStyle = "#FFFFFF"/, "paper first");
+    assert.match(mainSrc2, /if \(state\.eyedropKind\) \{/, "the next tap picks, nothing else");
+    assert.match(mainSrc2, /addRecentColor\(state\.recentColors, hex\)/, "and the pick is remembered");
+  });
+
+  it("opens the wheel where the native input used to be", () => {
+    const open = mainSrc2.slice(mainSrc2.indexOf("function openColorPicker"), mainSrc2.indexOf("function wheelPointFrom"));
+    assert.match(open, /wheelHsv = hexToHsv\(normalizeHex\(startHex, "#1A1A1A"\)\)/, "starts from the colour being edited");
+    assert.match(open, /drawWheelDisc\(\)/);
+    assert.match(htmlSrc2, /id="wheel-disc"/);
+    assert.match(htmlSrc2, /id="wheel-value"/, "brightness slider");
+  });
+
+  it("applies on release through the same path as #158", () => {
+    assert.match(mainSrc2, /applyPickedColor\(syncWheelReadout\(\)\)/);
+    assert.match(mainSrc2, /\.shape-chips, \.wheel-panel"\)/, "a tap outside closes it without drawing");
+    assert.match(mainSrc2, /!els\.wheelPanel\.hidden\s*\)/, "and it counts as an open overlay");
   });
 });

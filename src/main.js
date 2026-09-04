@@ -377,21 +377,26 @@ import {
   tocRowAction,
 } from "./outline.js";
 import {
-  addRecentColor,
-  isLightHex,
-  normalizeHex,
   HIGHLIGHTER_OPACITY_DEFAULT,
   HIGHLIGHTER_PALETTE,
-  PEN_PALETTE,
   PENCIL_COLOR,
+  PEN_PALETTE,
   STAMP_LABELS,
+  addRecentColor,
   clampOpacity,
   defaultColorForKind,
+  hexToHsv,
   hexToRgba,
+  hsvToHex,
+  isLightHex,
+  normalizeHex,
   normalizeStamp,
-  slotAriaLabel,
   resizeStamp,
+  slotAriaLabel,
   stampPaintLayout,
+  wheelPick,
+  wheelSpot,
+  widthLabel,
 } from "./tools.js";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
@@ -544,6 +549,13 @@ const els = {
   slotOpacity: document.querySelector("#slot-opacity"),
   slotOpacityRow: document.querySelector("#slot-opacity-row"),
   slotWidth: document.querySelector("#slot-width"),
+  slotWidthValue: document.querySelector("#slot-width-value"),
+  eyedropBtn: document.querySelector("#eyedrop-btn"),
+  wheelPanel: document.querySelector("#wheel-panel"),
+  wheelDisc: document.querySelector("#wheel-disc"),
+  wheelValue: document.querySelector("#wheel-value"),
+  wheelHex: document.querySelector("#wheel-hex"),
+  wheelPreview: document.querySelector("#wheel-preview"),
   slotWidthRow: document.querySelector("#slot-width-row"),
   slotStamp: document.querySelector("#slot-stamp"),
   stampPreview: document.querySelector("#stamp-preview"),
@@ -573,6 +585,8 @@ const state = {
   drawCanvas: null,
   tool: "pen",
   inkTools: loadInkTools(),
+  // #206: 스포이드가 다음 탭을 기다리는 중인가.
+  eyedropKind: null,
   editingKind: null,
   penOnly: loadPenOnly(),
   penButtonErase: loadPenButtonErase(),
@@ -2175,7 +2189,8 @@ function overlayOpen() {
     !els.slotPanel.hidden ||
     !els.eraserPanel.hidden ||
     !els.morePanel.hidden ||
-    !els.stickerSheet.hidden
+    !els.stickerSheet.hidden ||
+    !els.wheelPanel.hidden
   );
 }
 
@@ -2858,6 +2873,7 @@ function hideSelectUi() {
 }
 
 function closeAllPanels() {
+  closeWheelPanel();
   hideLinkFixPanel();
   closeSlotPanel();
   closeEraserPanel();
@@ -2940,13 +2956,182 @@ function paletteFor(kind) {
   return PEN_PALETTE;
 }
 
-/** Long-press a swatch to mix a colour; the pick is remembered (#158). */
-function openColorPicker(startHex) {
-  if (!els.colorPick || !state.editingKind) {
+/* ---- 색상환·스포이드 (#206) ------------------------------------------- */
+
+let wheelHsv = { h: 0, s: 0, v: 0 };
+let wheelDot = null;
+
+function closeWheelPanel() {
+  if (els.wheelPanel) {
+    els.wheelPanel.hidden = true;
+  }
+}
+
+/** 원판은 밝기가 바뀔 때만 다시 그린다. 220px이면 픽셀 4만 개, 한 번은 싸다. */
+function drawWheelDisc() {
+  const canvas = els.wheelDisc;
+  if (!canvas) {
     return;
   }
-  els.colorPick.value = normalizeHex(startHex, "#1A1A1A");
-  els.colorPick.click();
+  const size = canvas.width;
+  const radius = size / 2;
+  const ctx = canvas.getContext("2d");
+  const shot = ctx.createImageData(size, size);
+  for (let y = 0; y < size; y += 1) {
+    for (let x = 0; x < size; x += 1) {
+      const at = (y * size + x) * 4;
+      const { h, s } = wheelPick(x, y, radius, radius, radius);
+      const dist = Math.hypot(x - radius, y - radius);
+      if (dist > radius) {
+        shot.data[at + 3] = 0;
+        continue;
+      }
+      const hex = hsvToHex(h, s, wheelHsv.v);
+      shot.data[at] = Number.parseInt(hex.slice(1, 3), 16);
+      shot.data[at + 1] = Number.parseInt(hex.slice(3, 5), 16);
+      shot.data[at + 2] = Number.parseInt(hex.slice(5, 7), 16);
+      // 가장자리 한 픽셀만 부드럽게.
+      shot.data[at + 3] = dist > radius - 1 ? Math.round((radius - dist) * 255) : 255;
+    }
+  }
+  ctx.putImageData(shot, 0, 0);
+  const spot = wheelSpot(wheelHsv.h, wheelHsv.s, radius, radius, radius);
+  ctx.beginPath();
+  ctx.arc(spot.x, spot.y, 6, 0, Math.PI * 2);
+  ctx.strokeStyle = wheelHsv.v > 0.6 ? "#1A1A1A" : "#FFFFFF";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+}
+
+function syncWheelReadout() {
+  const hex = hsvToHex(wheelHsv.h, wheelHsv.s, wheelHsv.v);
+  els.wheelHex.textContent = hex;
+  els.wheelPreview.style.setProperty("--swatch", hex);
+  return hex;
+}
+
+/**
+ * 옛 페인터의 색상환 (#206): 원판에서 각도가 색·거리가 채도, 미끄럼대가
+ * 밝기. 손을 떼는 순간 적용되고 최근 색에 남는다(#158과 같은 경로).
+ */
+function openColorPicker(startHex) {
+  if (!els.wheelPanel || !state.editingKind) {
+    return;
+  }
+  wheelHsv = hexToHsv(normalizeHex(startHex, "#1A1A1A"));
+  els.wheelValue.value = String(Math.round(wheelHsv.v * 100));
+  els.wheelPanel.hidden = false;
+  const slot = els.slotPanel.getBoundingClientRect();
+  const box = els.wheelPanel.getBoundingClientRect();
+  const left = Math.min(Math.max(8, slot.left), window.innerWidth - box.width - 8);
+  const top = Math.min(Math.max(8, slot.top - box.height - 8), window.innerHeight - box.height - 8);
+  els.wheelPanel.style.left = `${left}px`;
+  els.wheelPanel.style.top = `${top < 8 ? slot.bottom + 8 : top}px`;
+  drawWheelDisc();
+  syncWheelReadout();
+}
+
+function wheelPointFrom(event) {
+  const box = els.wheelDisc.getBoundingClientRect();
+  const scale = els.wheelDisc.width / (box.width || 1);
+  return { x: (event.clientX - box.left) * scale, y: (event.clientY - box.top) * scale };
+}
+
+function bindWheelPanel() {
+  if (!els.wheelDisc) {
+    return;
+  }
+  els.wheelPanel.addEventListener("pointerdown", (event) => event.stopPropagation());
+  const moveTo = (event) => {
+    const point = wheelPointFrom(event);
+    const radius = els.wheelDisc.width / 2;
+    const picked = wheelPick(point.x, point.y, radius, radius, radius);
+    wheelHsv = { ...wheelHsv, h: picked.h, s: picked.s };
+    drawWheelDisc();
+    syncWheelReadout();
+  };
+  els.wheelDisc.addEventListener("pointerdown", (event) => {
+    event.preventDefault();
+    wheelDot = event.pointerId;
+    try {
+      els.wheelDisc.setPointerCapture(event.pointerId);
+    } catch {
+      // optional
+    }
+    moveTo(event);
+  });
+  els.wheelDisc.addEventListener("pointermove", (event) => {
+    if (wheelDot === event.pointerId) {
+      moveTo(event);
+    }
+  });
+  const settle = (event) => {
+    if (wheelDot !== event.pointerId) {
+      return;
+    }
+    wheelDot = null;
+    applyPickedColor(syncWheelReadout());
+  };
+  els.wheelDisc.addEventListener("pointerup", settle);
+  els.wheelDisc.addEventListener("pointercancel", (event) => {
+    wheelDot = null;
+  });
+  els.wheelValue.addEventListener("input", () => {
+    wheelHsv = { ...wheelHsv, v: Number(els.wheelValue.value) / 100 };
+    drawWheelDisc();
+    syncWheelReadout();
+  });
+  els.wheelValue.addEventListener("change", () => {
+    applyPickedColor(syncWheelReadout());
+  });
+}
+
+/**
+ * 스포이드 (#206): 종이 위의 색을 그대로 가져온다. PDF 잉크·필기·이미지가
+ * 겹친 자리라면 눈에 보이는 그 색이다 — 층을 흰 바탕 위에 차례로 얹어 읽는다.
+ */
+function samplePaperColor(view, clientX, clientY) {
+  const box = view.stage.getBoundingClientRect();
+  const probe = offscreenCanvas(1, 1);
+  const ctx = canvas2d(probe);
+  ctx.fillStyle = "#FFFFFF";
+  ctx.fillRect(0, 0, 1, 1);
+  for (const layer of [view.pdfCanvas, view.underCanvas, view.inkCanvas, view.overCanvas, view.maskCanvas]) {
+    if (!layer?.width) {
+      continue;
+    }
+    const x = ((clientX - box.left) / (box.width || 1)) * layer.width;
+    const y = ((clientY - box.top) / (box.height || 1)) * layer.height;
+    ctx.drawImage(layer, -x + 0.5, -y + 0.5);
+  }
+  const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data;
+  return `#${[r, g, b].map((part) => part.toString(16).padStart(2, "0")).join("").toUpperCase()}`;
+}
+
+function pickPaperColor(stage, clientX, clientY) {
+  const view = state.pageViews.find((item) => item.stage === stage);
+  const kind = state.eyedropKind;
+  state.eyedropKind = null;
+  if (!view || !kind) {
+    return;
+  }
+  const hex = samplePaperColor(view, clientX, clientY);
+  state.editingKind = state.editingKind || kind;
+  state.inkTools[kind].color = hex;
+  state.recentColors = addRecentColor(state.recentColors, hex);
+  saveRecentColors(state.recentColors);
+  persistSlotChange();
+  flashBanner(`가져온 색 ${hex}`);
+}
+
+function armEyedropper() {
+  if (!state.editingKind) {
+    return;
+  }
+  state.eyedropKind = state.editingKind;
+  closeSlotPanel();
+  closeWheelPanel();
+  flashBanner("종이를 탭하면 그 색을 가져옵니다", 3000);
 }
 
 function applyPickedColor(hex) {
@@ -3059,6 +3244,8 @@ function syncSlotEditor() {
   els.slotWidthRow.hidden = isStamp;
   if (!isStamp) {
     els.slotWidth.value = String(slot.width);
+    // #206: 눈금만으로는 지금 몇인지 모른다.
+    els.slotWidthValue.textContent = widthLabel(slot.width);
   }
 }
 
@@ -8722,13 +8909,13 @@ function onWorkspacePointerDown(event) {
     return;
   }
   if (overlayOpen()) {
-    if (!event.target.closest(".slot-panel, .sheet-card, .toolbar, .write-top, .m4-bar, .more-panel, .preview-drawer, .select-hud, .float-bar, #float-bar, .select-layer, #select-layer, .shape-chips")) {
+    if (!event.target.closest(".slot-panel, .sheet-card, .toolbar, .write-top, .m4-bar, .more-panel, .preview-drawer, .select-hud, .float-bar, #float-bar, .select-layer, #select-layer, .shape-chips, .wheel-panel")) {
       closeAllPanels();
       ignoreAfterPanel = true;
     }
     return;
   }
-  if (event.target.closest(".toolbar, .write-top, .sheet, .slot-panel, .m4-bar, .more-panel, .marquee, .preview-drawer, .select-hud, .float-bar, #float-bar, .select-layer, #select-layer, .shape-chips")) {
+  if (event.target.closest(".toolbar, .write-top, .sheet, .slot-panel, .m4-bar, .more-panel, .marquee, .preview-drawer, .select-hud, .float-bar, #float-bar, .select-layer, #select-layer, .shape-chips, .wheel-panel")) {
     return;
   }
   if (els.linkFixPanel && !els.linkFixPanel.hidden) {
@@ -8754,6 +8941,16 @@ function onWorkspacePointerDown(event) {
     return;
   }
   const stage = event.target.closest(".page-stage");
+  if (state.eyedropKind) {
+    // 스포이드가 기다리는 탭 (#206). 종이 밖이면 그냥 접는다.
+    event.preventDefault();
+    if (stage) {
+      pickPaperColor(stage, event.clientX, event.clientY);
+    } else {
+      state.eyedropKind = null;
+    }
+    return;
+  }
   if (!stage) {
     return;
   }
@@ -9120,6 +9317,7 @@ els.slotWidth.addEventListener("input", () => {
     return;
   }
   state.inkTools[state.editingKind].width = Number(els.slotWidth.value);
+  els.slotWidthValue.textContent = widthLabel(els.slotWidth.value);
   persistSlotChange();
 });
 document.querySelectorAll("#eraser-mode-choices [data-erase-mode]").forEach((btn) => {
@@ -9437,6 +9635,8 @@ els.interactBtn.addEventListener("click", () => {
 });
 bindUndoHold(els.undoBtn, { onUndo: undoInk, onRedo: redoInk });
 bindLinkFixPanel();
+bindWheelPanel();
+els.eyedropBtn?.addEventListener("click", armEyedropper);
 els.inkMoveDone?.addEventListener("click", closeInkMove);
 els.inkMoveApply?.addEventListener("click", applyInkMove);
 els.inkMoveModeAdd?.addEventListener("click", () => setInkMoveAssignMode("add"));
