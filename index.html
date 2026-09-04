@@ -383,7 +383,14 @@
             같은 자료의 다른 판에서 필기를 가져옵니다. 쪽에 적힌 글자로 같은 쪽을 찾습니다.
           </p>
           <div class="ink-move-docs" id="ink-move-docs"></div>
-          <button type="button" class="sheet-done" id="ink-move-done">닫기</button>
+          <label class="ink-move-mode" id="ink-move-mode" hidden>
+            <input type="checkbox" id="ink-move-replace" />
+            <span>있던 필기를 지우고 덮어쓰기 (기본은 더하기)</span>
+          </label>
+          <div class="ink-move-actions">
+            <button type="button" class="sheet-done" id="ink-move-done">닫기</button>
+            <button type="button" class="ink-move-apply" id="ink-move-apply" hidden>옮기기</button>
+          </div>
         </div>
       </div>
 
