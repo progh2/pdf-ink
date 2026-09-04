@@ -219,7 +219,9 @@ describe("#169 배선", () => {
 
   it("reads it on open and takes the newer save", () => {
     const load = main.slice(main.indexOf("async function loadDriveSidecar"), main.indexOf("/* ---- 자동 저장"));
-    assert.match(load, /pickNewer\(local, remote\) !== "remote"/);
+    // #83부터: 더 최근 쪽이 구조를 정하고, 필기는 합집합이다.
+    assert.match(load, /const takeStructure = pickNewer\(local, remote\) === "remote"/);
+    assert.match(load, /mergePages\(state\.pages, remote\.pages, state\.inkGone\)/);
     assert.match(main, /await loadDriveSidecar\(doc\)/);
   });
 

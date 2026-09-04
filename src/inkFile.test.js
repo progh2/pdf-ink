@@ -95,8 +95,9 @@ describe("#147 배선", () => {
   it("reads the sidecar on open and takes the newer save", () => {
     assert.match(main, /await loadInkSidecar\(doc\)/);
     const load = main.slice(main.indexOf("async function loadInkSidecar"), main.indexOf("/* ---- 다른 기기의 변경"));
-    assert.match(load, /pickNewer\(local, remote\) !== "remote"/);
-    assert.match(load, /state\.pages = remote\.pages/);
+    // #83부터: 더 최근 쪽이 구조를 정하고, 필기는 합집합이다.
+    assert.match(load, /const takeStructure = pickNewer\(local, remote\) === "remote"/);
+    assert.match(load, /mergePages\(state\.pages, remote\.pages, state\.inkGone\)/);
     assert.match(load, /normalizeLeaves\(remote\.leaves/);
     assert.match(load, /normalizeOutline\(remote\.outline/);
   });

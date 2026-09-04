@@ -90,7 +90,7 @@ describe("#53 개요 추가·수정·삭제", () => {
       saveStrokes("doc::1::1", { 1: [] }, null, deleteOutlineEntry(outline, outline[0].id));
       assert.deepEqual(normalizeOutline(loadStrokes("doc::1::1").outline), []);
     });
-    assert.match(main, /saveStrokes\(state\.identity, state\.pages, state\.leaves, state\.outline\)/);
+    assert.match(main, /saveStrokes\(state\.identity, state\.pages, state\.leaves, state\.outline, state\.inkGone\)/);
     assert.match(main, /state\.outline = normalizeOutline\(stored\.outline, state\.leaves\)/);
     // #54: 드로어 개요는 내보낸 PDF에 책갈피로 박힌다. 로컬 저장은 그대로.
     assert.match(main, /page: outlineDestPage\(entry, state\.leaves\)/);
