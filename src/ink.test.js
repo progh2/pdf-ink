@@ -219,7 +219,7 @@ describe("#135 부드럽고 빠른 펜", () => {
     // The live layer sits above the ink and below the pinned images (#180 added
     // the link hints on top; the canvas order below it must not move).
     assert.match(main, /stage\.append\(pdfCanvas, underCanvas, inkCanvas, liveCanvas, overCanvas, maskCanvas(, linkLayer)?\)/);
-    assert.match(main, /function drawLiveLayer[\s\S]*paintItem\(ctx, stroke, strokeScale\(view\), canvas\)/);
+    assert.match(main, /function drawLiveLayer[\s\S]*paintItem\(ctx, shown, strokeScale\(view\), canvas\)/);
     // A full repaint always wipes the live layer, so nothing is drawn twice.
     assert.match(main, /function drawStrokesOn\(view, liveStroke = null\) \{\s*clearLiveLayer\(view\)/);
     assert.match(css, /\.live-canvas,?\n?[\s\S]{0,40}\.over-canvas \{|\.live-canvas/);
