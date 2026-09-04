@@ -162,3 +162,40 @@ export function pdfSpaceRect(rect) {
   const box = [Math.min(list[0], list[2]), Math.min(list[1], list[3]), Math.max(list[0], list[2]), Math.max(list[1], list[3])];
   return box[2] - box[0] > 0 && box[3] - box[1] > 0 ? box : null;
 }
+
+/** 배너 한 줄에 들어갈 만큼만. */
+export function shortJson(value, max = 90) {
+  let text;
+  try {
+    text = typeof value === "string" ? value : JSON.stringify(value);
+  } catch {
+    text = String(value);
+  }
+  text = String(text ?? "없음");
+  return text.length > max ? `${text.slice(0, max)}…` : text;
+}
+
+/**
+ * 링크를 눌렀을 때 무엇이었는지 그대로 보여 준다 (#188).
+ * 안 되는 링크를 만났을 때 「왜」를 파일에서 바로 읽을 수 있어야 한다.
+ */
+export function describeLink({ link, explicit, pdfPage, position, pageCount } = {}) {
+  if (link?.kind === "url") {
+    return `링크: ${shortJson(link.href, 110)}`;
+  }
+  if (link?.kind === "action") {
+    return `링크: ${link.action}`;
+  }
+  if (link?.kind !== "dest") {
+    return "링크: 가리키는 곳이 없습니다";
+  }
+  if (position) {
+    return `링크: ${position}쪽으로 (원본 ${pdfPage}쪽)`;
+  }
+  const raw = shortJson(link.dest);
+  const solved = explicit ? shortJson(explicit, 60) : "해석 실패";
+  if (!pdfPage) {
+    return `링크를 못 폈습니다 · dest=${raw} · 해석=${solved}`;
+  }
+  return `원본 ${pdfPage}쪽을 가리키는데 문서에 없습니다 (지금 ${pageCount}장) · dest=${raw}`;
+}

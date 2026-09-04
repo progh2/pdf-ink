@@ -11,6 +11,7 @@ import {
   pdfLinkCacheKey,
   pdfLinkItem,
   pdfLinkTarget,
+  describeLink,
   destTarget,
   destView,
   pdfSpaceRect,
@@ -171,7 +172,7 @@ describe("#178 배선", () => {
   it("shows the tap landed, so a dead link is not mistaken for a dead touch", () => {
     assert.match(main, /box\.classList\.add\("is-hit"\)/);
     assert.match(css, /\.pdf-link-hint\.is-hit \{/);
-    assert.match(main, /flashBanner\("이 링크가 가리키는 쪽이 문서에 없습니다"\)/, "and never calls a function that does not exist");
+    assert.match(main, /flashBanner\(said, at \? 1800 : 7000\)/, "and never calls a function that does not exist");
   });
 
   it("paints the hints for the page a document opens on", () => {
@@ -182,7 +183,7 @@ describe("#178 배선", () => {
   it("sends an inside link to where that page sits now", () => {
     assert.match(main, /const pdfPage = await pdfPageOfDest\(link\.dest\)/);
     assert.match(main, /leafPositionForPdfPage\(state\.leaves, pdfPage\)/);
-    assert.match(main, /가리키는 쪽이 문서에 없습니다/, "a link to a deleted page says so");
+    assert.match(main, /describeLink\(\{\s*link,\s*explicit,\s*pdfPage,\s*position: at,/, "and says what the link was either way");
   });
 
   it("forgets one file's links when another opens", () => {
@@ -289,5 +290,60 @@ describe("#186 배선", () => {
     assert.match(resolve, /target\.kind === "index"/);
     assert.match(resolve, /target\.page <= \(pdf\?\.numPages \|\| 0\)/, "a page the file does not have is still nothing");
     assert.match(resolve, /getPageIndex\(target\.ref\)/);
+  });
+});
+
+describe("#188 링크 내용 보여 주기", () => {
+  it("says the address for a web link", () => {
+    assert.equal(
+      describeLink({ link: { kind: "url", href: "https://a.kr/b" } }),
+      "링크: https://a.kr/b",
+    );
+  });
+
+  it("says where an inside link is going", () => {
+    const line = describeLink({ link: { kind: "dest", dest: "sec2" }, pdfPage: 7, position: 9 });
+    assert.equal(line, "링크: 9쪽으로 (원본 7쪽)");
+  });
+
+  it("prints the destination itself when it cannot be read", () => {
+    const dest = [{ num: 812, gen: 0 }, { name: "XYZ" }, 0, 700, null];
+    const line = describeLink({ link: { kind: "dest", dest }, explicit: dest, pdfPage: 0 });
+    assert.match(line, /못 폈습니다/);
+    assert.match(line, /812/, "raw destination is in the message");
+  });
+
+  it("separates «the file lost the page» from «we could not read it»", () => {
+    const line = describeLink({ link: { kind: "dest", dest: "gone" }, explicit: null, pdfPage: 30, pageCount: 12 });
+    assert.match(line, /원본 30쪽/);
+    assert.match(line, /지금 12장/);
+  });
+
+  it("keeps the line short enough to read", () => {
+    const dest = Array.from({ length: 50 }, (_, at) => ({ num: at, gen: 0 }));
+    assert.ok(describeLink({ link: { kind: "dest", dest }, pdfPage: 0 }).length < 200);
+  });
+});
+
+describe("#188 배선", () => {
+  const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+  const main = readFileSync(join(root, "src/main.js"), "utf8");
+
+  it("says what the link was on every tap, not only when it fails", () => {
+    const follow = main.slice(main.indexOf("async function followPdfLink("), main.indexOf("function pdfLinkSpotAtClient"));
+    assert.equal((follow.match(/flashBanner\(/g) || []).length, 3, "url · action · dest");
+    assert.match(follow, /flashBanner\(describeLink\(\{ link \}\)\)/);
+  });
+
+  it("leaves a failed link on screen long enough to read", () => {
+    assert.match(main, /flashBanner\(said, at \? 1800 : 7000\)/);
+  });
+
+  it("asks the pages themselves when pdf.js will not resolve a reference", () => {
+    const resolve = main.slice(main.indexOf("async function pdfPageOfDest"), main.indexOf("async function exportLinksForLeaf"));
+    assert.match(resolve, /catch \{\s*return pageOfRefByScan\(target\.ref, pdf\);/);
+    const scan = main.slice(main.indexOf("async function pageOfRefByScan"), main.indexOf("async function pdfPageOfDest"));
+    assert.match(scan, /count > PAGE_REF_SCAN_LIMIT/, "a huge file is not scanned page by page");
+    assert.match(scan, /Number\(page\.ref\.num\) === Number\(ref\.num\)/);
   });
 });
