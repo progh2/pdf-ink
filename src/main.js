@@ -113,6 +113,7 @@ import {
   sortedIndexes,
 } from "./pageOps.js";
 import {
+  describeLink,
   destTarget,
   destView,
   leafPositionForPdfPage,
@@ -1819,6 +1820,31 @@ async function explicitDest(dest, pdf = state.pdf) {
   }
 }
 
+/**
+ * Last resort when `getPageIndex` refuses a reference (#188): ask each page
+ * what its own reference is. Costs one pass over the file, so it only runs
+ * after the quick way failed, and only on a document small enough to scan.
+ */
+const PAGE_REF_SCAN_LIMIT = 600;
+
+async function pageOfRefByScan(ref, pdf) {
+  const count = Number(pdf?.numPages) || 0;
+  if (!ref || !count || count > PAGE_REF_SCAN_LIMIT) {
+    return 0;
+  }
+  for (let number = 1; number <= count; number += 1) {
+    try {
+      const page = await pdf.getPage(number);
+      if (page?.ref && Number(page.ref.num) === Number(ref.num) && Number(page.ref.gen || 0) === Number(ref.gen || 0)) {
+        return number;
+      }
+    } catch {
+      // A page that will not load simply is not the one.
+    }
+  }
+  return 0;
+}
+
 async function pdfPageOfDest(dest, pdf = state.pdf) {
   const target = destTarget(await explicitDest(dest, pdf));
   if (!target) {
@@ -1831,7 +1857,7 @@ async function pdfPageOfDest(dest, pdf = state.pdf) {
   try {
     return (await pdf.getPageIndex(target.ref)) + 1;
   } catch {
-    return 0;
+    return pageOfRefByScan(target.ref, pdf);
   }
 }
 
@@ -3650,13 +3676,16 @@ function openLinkTab(href) {
   flashBanner(`링크를 열지 못했습니다: ${href}`, 3200);
 }
 
+/** Every tap says what the link actually was, so a bad one can be read (#188). */
 async function followPdfLink(link, fromPage) {
   if (link?.kind === "url") {
+    flashBanner(describeLink({ link }));
     // A document does not get to decide what our tab does.
     openLinkTab(link.href);
     return true;
   }
   if (link?.kind === "action") {
+    flashBanner(describeLink({ link }));
     const at = pagePositionForAction(link.action, fromPage, state.pageCount);
     if (at && at !== fromPage) {
       await goToPage(at);
@@ -3666,10 +3695,18 @@ async function followPdfLink(link, fromPage) {
   if (link?.kind !== "dest") {
     return false;
   }
+  const explicit = await explicitDest(link.dest);
   const pdfPage = await pdfPageOfDest(link.dest);
   const at = leafPositionForPdfPage(state.leaves, pdfPage);
+  const said = describeLink({
+    link,
+    explicit,
+    pdfPage,
+    position: at,
+    pageCount: state.leaves.length,
+  });
+  flashBanner(said, at ? 1800 : 7000);
   if (!at) {
-    flashBanner("이 링크가 가리키는 쪽이 문서에 없습니다");
     return true;
   }
   if (at !== fromPage) {

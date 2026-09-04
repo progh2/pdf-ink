@@ -49,7 +49,9 @@ for (let number = 1; number <= pdf.numPages; number += 1) {
       console.log(`  ${number}쪽 → ${at}쪽  ${how}`);
     } catch (error) {
       broken += 1;
+      const raw = JSON.stringify(link.dest);
       console.log(`  ${number}쪽 → 끊김: ${error?.message}`);
+      console.log(`        dest = ${raw?.length > 160 ? `${raw.slice(0, 160)}…` : raw}`);
     }
   }
 }
