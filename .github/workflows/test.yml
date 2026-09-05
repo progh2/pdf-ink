@@ -1,0 +1,21 @@
+# 누가 커밋하든 테스트가 돈다 (#247).
+#
+# 지금까지 npm test는 한 기계에서만 돌았다 — PR 체크는 GitGuardian과
+# Vercel 빌드뿐이라, 다른 곳(커서·직접 커밋)에서 온 변경은 테스트 760개를
+# 그냥 지나쳤다. 여기가 그 구멍을 막는다.
+name: test
+on:
+  pull_request:
+  push:
+    branches: [main]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
