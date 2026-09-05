@@ -1155,8 +1155,11 @@ function drawStrokesOn(view, liveStroke = null) {
   if (state.stampGhost && view.pageNum === state.stampGhost.page) {
     paintStamp(ctx, state.stampGhost, scale, canvas);
   }
-  paintImageLayer(view.underCanvas, items, true, () => drawStrokesOn(view));
-  paintImageLayer(view.overCanvas, items, false, () => drawStrokesOn(view));
+  // #260: 이미지는 모두 잉크 아래에. 그래야 붙여넣은 그림 위에 바로 필기할 수
+  // 있다. 고르기·옮기기는 좌표로 하므로 아래 있어도 잡힌다. overCanvas는 비운다.
+  paintImageLayer(view.underCanvas, items, null, () => drawStrokesOn(view));
+  const over = canvas2d(view.overCanvas);
+  over.clearRect(0, 0, view.overCanvas.width, view.overCanvas.height);
   paintMosaicOverlay(view);
 }
 
@@ -1187,7 +1190,8 @@ function paintImageLayer(canvas, items, locked, onReady) {
   const ctx = canvas2d(canvas);
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   for (const item of items || []) {
-    if (item.type !== "image" || Boolean(item.locked) !== locked) {
+    // locked === null 이면 모든 이미지 (#260).
+    if (item.type !== "image" || (locked !== null && Boolean(item.locked) !== locked)) {
       continue;
     }
     const entry = cachedImage(item.src, onReady);
@@ -9790,6 +9794,7 @@ function trackPenHover(event) {
     interactMode: state.interactMode,
     overlay: overlayOpen(),
     onPaper: Boolean(event.target.closest?.(".page-stage")),
+    tool: state.rectTool ? "select" : state.tool,
   });
   dot.hidden = !show;
   if (!show) {
@@ -10776,9 +10781,31 @@ els.nextBtn.addEventListener("click", () => goToPage(state.page + 1));
 
 // #137: the pen barrel often fires a context menu; the paper never wants one.
 els.workspace.addEventListener("contextmenu", (event) => {
-  if (event.target.closest(".page-stage")) {
-    event.preventDefault();
+  const stage = event.target.closest(".page-stage");
+  if (!stage) {
+    return;
   }
+  event.preventDefault();
+  // #260: 키보드·마우스 환경에서 우클릭은 롱클릭과 같다. 선택 도구면 그 자리에
+  // 영역 메뉴(붙여넣기 포함)를 연다. 보기 중이면 아무 것도 안 연다.
+  if (state.interactMode === "view" || overlayOpen()) {
+    return;
+  }
+  const ink = stage.querySelector(".ink-canvas");
+  if (!ink) {
+    return;
+  }
+  const point = eventToNorm(event, ink);
+  state.drawPage = Number(stage.dataset.page) || state.page;
+  const hit = pickAreaAt(pageStrokes(state.drawPage), point.x, point.y);
+  if (hit) {
+    state.pendingCapture = { page: state.drawPage, rect: { x: hit.x, y: hit.y, w: hit.w, h: hit.h }, link: hit.link };
+    updateMarquee();
+    showMarqueeMenu();
+    return;
+  }
+  // 빈 곳 우클릭 → 붙여넣기만 (선택툴 드래그 없이 롱클릭과 같은 경로).
+  showPasteMenuAt(state.drawPage, point);
 });
 els.workspace.addEventListener("pointerdown", onWorkspacePointerDown);
 els.workspace.addEventListener("pointermove", onWorkspacePointerMove);

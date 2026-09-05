@@ -355,8 +355,13 @@ export function hoverShapeForTool(tool) {
 }
 
 /** 호버 표시를 띄울 상황인가. 펜이 떠 있고, 그릴 수 있을 때만. */
-export function shouldShowHover({ pointerType, buttons = 0, interactMode, overlay = false, onPaper = false } = {}) {
-  if (pointerType !== "pen" || buttons !== 0 || overlay || !onPaper) {
+export function shouldShowHover({ pointerType, buttons = 0, interactMode, overlay = false, onPaper = false, tool = "" } = {}) {
+  // #260: 펜뿐 아니라 마우스도. 손가락은 호버가 없다. 버튼을 누르는 중이면 획이 보인다.
+  if ((pointerType !== "pen" && pointerType !== "mouse") || buttons !== 0 || overlay || !onPaper) {
+    return false;
+  }
+  // 선택·스탬프는 원을 그릴 게 없다.
+  if (tool === "select" || tool === "stamp") {
     return false;
   }
   return normalizeInteractMode(interactMode) !== "view";
