@@ -1474,6 +1474,50 @@ body {
   font-size: 13px;
 }
 
+/* #215: TOC title under the thumb, only when that page has an entry. */
+.preview-meta.has-toc {
+  position: relative;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: center;
+  gap: 1px;
+  width: var(--thumb-w, 88px);
+}
+
+.preview-meta.has-toc .preview-bookmark {
+  position: absolute;
+  top: 0;
+  right: 0;
+}
+
+.preview-meta.has-toc > span:first-child {
+  padding-right: 40px;
+  line-height: 1.2;
+}
+
+.preview-toc-caption {
+  box-sizing: border-box;
+  width: var(--thumb-w, 88px);
+  height: 18px;
+  margin: 0;
+  margin-top: 6px;
+  padding: 0;
+  color: #5c574e;
+  font-size: 12px;
+  line-height: 18px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.preview-toc-caption:empty {
+  height: 0;
+  line-height: 0;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
 .preview-bookmark {
   width: 44px;
   height: 44px;

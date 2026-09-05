@@ -134,6 +134,24 @@ export function outlineDestPage(entry, leaves = null) {
   return Math.max(1, Math.round(Number(entry?.page) || 1));
 }
 
+/**
+ * First TOC title that lands on this page (#215). Empty when none; the preview
+ * row then keeps the page-number line only.
+ */
+export function firstOutlineTitleForPage(entries, page, leaves = null) {
+  const dest = Math.max(1, Math.round(Number(page) || 1));
+  for (const entry of entries || []) {
+    if (outlineDestPage(entry, leaves) !== dest) {
+      continue;
+    }
+    const title = String(entry.title || "").trim();
+    if (title) {
+      return title;
+    }
+  }
+  return "";
+}
+
 export function renameOutlineEntry(entries, id, title) {
   const nextTitle = String(title ?? "").trim();
   return normalizeOutline(entries).map((entry) => {

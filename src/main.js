@@ -377,6 +377,7 @@ import {
   makeOutlineEntry,
   normalizeOutline,
   flattenOutline,
+  firstOutlineTitleForPage,
   outlineDestPage,
   outlinePageLabel,
   outlineTitleForPage,
@@ -6418,7 +6419,17 @@ function makePreviewRow(leaf) {
     star.classList.toggle("is-on", Boolean(now?.bookmark));
     star.textContent = now?.bookmark ? "★" : "☆";
   });
-  meta.append(label, star);
+  const tocTitle = firstOutlineTitleForPage(state.outline, pageNum, state.leaves);
+  if (tocTitle) {
+    const caption = document.createElement("span");
+    caption.className = "preview-toc-caption";
+    setOutlineTitleText(caption, tocTitle);
+    caption.title = tocTitle;
+    meta.classList.add("has-toc");
+    meta.append(label, caption, star);
+  } else {
+    meta.append(label, star);
+  }
   row.append(thumb, meta);
   bindPreviewRowGestures(row, pageNum);
   return row;
