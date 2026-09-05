@@ -2,6 +2,15 @@ import { defineConfig } from "vite";
 import { VitePWA } from "vite-plugin-pwa";
 
 export default defineConfig({
+  // #248: 새로고침한 화면이 새 배포인지 알 길이 없었다. 커밋 짧은 해시 + 빌드 시각을
+  // 설정 시트에 찍어 두면, "이거 반영된 버전 맞아?"를 원격으로도 확인할 수 있다.
+  define: {
+    __BUILD_TAG__: JSON.stringify(
+      ((process.env.VERCEL_GIT_COMMIT_SHA || process.env.GITHUB_SHA || "").slice(0, 7) || "dev") +
+        " · " +
+        new Date().toISOString().slice(0, 16).replace("T", " "),
+    ),
+  },
   server: {
     host: true,
     port: 5173,
