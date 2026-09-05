@@ -232,6 +232,17 @@ export function selectHudTop(rect, barHeight, viewHeight, gap = HUD_GAP_PX) {
   if (above >= gap) {
     return { top: above, placement: "above" };
   }
+  // #242: 밖에 자리가 없으면 **고른 것 안쪽**에 놓는다. 예전에는 화면
+  // 가장자리로 밀어붙였는데, 그러면 큰 그림을 붙였을 때 바가 엉뚱한 데
+  // 떠 있고 그림이 줄어든 것처럼 보였다.
+  const insideBottom = bottom - height - gap;
+  if (insideBottom >= gap && bottom - top > height + gap * 2) {
+    return { top: insideBottom, placement: "inside" };
+  }
+  const insideTop = top + gap;
+  if (insideTop + height <= view - gap) {
+    return { top: insideTop, placement: "inside" };
+  }
   return {
     top: Math.min(view - height - gap, Math.max(gap, below)),
     placement: "clamped",

@@ -120,6 +120,12 @@ describe("#238 붙여넣기는 보던 크기 그대로", () => {
     assert.ok(Math.abs(atOne.w - atThree.w) < 1e-9, "3배로 확대해 캡처해도 같은 크기");
   });
 
+  it("fills the page rather than shrinking to 92% (#242)", () => {
+    const full = trueSizeOnPage({ imgWidth: 400, imgHeight: 600, ...page, maxShare: 1 });
+    assert.ok(Math.abs(full.w - 1) < 1e-9, "쪽에 꼭 맞는 캡처는 꼭 맞게");
+    assert.equal(full.shrunk, false);
+  });
+
   it("keeps a huge capture on the paper, in proportion", () => {
     const size = trueSizeOnPage({ imgWidth: 4000, imgHeight: 2000, ...page });
     assert.ok(size.w <= 0.92 && size.h <= 0.92, "쪽 밖으로 안 나간다");
@@ -147,6 +153,7 @@ describe("#238 배선", () => {
     assert.match(paste, /trueSizeOnPage\(\{/);
     assert.match(paste, /devicePixelRatio: window\.devicePixelRatio \|\| 1/);
     assert.match(paste, /pageScale: state\.userScale \|\| 1/);
+    assert.match(paste, /maxShare: 1/, "#242: 92%로 줄이지 않는다");
     assert.doesNotMatch(paste, /imageSizeOnPage/, "붙여넣기는 반쪽 규칙을 안 쓴다");
   });
 

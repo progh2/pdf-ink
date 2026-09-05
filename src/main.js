@@ -3656,6 +3656,8 @@ function placeSelectHud(view, rect) {
     };
   }
   const spot = selectHudTop(selection, height, window.innerHeight);
+  // 안쪽에 놓일 때는 반투명으로 — 가린 것이 비쳐야 무엇을 다루는지 보인다.
+  els.floatBar.classList.toggle("is-inside", spot.placement === "inside");
   els.floatBar.style.left = `${Math.min(window.innerWidth - width - 8, Math.max(8, left))}px`;
   els.floatBar.style.top = `${Math.round(spot.top)}px`;
 }
@@ -5823,6 +5825,8 @@ async function pasteImageAt(page, at, src) {
       cssHeight: view?.cssHeight || 600,
       devicePixelRatio: window.devicePixelRatio || 1,
       pageScale: state.userScale || 1,
+      // #242: 92%로 줄이면 붙인 그림이 원래보다 작아진다. 쪽에 꽉 차는 데까지.
+      maxShare: 1,
     });
     // 우리가 오려 낸 것이면 그 자리에 그대로 앉힌다 (#240).
     const home = !at && state.captureFrom ? state.captureFrom.rect : null;
