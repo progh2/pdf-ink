@@ -44,6 +44,8 @@ export const BAR_OVERFLOW_ITEMS = [
   "rotate",
   "pagecopy",
   "pagepaste",
+  "shelfadd",
+  "shelf",
   "save",
   "bake",
   "saveas",

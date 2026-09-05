@@ -47,6 +47,8 @@ describe("M4 #31 chrome", () => {
       "rotate",
       "pagecopy",
       "pagepaste",
+      "shelfadd",
+      "shelf",
       "save",
       "bake",
       "saveas",

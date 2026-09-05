@@ -2556,3 +2556,64 @@ body {
 .write-screen[data-cursor="none"] .ink-canvas {
   cursor: none;
 }
+
+/* 선반 (#267). */
+.shelf-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.shelf-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 10px;
+  max-height: 56vh;
+  overflow-y: auto;
+  padding: 4px;
+}
+
+.shelf-card {
+  display: grid;
+  gap: 4px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.shelf-card img {
+  width: 100%;
+  height: auto;
+  max-height: 150px;
+  object-fit: contain;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.shelf-card .shelf-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.shelf-card .shelf-del {
+  border: 0;
+  background: none;
+  color: #b45; 
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.shelf-empty {
+  grid-column: 1 / -1;
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
+  padding: 24px 0;
+}

@@ -1,7 +1,7 @@
 const STROKE_PREFIX = "pdf-ink:strokes:";
 const PEN_ONLY_KEY = "pdf-ink:pen-only";
 const DB_NAME = "pdf-ink";
-const DB_VERSION = 4;
+const DB_VERSION = 5;
 const SESSION_STORE = "session";
 const FILES_STORE = "files";
 /** Stickers live in this browser only, never on a server (#79). */
@@ -9,6 +9,8 @@ const STICKER_STORE = "stickers";
 const STICKER_FOLDER_STORE = "sticker-folders";
 /** Rendered page thumbs, so a reopened document shows its list at once (#141). */
 const THUMB_STORE = "thumbs";
+/** 선반: 문서 사이를 오가는 임시 복사 보관함 (#267). */
+const SHELF_STORE = "shelf";
 
 export function fileIdentity(file) {
   return `${file.name}::${file.size}::${file.lastModified}`;
@@ -89,6 +91,9 @@ function openDb() {
       }
       if (!db.objectStoreNames.contains(THUMB_STORE)) {
         db.createObjectStore(THUMB_STORE);
+      }
+      if (!db.objectStoreNames.contains(SHELF_STORE)) {
+        db.createObjectStore(SHELF_STORE, { keyPath: "id" });
       }
     };
     request.onsuccess = () => resolve(request.result);
@@ -348,4 +353,66 @@ export function saveCaptures(list) {
   } catch {
     // 등록부는 있으면 좋은 것, 없어도 붙여넣기는 된다.
   }
+}
+
+
+/* ---- 선반 (#267) : 같은 브라우저의 모든 탭이 공유한다 ---- */
+
+/** 열 때마다 IndexedDB에서 새로 읽는다 — 다른 탭이 담은 것이 바로 보이게. */
+export async function loadShelf() {
+  const db = await openDb();
+  const rows = await new Promise((resolve, reject) => {
+    const tx = db.transaction(SHELF_STORE, "readonly");
+    const request = tx.objectStore(SHELF_STORE).getAll();
+    request.onsuccess = () => resolve(request.result || []);
+    request.onerror = () => reject(request.error);
+  });
+  db.close();
+  return rows;
+}
+
+export async function putShelfEntry(entry) {
+  if (!entry?.id) {
+    return;
+  }
+  const db = await openDb();
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction(SHELF_STORE, "readwrite");
+    tx.objectStore(SHELF_STORE).put(entry);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+  db.close();
+}
+
+export async function deleteShelfEntry(id) {
+  const db = await openDb();
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction(SHELF_STORE, "readwrite");
+    tx.objectStore(SHELF_STORE).delete(id);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+  db.close();
+}
+
+/** 오래된 것을 지운다. 문서를 열 때 한 번 돈다. */
+export async function pruneShelfStore(keepIds) {
+  const keep = new Set(keepIds || []);
+  const db = await openDb();
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction(SHELF_STORE, "readwrite");
+    const store = tx.objectStore(SHELF_STORE);
+    const request = store.getAllKeys();
+    request.onsuccess = () => {
+      for (const id of request.result || []) {
+        if (!keep.has(id)) {
+          store.delete(id);
+        }
+      }
+    };
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+  db.close();
 }
