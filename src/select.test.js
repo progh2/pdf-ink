@@ -5,24 +5,24 @@ import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import { resizeStamp, STAMP_ASPECT, STAMP_HEIGHT_CSS, STAMP_WIDTH_CSS } from "./tools.js";
 import {
+  ROTATE_HANDLE_COLOR,
+  ROTATE_HANDLE_GAP_CSS,
+  ROTATE_HANDLE_SIZE_CSS,
+  ROTATE_HANDLE_STROKE_CSS,
   copyItems,
   deleteSelectedItems,
   isSelectable,
+  isStrokeItem,
   itemBounds,
   lockedImageAt,
   offsetItems,
   pasteItems,
   pickItemsAt,
   pickItemsInRect,
-  ROTATE_HANDLE_COLOR,
-  ROTATE_HANDLE_GAP_CSS,
-  ROTATE_HANDLE_SIZE_CSS,
-  ROTATE_HANDLE_STROKE_CSS,
-  isStrokeItem,
   rotateHandleAt,
   rotateHandleCenter,
-  selectedBounds,
   selectHudTop,
+  selectedBounds,
   strokeHitsPoint,
   translateItem,
   translateItems,
@@ -268,5 +268,24 @@ describe("#110 선택 칸이 영역캡처를 겸함", () => {
   it("still selects when the box catches something", () => {
     const items = [stroke, stamp];
     assert.deepEqual(pickItemsInRect(items, { x: 0.15, y: 0.15, w: 0.3, h: 0.2 }, 400, 600), [0]);
+  });
+});
+
+describe("#240 회전 손잡이는 상자 밖에만", () => {
+  const bounds = { x: 0.2, y: 0.2, w: 0.4, h: 0.06 };
+
+  it("still grabs the handle above the box", () => {
+    const handle = rotateHandleCenter(bounds, 600);
+    assert.equal(rotateHandleAt(bounds, handle, 400, 600), "rotate");
+  });
+
+  it("never grabs it from inside the box — that press is a move", () => {
+    // 납작한 그림: 손잡이 판정 원이 몸통까지 덮는다.
+    const inside = { x: bounds.x + bounds.w / 2, y: bounds.y + 0.005 };
+    assert.equal(rotateHandleAt(bounds, inside, 400, 600), null, "옮기려다 홱 돌면 안 된다");
+  });
+
+  it("leaves a press far from both alone", () => {
+    assert.equal(rotateHandleAt(bounds, { x: 0.9, y: 0.9 }, 400, 600), null);
   });
 });

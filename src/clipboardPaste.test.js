@@ -286,3 +286,30 @@ describe("#228 배선", () => {
     assert.match(css3, /is-dropping::after/, "놓을 곳을 보여 준다");
   });
 });
+
+describe("#240 제자리에 붙여넣기", () => {
+  const root4 = join(dirname(fileURLToPath(import.meta.url)), "..");
+  const main4 = readFileSync(join(root4, "src/main.js"), "utf8");
+
+  it("remembers where a capture was cut from", () => {
+    const capture = main4.slice(main4.indexOf("async function confirmCapture"), main4.indexOf("captureWriting = true"));
+    assert.match(capture, /state\.captureFrom = \{ rect: \{ \.\.\.pending\.rect \}, page: pending\.page \}/);
+  });
+
+  it("puts a capture back exactly where it came from when no spot was pressed", () => {
+    const paste = main4.slice(main4.indexOf("async function pasteImageAt"), main4.indexOf("function beginCrop"));
+    assert.match(paste, /const home = !at && state\.captureFrom \? state\.captureFrom\.rect : null/);
+    assert.match(paste, /home\s*\?\s*\{ x: home\.x, y: home\.y/);
+  });
+
+  it("leaves copied ink where it was, instead of nudging it aside", () => {
+    const ink = main4.slice(main4.indexOf("function pasteInkAt"), main4.indexOf("async function pasteImageAt"));
+    assert.match(ink, /: \{ x: 0, y: 0 \}/, "제자리 그대로");
+    assert.doesNotMatch(ink, /\{ x: 0\.04, y: 0\.04 \}/);
+  });
+
+  it("still honours a spot when one was pressed", () => {
+    const ink = main4.slice(main4.indexOf("function pasteInkAt"), main4.indexOf("async function pasteImageAt"));
+    assert.match(ink, /at\.x - \(bounds\.x \+ bounds\.w \/ 2\)/);
+  });
+});

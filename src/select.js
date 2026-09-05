@@ -123,6 +123,11 @@ export function rotateHandleAt(bounds, point, cssWidth = 400, cssHeight = 600, h
   if (!handle || !point) {
     return null;
   }
+  // #240: 손잡이는 상자 **밖**에 산다. 상자 안을 누른 것은 언제나 옮기기다 —
+  // 납작한 그림에서는 판정 원이 그림 몸통까지 덮어, 옮기려다 홱 돌아갔다.
+  if (pointInBounds(point, bounds)) {
+    return null;
+  }
   const pageW = Math.max(1, Number(cssWidth) || 1);
   const pageH = Math.max(1, Number(cssHeight) || 1);
   const dx = (point.x - handle.x) * pageW;

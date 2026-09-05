@@ -627,6 +627,8 @@ const state = {
   linkHints: loadLinkHints(),
   // #206: 스포이드가 다음 탭을 기다리는 중인가.
   eyedropKind: null,
+  // #240: 마지막으로 오려 낸 자리. 붙일 때 제자리를 안다.
+  captureFrom: null,
   editingKind: null,
   penOnly: loadPenOnly(),
   penButtonErase: loadPenButtonErase(),
@@ -5782,10 +5784,11 @@ function pasteInkAt(page, at) {
     view?.cssWidth || 400,
     view?.cssHeight || 600,
   );
+  // #240: 누른 자리가 있으면 거기로, 없으면 **있던 그 자리에** 그대로.
   const shift =
     at && bounds
       ? { x: at.x - (bounds.x + bounds.w / 2), y: at.y - (bounds.y + bounds.h / 2) }
-      : { x: 0.04, y: 0.04 };
+      : { x: 0, y: 0 };
   const pasted = offsetItems(state.inkClipboard, shift.x, shift.y);
   commitPageChange(page, () => {
     const list = pageStrokes(page);
@@ -5821,7 +5824,11 @@ async function pasteImageAt(page, at, src) {
       devicePixelRatio: window.devicePixelRatio || 1,
       pageScale: state.userScale || 1,
     });
-    const spot = pastePlacement(at, size);
+    // 우리가 오려 낸 것이면 그 자리에 그대로 앉힌다 (#240).
+    const home = !at && state.captureFrom ? state.captureFrom.rect : null;
+    const spot = home
+      ? { x: home.x, y: home.y, w: home.w || size.w, h: home.h || size.h }
+      : pastePlacement(at, size);
     const item = imageItem({ src: scaled.src, x: spot.x, y: spot.y, w: spot.w, h: spot.h });
     commitPageChange(page, () => {
       pageStrokes(page).push(item);
@@ -7137,6 +7144,8 @@ async function confirmCapture() {
   if (!pending || captureWriting) {
     return;
   }
+  // #240: 어디서 오려 왔는지 적어 둔다. 되붙일 때 제자리로 가도록.
+  state.captureFrom = { rect: { ...pending.rect }, page: pending.page };
   captureWriting = true;
   try {
     const view = state.pageViews.find((item) => item.pageNum === pending.page);
