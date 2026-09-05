@@ -1464,43 +1464,48 @@ body {
   box-shadow: 0 0 0 2px #c4a574;
 }
 
+.preview-thumb-wrap {
+  position: relative;
+  display: inline-block;
+  max-width: var(--thumb-w, 88px);
+  line-height: 0;
+}
+
+.preview-thumb-wrap .preview-bookmark {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 1;
+  width: 44px;
+  height: 44px;
+  padding: 8px;
+  font-size: 18px;
+  line-height: 28px;
+  color: #d4cfc4;
+}
+
 .preview-meta {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  justify-content: flex-start;
+  gap: 6px;
+  box-sizing: border-box;
+  width: var(--thumb-w, 88px);
+  max-width: 100%;
   min-height: 44px;
   color: var(--title);
   font-size: 13px;
 }
 
-/* #215: TOC title under the thumb, only when that page has an entry. */
-.preview-meta.has-toc {
-  position: relative;
-  flex-direction: column;
-  align-items: stretch;
-  justify-content: center;
-  gap: 1px;
-  width: var(--thumb-w, 88px);
+.preview-page-label {
+  flex: 0 0 auto;
 }
 
-.preview-meta.has-toc .preview-bookmark {
-  position: absolute;
-  top: 0;
-  right: 0;
-}
-
-.preview-meta.has-toc > span:first-child {
-  padding-right: 40px;
-  line-height: 1.2;
-}
-
+/* #217: TOC title beside the page number, only when that page has an entry. */
 .preview-toc-caption {
-  box-sizing: border-box;
-  width: var(--thumb-w, 88px);
-  height: 18px;
+  flex: 1 1 auto;
+  min-width: 0;
   margin: 0;
-  margin-top: 6px;
   padding: 0;
   color: #5c574e;
   font-size: 12px;
@@ -1510,12 +1515,11 @@ body {
   white-space: nowrap;
 }
 
-.preview-toc-caption:empty {
-  height: 0;
-  line-height: 0;
-  margin: 0;
-  padding: 0;
-  overflow: hidden;
+.preview-meta .preview-toc-edit {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: none;
+  width: 100%;
 }
 
 .preview-bookmark {
@@ -1524,9 +1528,10 @@ body {
   border: 0;
   border-radius: 12px;
   background: transparent;
-  color: var(--muted);
+  color: #d4cfc4;
   font: inherit;
   font-size: 18px;
+  line-height: 28px;
   cursor: pointer;
 }
 
