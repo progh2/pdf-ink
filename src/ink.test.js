@@ -221,7 +221,9 @@ describe("#135 부드럽고 빠른 펜", () => {
     assert.match(main, /stage\.append\(pdfCanvas, underCanvas, inkCanvas, liveCanvas, overCanvas, maskCanvas(, linkLayer)?\)/);
     assert.match(main, /function drawLiveLayer[\s\S]*paintItem\(ctx, shown, strokeScale\(view\), canvas\)/);
     // A full repaint always wipes the live layer, so nothing is drawn twice.
-    assert.match(main, /function drawStrokesOn\(view, liveStroke = null\) \{\s*clearLiveLayer\(view\)/);
+    // #279: clearLiveLayer는 이제 맨 앞이 아니라 잉크 칠한 뒤(끝)에 온다 —
+    // 뗄 때 반짝임을 없애려고.
+    assert.match(main, /paintMosaicOverlay\(view\);\s*\/\/ #279[\s\S]{0,120}clearLiveLayer\(view\);\s*\}/);
     assert.match(css, /\.live-canvas,?\n?[\s\S]{0,40}\.over-canvas \{|\.live-canvas/);
   });
 

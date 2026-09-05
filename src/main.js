@@ -1146,7 +1146,6 @@ function drawLiveLayer(view, stroke) {
 }
 
 function drawStrokesOn(view, liveStroke = null) {
-  clearLiveLayer(view);
   const canvas = view.inkCanvas;
   const ctx = canvas2d(canvas);
   ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -1186,6 +1185,9 @@ function drawStrokesOn(view, liveStroke = null) {
   const over = canvas2d(view.overCanvas);
   over.clearRect(0, 0, view.overCanvas.width, view.overCanvas.height);
   paintMosaicOverlay(view);
+  // #279: 커밋한 획이 잉크 캔버스에 오른 뒤에야 라이브 층을 지운다 — 먼저
+  // 지우면 획이 한 프레임 사라졌다 나타나 「뗄 때 반짝」 한다.
+  clearLiveLayer(view);
 }
 
 const imageCache = new Map();
@@ -2801,10 +2803,9 @@ function moveStroke(event) {
     }
     batch.push({ norm: normFromRect(strokeRect, client), client });
     state.currentStroke.points = appendInkPoints(state.currentStroke.points, batch, lastInkUpClient);
-    const ahead = typeof event.getPredictedEvents === "function" ? event.getPredictedEvents() : [];
-    // #210: 예측을 다 그리면 곡선에서 과예측이 물러나며 아른거린다. 두 점이면
-    // 펜 끝을 따라붙는 효과는 그대로고 흔들림은 안 보인다.
-    predictedTail = ahead.slice(0, 2).map((sample) => normFromRect(strokeRect, { x: sample.clientX, y: sample.clientY }));
+    // #279: 예측 꼬리를 뺀다 — 모서리에서 옛 방향으로 살짝 튀었다 되돌아가
+    // ㄴ 아래 가로가 짧게 들어갔다 사라져 보였다. 지연은 워커로 이미 낮다.
+    predictedTail = [];
     if (canShapeHold(state.currentStroke.type)) {
       shapeHold.rememberPoints(state.currentStroke.points);
       frozenEndClient = client;
