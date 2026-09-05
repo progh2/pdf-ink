@@ -78,7 +78,7 @@ import {
   pointerMidpoint,
   scaleFromPinch,
 } from "./viewport.js";
-import { applyEraserToInk, isPixelErase, isStrokeErase, paintGhost, paintItem, paintStamp, removeHitItems, removeHitStamps, stampInkItem, stampTilt } from "./ink.js";
+import { applyEraserToInk, isPixelErase, isStrokeErase, paintGhost, paintItem, paintPen, paintStamp, removeHitItems, removeHitStamps, stampInkItem, stampTilt } from "./ink.js";
 import { followStampGhost, stampGhostItem, stampPlaceFromGhost } from "./stampGhost.js";
 import {
   DOUBLE_TAP_MS,
@@ -729,6 +729,8 @@ let strokePointerId = null;
 let strokeRect = null;
 // #208: 브라우저가 내다본 펜의 다음 위치. 화면에만 그려지고 저장되지 않는다.
 let predictedTail = [];
+// #294: 라이브 층에 이미 그린 펜 점의 개수 — 다음 프레임엔 그 뒤만 덧그린다.
+let liveDrawnUpto = 0;
 let chipMenuBox = null;
 let frozenEndClient = null;
 let renderGen = 0;
@@ -1090,6 +1092,8 @@ function dropLiveCanvas(view) {
 }
 
 function clearLiveLayer(view) {
+  // #294: 라이브 층을 지우면 증분 펜 렌더의 기준점도 처음으로 되돌린다.
+  liveDrawnUpto = 0;
   if (view?.liveId != null && liveWorker) {
     liveWorker.postMessage({ type: "clear", id: view.liveId });
     return;
@@ -1122,10 +1126,21 @@ function drawLiveLayer(view, stroke) {
     return;
   }
   const ctx = liveCanvas2d(canvas);
+  // #294: 불투명한 펜은 지우지 않고 늘어난 구간만 덧그린다 — 매 프레임 전체를
+  // 다시 그리지 않아 긴 획이 끊기지 않는다. 형광/연필은 반투명이라 덧그리면
+  // 겹친 곳이 진해지므로 예전처럼 지우고 전체를 다시 그린다. 예측 꼬리가 있으면
+  // 매 프레임 지워야 하므로 증분을 쓰지 않는다(지금은 항상 비어 있다).
+  const canIncrement = stroke?.type === "pen" && !predictedTail.length && stroke.points?.length;
+  if (canIncrement && liveDrawnUpto > 0 && liveDrawnUpto <= stroke.points.length) {
+    paintPen(ctx, stroke, strokeScale(view), canvas, liveDrawnUpto - 1);
+    liveDrawnUpto = stroke.points.length;
+    return;
+  }
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   if (shown?.points?.length) {
     paintItem(ctx, shown, strokeScale(view), canvas);
   }
+  liveDrawnUpto = canIncrement ? stroke.points.length : 0;
 }
 
 function drawStrokesOn(view, liveStroke = null) {
@@ -2694,6 +2709,7 @@ function startStroke(event, stage) {
   // #171: from here on, only this pointer touches this stroke.
   strokePointerId = event.pointerId ?? null;
   strokeRect = ink.getBoundingClientRect();
+  liveDrawnUpto = 0;
   if (usesStamp()) {
     shapeHold.reset();
     dismissShapeChips();
@@ -2748,7 +2764,11 @@ function moveStroke(event) {
   const samples = typeof event.getCoalescedEvents === "function" ? event.getCoalescedEvents() : [];
   const client = { x: event.clientX, y: event.clientY };
   // #172: measure the page once per event, not once per sample.
-  strokeRect = state.drawCanvas.getBoundingClientRect();
+  // #294: 획 중엔 스크롤이 얼어 있어 캔버스 위치가 고정이다 — 시작 때 잰 사각형을
+  // 재사용해 매 이벤트마다 강제 레이아웃(getBoundingClientRect)을 일으키지 않는다.
+  if (!strokeRect) {
+    strokeRect = state.drawCanvas.getBoundingClientRect();
+  }
   const chipsUp = Boolean(els.shapeChips && !els.shapeChips.hidden);
   const chipHit = Boolean(ignoreChipMountMoves) || eventHitsShapeChips(event);
   let append = true;
@@ -10083,6 +10103,14 @@ function onWorkspacePointerDown(event) {
 function trackPenHover(event) {
   const dot = els.penHover;
   if (!dot) {
+    return;
+  }
+  // #294: 필기 중엔 호버 점을 만질 일이 없다 — 매 포인터 이동마다 스타일을 쓰고
+  // 곧바로 사각형을 읽는 레이아웃 스래싱을 피한다.
+  if (state.drawing) {
+    if (!dot.hidden) {
+      dot.hidden = true;
+    }
     return;
   }
   const show = shouldShowHover({
