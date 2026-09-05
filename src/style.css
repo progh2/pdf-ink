@@ -2458,3 +2458,14 @@ body {
   border: 1.5px solid var(--swatch, #1A1A1A);
   background: color-mix(in srgb, var(--swatch, #1A1A1A) 22%, transparent);
 }
+
+/* 그림을 끌어다 놓는 중 (#228). 놓을 곳이라는 표시만, 종이는 안 가린다. */
+.workspace.is-dropping::after,
+#workspace.is-dropping::after {
+  content: "";
+  position: absolute;
+  inset: 6px;
+  border: 2px dashed #2f6f5e;
+  border-radius: 12px;
+  pointer-events: none;
+}
