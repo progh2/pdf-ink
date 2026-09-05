@@ -6,6 +6,7 @@ import {
   listDocuments,
   deleteShelfEntry,
   loadCaptures,
+  loadInkImages,
   loadShelf,
   pruneShelfStore,
   putShelfEntry,
@@ -21,6 +22,7 @@ import {
   loadStrokes,
   migrateLastIntoFiles,
   saveCaptures,
+  saveInkImages,
   saveDocument,
   saveLinkFixes,
   savePenOnly,
@@ -109,6 +111,7 @@ import {
   shouldPanPointer,
   shouldShowHover,
 } from "./interact.js";
+import { liveImageIds, mergeImages, stripImages } from "./inkImages.js";
 import { canRedo, canUndo, cloneItems, createHistory, extendChange, recordChange, redoChange, undoChange } from "./history.js";
 import { bindUndoHold } from "./undoHold.js";
 import { bindMarqueeHold, placeMarqueeMenu } from "./marqueeHold.js";
@@ -908,11 +911,15 @@ function writeStrokesNow() {
     return;
   }
   strokesDirty = false;
+  // #273: 이미지 dataURL은 무거워 localStorage를 넘친다. 가벼운 필기만 여기,
+  // 이미지 원본은 IndexedDB로 뺀다.
+  const { light, images } = stripImages(state.pages);
   try {
-    saveStrokes(state.identity, state.pages, state.leaves, state.outline, state.inkGone);
+    saveStrokes(state.identity, light, state.leaves, state.outline, state.inkGone);
   } catch {
     showBanner("필기를 저장하지 못했습니다. 브라우저 저장 공간이 부족할 수 있습니다.");
   }
+  saveInkImages(state.identity, images, liveImageIds(state.pages)).catch(() => null);
 }
 
 function scheduleStrokeSave() {
@@ -2301,6 +2308,15 @@ async function openPdfBuffer(buffer, { identity, name, page = 1, handle = null }
   state.buffer = buffer;
   const stored = loadStrokes(identity);
   state.inkGone = sanitizeGone(stored.gone);
+  // #273: localStorage엔 이미지 src가 비어 있다. IndexedDB에서 원본을 붙인다.
+  try {
+    const imgs = await loadInkImages(identity);
+    if (imgs && Object.keys(imgs).length) {
+      stored.pages = mergeImages(stored.pages, imgs);
+    }
+  } catch {
+    // 못 붙여도 사이드카가 채울 수 있다.
+  }
   // #190: the corrections this browser knows; a sidecar may add more.
   state.linkFixes = sanitizeLinkFixes(loadLinkFixes(identity));
   state.leaves = normalizeLeaves(stored.leaves, pdf.numPages);
