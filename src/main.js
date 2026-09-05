@@ -85,7 +85,10 @@ import {
   appendInkPoints,
   beginInkPoints,
   canCreateInk,
+  cursorForTool,
+  describePenEvent,
   finishInkPoints,
+  hoverShapeForTool,
   interactModeLabel,
   isDoubleTap,
   isStrokePointer,
@@ -97,6 +100,7 @@ import {
   shortcutFor,
   shouldNoticeViewMode,
   shouldPanPointer,
+  shouldShowHover,
 } from "./interact.js";
 import { canRedo, canUndo, cloneItems, createHistory, recordChange, redoChange, undoChange } from "./history.js";
 import { bindUndoHold } from "./undoHold.js";
@@ -487,6 +491,7 @@ const els = {
   pageLabel: document.querySelector("#page-label"),
   zoomLockBtn: document.querySelector("#zoom-lock-btn"),
   linkHintsBtn: document.querySelector("#link-hints-btn"),
+  penProbe: document.querySelector("#pen-probe"),
   interactBtn: document.querySelector("#interact-btn"),
   undoBtn: document.querySelector("#undo-btn"),
   redoBtn: document.querySelector("#redo-btn"),
@@ -2882,6 +2887,16 @@ function syncZoomLock() {
 }
 
 /** 제 스위치는 제 함수로 (#232). 남의 함수에 얹혀 있으면 다음에 또 엉킨다. */
+/** 커서는 도구·모드·스포이드를 따라간다 (#234). */
+function syncCursor() {
+  els.writeScreen.dataset.cursor = cursorForTool({
+    interactMode: state.interactMode,
+    tool: state.tool,
+    rectTool: state.rectTool,
+    eyedrop: Boolean(state.eyedropKind),
+  });
+}
+
 function syncLinkHints() {
   if (!els.linkHintsBtn) {
     return;
@@ -2907,6 +2922,7 @@ function syncInteract() {
     closed.hidden = !viewing;
     opened.hidden = viewing;
   }
+  syncCursor();
 }
 
 function syncRectTool() {
@@ -2915,6 +2931,7 @@ function syncRectTool() {
   document.querySelectorAll("#more-panel [data-more]").forEach((btn) => {
     btn.classList.toggle("is-selected", btn.dataset.more === state.rectTool);
   });
+  syncCursor();
 }
 
 function syncFullscreenItem() {
@@ -2933,6 +2950,7 @@ function syncToolSelection() {
     state.pendingStamp = null;
     clearStampGhost();
   }
+  syncCursor();
 }
 
 function setPenOnly(on) {
@@ -9608,18 +9626,19 @@ function trackPenHover(event) {
   if (!dot) {
     return;
   }
-  const inkTool = state.tool !== "select" && !state.rectTool;
-  const show =
-    event.pointerType === "pen" &&
-    event.buttons === 0 &&
-    state.interactMode !== "view" &&
-    inkTool &&
-    !overlayOpen() &&
-    Boolean(event.target.closest?.(".page-stage"));
+  const show = shouldShowHover({
+    pointerType: event.pointerType,
+    buttons: event.buttons,
+    interactMode: state.interactMode,
+    overlay: overlayOpen(),
+    onPaper: Boolean(event.target.closest?.(".page-stage")),
+  });
   dot.hidden = !show;
   if (!show) {
     return;
   }
+  // #234: 도구마다 다른 모양 — 지우개는 점선 원, 형광은 모난 자국.
+  dot.dataset.shape = hoverShapeForTool(state.rectTool ? "select" : state.tool);
   const slot = state.tool === "eraser" ? { width: state.eraserWidth, color: "#8B8378" } : activeSlot();
   const view = state.pageViews.find((item) => item.stage === event.target.closest(".page-stage"));
   const cssWidth = view?.cssWidth || 1;
@@ -10289,6 +10308,21 @@ els.penButtonBtn?.addEventListener("click", () => {
 els.penOnlyBtn.addEventListener("click", () => {
   setPenOnly(!state.penOnly);
 });
+/**
+ * 펜 버튼 시험 (#234). 「S펜 버튼이 안 된다」를 확인하려면 기기가 실제로
+ * 무엇을 보내는지 봐야 한다 — 안 보내는 것과 잘못 읽는 것은 고칠 곳이 다르다.
+ */
+for (const kind of ["pointerdown", "pointermove", "pointerup"]) {
+  els.penProbe?.addEventListener(kind, (event) => {
+    if (event.pointerType !== "pen" && event.pointerType !== "mouse") {
+      return;
+    }
+    event.preventDefault();
+    els.penProbe.classList.add("is-live");
+    els.penProbe.textContent = `${kind} · ${describePenEvent(event, state.penButtons)}`;
+  });
+}
+
 els.linkHintsBtn?.addEventListener("click", () => {
   state.linkHints = !state.linkHints;
   saveLinkHints(state.linkHints);

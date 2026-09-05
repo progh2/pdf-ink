@@ -762,8 +762,41 @@ body {
   pointer-events: none;
 }
 
+/* #234: 커서가 지금 무엇을 하는지 말해 준다. 종이 위에서만 바뀐다. */
 .write-screen[data-interact="view"] .ink-canvas {
   cursor: grab;
+}
+
+.write-screen[data-cursor="default"] .ink-canvas {
+  cursor: default;
+}
+
+.write-screen[data-cursor="copy"] .ink-canvas {
+  cursor: copy;
+}
+
+.write-screen[data-cursor="none"] .ink-canvas {
+  cursor: none;
+}
+
+.write-screen[data-cursor="grab"] .ink-canvas {
+  cursor: grab;
+}
+
+/* 지우개는 커서를 지우고 실제 크기의 동그라미를 대신 그린다. */
+.pen-hover[data-shape="eraser"] {
+  border-style: dashed;
+  border-color: #8B8378;
+  background: rgba(139, 131, 120, 0.14);
+}
+
+.pen-hover[data-shape="highlighter"] {
+  border-radius: 3px;
+}
+
+.pen-hover[data-shape="point"] {
+  border-width: 1px;
+  background: none;
 }
 
 /*
@@ -2473,4 +2506,23 @@ body {
   border: 2px dashed #2f6f5e;
   border-radius: 12px;
   pointer-events: none;
+}
+
+/* 펜 버튼 시험 칸 (#234): 기기가 무엇을 보고하는지 그대로 보여 준다. */
+.pen-probe {
+  min-height: 64px;
+  padding: 10px 12px;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  background: #fff;
+  color: #5c574e;
+  font-size: 12px;
+  line-height: 1.6;
+  touch-action: none;
+  word-break: break-all;
+}
+
+.pen-probe.is-live {
+  border-style: solid;
+  border-color: #2f6f5e;
 }

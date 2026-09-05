@@ -309,3 +309,84 @@ export function shortcutAllowed({ typing = false, overlay = false, action = "" }
   // 시트가 열려 있어도 되돌리기는 통하면 곤란하다: 지금 보는 것과 안 맞는다.
   return !overlay && Boolean(action);
 }
+
+
+/* ---- 도구에 따른 커서·호버 (#234) -------------------------------------- */
+
+/**
+ * 마우스 커서는 지금 무엇을 하는지 말해 줘야 한다. 종이 위에서만 바뀐다 —
+ * 툴바·시트는 제 커서가 있다.
+ */
+export function cursorForTool({ interactMode, tool, rectTool, eyedrop = false } = {}) {
+  if (eyedrop) {
+    return "copy";
+  }
+  if (normalizeInteractMode(interactMode) === "view") {
+    return "grab";
+  }
+  if (rectTool) {
+    return "crosshair";
+  }
+  if (tool === "select") {
+    return "default";
+  }
+  if (tool === "eraser") {
+    // 지우개는 동그라미를 직접 그려 주므로 점만 남긴다.
+    return "none";
+  }
+  if (tool === "stamp") {
+    return "copy";
+  }
+  return "crosshair";
+}
+
+/** 펜을 띄웠을 때 그릴 표시의 모양. 도구마다 다르게 보여야 헷갈리지 않는다. */
+export function hoverShapeForTool(tool) {
+  if (tool === "eraser") {
+    return "eraser";
+  }
+  if (tool === "highlighter") {
+    return "highlighter";
+  }
+  if (tool === "select" || tool === "stamp") {
+    return "point";
+  }
+  return "nib";
+}
+
+/** 호버 표시를 띄울 상황인가. 펜이 떠 있고, 그릴 수 있을 때만. */
+export function shouldShowHover({ pointerType, buttons = 0, interactMode, overlay = false, onPaper = false } = {}) {
+  if (pointerType !== "pen" || buttons !== 0 || overlay || !onPaper) {
+    return false;
+  }
+  return normalizeInteractMode(interactMode) !== "view";
+}
+
+
+/**
+ * 펜이 무엇을 보고했는지 사람이 읽을 한 줄 (#234). 「버튼이 안 된다」를
+ * 「기기가 버튼을 안 보낸다」와 「우리가 잘못 읽는다」로 가르려면 이게 있어야 한다.
+ */
+export function describePenEvent(event, buttonMap) {
+  if (!event) {
+    return "";
+  }
+  const bits = Number(event.buttons) || 0;
+  const names = [];
+  if (bits & 1) names.push("촉");
+  if (bits & PEN_BARREL_BIT) names.push("배럴");
+  if (bits & PEN_SECOND_BIT) names.push("두번째");
+  if (bits & PEN_ERASER_BIT) names.push("지우개꼭지");
+  const action = penButtonAction({
+    pointerType: event.pointerType,
+    buttons: event.buttons,
+    button: event.button,
+    buttonMap,
+  });
+  return [
+    `종류 ${event.pointerType || "?"}`,
+    `buttons ${bits}${names.length ? ` (${names.join("+")})` : ""}`,
+    `button ${event.button ?? "?"}`,
+    `→ ${action || "없음"}`,
+  ].join(" · ");
+}
