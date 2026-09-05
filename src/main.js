@@ -9941,6 +9941,11 @@ function onWorkspacePointerDown(event) {
   if (event.target.closest("#other-pdf")) {
     return;
   }
+  // #268: S펜 옆버튼이 브라우저 뒤로/앞으로로 새 주소창으로 튕기던 것 — 종이 위
+  // 펜의 옆버튼 눌림은 기본 동작을 막는다. (button 3·4 = 뒤로·앞으로)
+  if (event.pointerType === "pen" && event.button > 0 && event.target.closest(".page-stage")) {
+    event.preventDefault();
+  }
   // #263: 우클릭은 contextmenu가 맡는다. 여기서 선택·획을 시작하면 안 된다.
   if (event.button === 2) {
     return;
@@ -11026,6 +11031,22 @@ els.prevBtn.addEventListener("click", () => goToPage(state.page - 1));
 els.nextBtn.addEventListener("click", () => goToPage(state.page + 1));
 
 // #137: the pen barrel often fires a context menu; the paper never wants one.
+// #268: 뒤로/앞으로 버튼(3·4)이 편집 중 페이지를 벗어나게 하지 않는다.
+window.addEventListener(
+  "pointerdown",
+  (event) => {
+    if ((event.button === 3 || event.button === 4) && !els.writeScreen.hidden) {
+      event.preventDefault();
+    }
+  },
+  { capture: true },
+);
+window.addEventListener("auxclick", (event) => {
+  if ((event.button === 3 || event.button === 4) && !els.writeScreen.hidden) {
+    event.preventDefault();
+  }
+});
+
 els.workspace.addEventListener("contextmenu", (event) => {
   const stage = event.target.closest(".page-stage");
   if (!stage) {
