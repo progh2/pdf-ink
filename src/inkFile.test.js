@@ -7,6 +7,7 @@ import {
   AUTOSAVE_MS,
   INK_FILE_VERSION,
   buildInkFile,
+  inkFileImageStats,
   inkFileIsEmpty,
   parseInkFile,
   pickNewer,
@@ -140,5 +141,49 @@ describe("#167 자동 저장", () => {
     assert.ok(body.indexOf('id="dropbox-save"') < body.indexOf('id="dropbox-list"'), "above the file list");
     assert.match(html, /id="dropbox-here"/);
     assert.match(main, /여기에 저장: \$\{path \|\| "내 드롭박스"\}/);
+  });
+});
+
+describe("#271 저장에 담긴 이미지 통계", () => {
+  it("counts images, their size, and flags blob refs", () => {
+    const pages = {
+      1: [{ type: "pen" }, { type: "image", src: "data:image/jpeg;base64,AAAA" }],
+      2: [{ type: "image", src: "blob:https://x/y" }],
+    };
+    const stat = inkFileImageStats(pages);
+    assert.equal(stat.images, 2);
+    assert.equal(stat.blobRefs, 1, "blob URL은 딴 브라우저서 죽으니 경고");
+    assert.ok(stat.kb >= 0);
+  });
+
+  it("is zero for a page with no images", () => {
+    assert.deepEqual(inkFileImageStats({ 1: [{ type: "pen" }] }), { images: 0, kb: 0, blobRefs: 0 });
+  });
+});
+
+describe("#271 헤더 저장·동기 버튼", () => {
+  const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+  const main = readFileSync(join(root, "src/main.js"), "utf8");
+  const html = readFileSync(join(root, "index.html"), "utf8");
+
+  it("sits next to the lock, shown only for a cloud document", () => {
+    const header = html.slice(html.indexOf('class="write-top-end"'), html.indexOf('class="page-pager"'));
+    assert.match(header, /id="header-save-btn"/);
+    assert.ok(header.indexOf('id="interact-btn"') < header.indexOf('id="header-save-btn"'), "자물쇠 뒤");
+    assert.match(main, /function syncHeaderSave[\s\S]{0,120}els\.headerSaveBtn\.hidden = !cloudDocOpen\(\)/);
+    assert.match(main, /startSyncWatch[\s\S]{0,80}syncHeaderSave\(\)/);
+  });
+
+  it("saves then pulls — two-way, so the other device's writing comes in", () => {
+    const fn = main.slice(main.indexOf("async function headerSaveAndSync"), main.indexOf("function cloudDocOpen"));
+    assert.match(fn, /await \(state\.driveDoc \? saveDriveSidecar\(\) : saveInkSidecar\(\)\)/, "먼저 올리고");
+    assert.match(fn, /await pullRemoteInk\(true\)/, "곧바로 받는다");
+    assert.match(main, /els\.headerSaveBtn\?\.addEventListener\("click", headerSaveAndSync\)/);
+  });
+
+  it("lets the pull be forced and return the count", () => {
+    assert.match(main, /async function pullRemoteInk\(force = false\)/);
+    assert.match(main, /return added \|\| 0/);
+    assert.match(main, /if \(!force\) \{\s*flashBanner/, "강제 동기는 조용히");
   });
 });
