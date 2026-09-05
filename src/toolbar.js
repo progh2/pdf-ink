@@ -42,6 +42,8 @@ export const BAR_OVERFLOW_ITEMS = [
   "image",
   "sticker",
   "rotate",
+  "pagecopy",
+  "pagepaste",
   "save",
   "bake",
   "saveas",
