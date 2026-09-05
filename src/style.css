@@ -777,7 +777,12 @@ body {
   display: none;
 }
 
-.write-screen[data-interact="view"] .pdf-link-layer {
+/* #230: 꺼 두면 색만 안 보인다 — 탭하면 여전히 따라간다. */
+.write-screen[data-link-hints="off"] .pdf-link-layer {
+  display: none;
+}
+
+.write-screen[data-interact="view"]:not([data-link-hints="off"]) .pdf-link-layer {
   display: block;
 }
 

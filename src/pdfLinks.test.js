@@ -205,7 +205,8 @@ describe("#180 링크 자리 표시", () => {
 
   it("shows them only while the page is locked, where a tap follows them", () => {
     assert.match(css, /\.pdf-link-layer \{[\s\S]*?display: none;[\s\S]*?\}/);
-    assert.match(css, /\.write-screen\[data-interact="view"\] \.pdf-link-layer \{\s*display: block;/);
+    // #230부터 설정으로 끌 수 있어 선택자에 조건이 하나 붙었다.
+    assert.match(css, /\.write-screen\[data-interact="view"\]:not\(\[data-link-hints="off"\]\) \.pdf-link-layer \{\s*display: block;/);
   });
 
   it("is a pale blue that never eats a touch", () => {
@@ -381,5 +382,40 @@ describe("#198 이름 목적지를 문서마다 한 번만 찾는다", () => {
     const build = main.slice(main.indexOf("async function exportLinksForLeaf"), main.indexOf("async function exportLinkMap"));
     assert.equal((build.match(/await explicitDest\(/g) || []).length, 1);
     assert.match(build, /await pageOfExplicitDest\(explicit\)/);
+  });
+});
+
+describe("#230 링크 자리 표시 켜고 끄기", () => {
+  const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+  const main = readFileSync(join(root, "src/main.js"), "utf8");
+  const html = readFileSync(join(root, "index.html"), "utf8");
+  const css = readFileSync(join(root, "src/style.css"), "utf8");
+
+  it("offers the switch in settings, on by default", () => {
+    assert.match(html, /id="link-hints-btn"[^>]*aria-pressed="true"/);
+    assert.match(html, /링크 자리 표시/);
+    assert.match(main, /state\.linkHints = !state\.linkHints/);
+    assert.match(main, /saveLinkHints\(state\.linkHints\)/);
+  });
+
+  it("hides only the colour — a tap still follows the link", () => {
+    assert.match(css, /\.write-screen\[data-link-hints="off"\] \.pdf-link-layer \{\s*display: none;/);
+    assert.match(main, /els\.writeScreen\.dataset\.linkHints = state\.linkHints \? "on" : "off"/);
+    const spot = main.slice(main.indexOf("function pdfLinkSpotAtClient(client)"), main.indexOf("function linkKeysFor"));
+    assert.doesNotMatch(spot, /linkHints/, "판정은 표시 설정과 무관하다");
+    assert.match(main, /탭하면 그대로 따라갑니다/);
+  });
+
+  it("keeps the link layer above pasted pictures, so it is never buried (#231)", () => {
+    // 무대의 마지막 자식이라 pdf·이미지·필기 위에 그려진다.
+    assert.match(main, /stage\.append\(pdfCanvas, underCanvas, inkCanvas, liveCanvas, overCanvas, maskCanvas, linkLayer\)/);
+    const paint = main.slice(main.indexOf("async function paintPdfLinkHints"), main.indexOf("function clearPdfLinkHints"));
+    assert.match(paint, /layer\.replaceChildren\(/);
+  });
+
+  it("hit-tests by coordinate, so an image on top cannot swallow the tap (#231)", () => {
+    const act = main.slice(main.indexOf("function actOnPdfLink"), main.indexOf("function followPdfLinkAtClient"));
+    assert.match(act, /pdfLinkAt\(spot\.pageNum, spot\.x, spot\.y\)/);
+    assert.doesNotMatch(act, /elementFromPoint/, "그림 위인지 아닌지 묻지 않는다");
   });
 });
