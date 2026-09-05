@@ -154,7 +154,7 @@ describe("#219 배선", () => {
   it("puts what came from outside where it was pressed, undoable in one go", () => {
     const image = main.slice(main.indexOf("async function pasteImageAt"), main.indexOf("function beginCrop"));
     assert.match(image, /acceptImageSrc\(src\)/, "같은 검사(#25)를 지난다");
-    assert.match(image, /pastePlacement\(at, size\)/);
+    assert.match(image, /pastePlacement\(at \|\| visiblePasteSpot\(page\), size\)/, "#251: 누른 자리 없으면 보이는 중앙");
     assert.match(image, /commitPageChange\(page, \(\) =>/);
   });
 });
@@ -302,14 +302,14 @@ describe("#240 제자리에 붙여넣기", () => {
     assert.match(paste, /home\s*\?\s*\{ x: home\.x, y: home\.y/);
   });
 
-  it("leaves copied ink where it was, instead of nudging it aside", () => {
+  it("centres ink on the visible area when no spot was pressed (#251)", () => {
     const ink = main4.slice(main4.indexOf("function pasteInkAt"), main4.indexOf("async function pasteImageAt"));
-    assert.match(ink, /: \{ x: 0, y: 0 \}/, "제자리 그대로");
-    assert.doesNotMatch(ink, /\{ x: 0\.04, y: 0\.04 \}/);
+    assert.match(ink, /const target = at \|\| visiblePasteSpot\(page\)/);
+    assert.doesNotMatch(ink, /\{ x: 0\.04, y: 0\.04 \}/, "옛 0.04 밀기는 없다");
   });
 
   it("still honours a spot when one was pressed", () => {
     const ink = main4.slice(main4.indexOf("function pasteInkAt"), main4.indexOf("async function pasteImageAt"));
-    assert.match(ink, /at\.x - \(bounds\.x \+ bounds\.w \/ 2\)/);
+    assert.match(ink, /target\.x - \(bounds\.x \+ bounds\.w \/ 2\)/);
   });
 });
