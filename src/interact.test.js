@@ -7,6 +7,8 @@ import {
   DOUBLE_TAP_MS,
   INTERACT_LOCKED_LABEL,
   INTERACT_UNLOCKED_LABEL,
+  NUDGE_BIG,
+  NUDGE_STEP,
   PEN_ACTIONS,
   PEN_BUTTON_DEFAULTS,
   VIEW_NOTICE_TEXT,
@@ -25,6 +27,7 @@ import {
   isStrokePointer,
   normFromRect,
   normalizePenButtons,
+  nudgeFor,
   penButtonAction,
   rectFromPoints,
   shortcutAllowed,
@@ -567,5 +570,33 @@ describe("#234 펜 버튼 시험", () => {
 
   it("survives being handed nothing", () => {
     assert.equal(describePenEvent(null), "");
+  });
+});
+
+describe("#236 화살표로 미세 이동", () => {
+  const key = (name, extra = {}) => ({ key: name, ...extra });
+
+  it("moves by a small step in each direction", () => {
+    assert.deepEqual(nudgeFor(key("ArrowRight")), { dx: NUDGE_STEP, dy: 0, step: "small" });
+    assert.deepEqual(nudgeFor(key("ArrowLeft")), { dx: -NUDGE_STEP, dy: 0, step: "small" });
+    assert.deepEqual(nudgeFor(key("ArrowUp")), { dx: 0, dy: -NUDGE_STEP, step: "small" });
+    assert.deepEqual(nudgeFor(key("ArrowDown")), { dx: 0, dy: NUDGE_STEP, step: "small" });
+  });
+
+  it("takes a bigger stride with Shift", () => {
+    assert.equal(nudgeFor(key("ArrowRight", { shiftKey: true })).dx, NUDGE_BIG);
+  });
+
+  it("moves exactly one screen point with Alt, on both axes", () => {
+    const fine = nudgeFor(key("ArrowDown", { altKey: true }), 400, 600);
+    assert.ok(Math.abs(fine.dy - 1 / 600) < 1e-12, "세로는 쪽 높이로 잰다");
+    const across = nudgeFor(key("ArrowRight", { altKey: true }), 400, 600);
+    assert.ok(Math.abs(across.dx - 1 / 400) < 1e-12, "가로는 쪽 폭으로");
+  });
+
+  it("keeps out of the way of the shortcuts", () => {
+    assert.equal(nudgeFor(key("ArrowRight", { ctrlKey: true })), null, "Ctrl은 브라우저 몫");
+    assert.equal(nudgeFor(key("a")), null);
+    assert.equal(nudgeFor(null), null);
   });
 });

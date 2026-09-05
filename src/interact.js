@@ -390,3 +390,34 @@ export function describePenEvent(event, buttonMap) {
     `→ ${action || "없음"}`,
   ].join(" · ");
 }
+
+
+/* ---- 화살표키 미세 이동 (#236) ------------------------------------------ */
+
+/** 한 번 누르면 이만큼(쪽 폭의 비율). Shift면 크게, Alt면 한 픽셀씩. */
+export const NUDGE_STEP = 0.004;
+export const NUDGE_BIG = 0.02;
+
+export function nudgeFor(event, cssWidth = 400, cssHeight = 600) {
+  const key = String(event?.key || "");
+  const dirs = {
+    ArrowLeft: [-1, 0],
+    ArrowRight: [1, 0],
+    ArrowUp: [0, -1],
+    ArrowDown: [0, 1],
+  };
+  const dir = dirs[key];
+  if (!dir || event.ctrlKey || event.metaKey) {
+    return null;
+  }
+  // Alt는 화면 한 점만큼 — 종이가 가로세로로 다르므로 축마다 따로 잰다.
+  if (event.altKey) {
+    return {
+      dx: dir[0] / Math.max(1, Number(cssWidth) || 1),
+      dy: dir[1] / Math.max(1, Number(cssHeight) || 1),
+      step: "point",
+    };
+  }
+  const amount = event.shiftKey ? NUDGE_BIG : NUDGE_STEP;
+  return { dx: dir[0] * amount, dy: dir[1] * amount, step: event.shiftKey ? "big" : "small" };
+}

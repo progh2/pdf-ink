@@ -93,6 +93,7 @@ import {
   isDoubleTap,
   isStrokePointer,
   normFromRect,
+  nudgeFor,
   penButtonAction,
   rectBigEnough,
   rectFromPoints,
@@ -102,7 +103,7 @@ import {
   shouldPanPointer,
   shouldShowHover,
 } from "./interact.js";
-import { canRedo, canUndo, cloneItems, createHistory, recordChange, redoChange, undoChange } from "./history.js";
+import { canRedo, canUndo, cloneItems, createHistory, extendChange, recordChange, redoChange, undoChange } from "./history.js";
 import { bindUndoHold } from "./undoHold.js";
 import { bindMarqueeHold, placeMarqueeMenu } from "./marqueeHold.js";
 import {
@@ -5827,6 +5828,31 @@ async function pasteImageAt(page, at, src) {
   }
 }
 
+/** 이 사이에 이어 누르면 같은 밀기로 본다. */
+const NUDGE_RUN_MS = 900;
+let nudgeRun = null;
+
+/**
+ * 화살표로 민다 (#236). 손으로는 이만큼 정확히 못 옮긴다. 연달아 누른 것은
+ * **되돌리기 한 벌**로 묶는다 — 스무 번 눌렀다고 스무 번 되돌리면 못 쓴다.
+ */
+function nudgeSelection(pageNum, nudge) {
+  const key = inkKey(leafAt(state.leaves, pageNum));
+  const before = cloneItems(pageStrokes(pageNum));
+  state.pages[key] = translateItems(pageStrokes(pageNum), state.selectIndices, nudge.dx, nudge.dy);
+  const after = cloneItems(state.pages[key]);
+  // 잠깐 사이에 이어 누른 것은 한 벌 — 스무 번 눌렀다고 스무 번 되돌리면 못 쓴다.
+  const sameRun = nudgeRun && nudgeRun.key === key && Date.now() - nudgeRun.at <= NUDGE_RUN_MS;
+  if (!sameRun || !extendChange(state.history, { page: key, after })) {
+    recordChange(state.history, { page: key, before, after });
+  }
+  nudgeRun = { key, at: Date.now() };
+  persistStrokes();
+  syncHistoryButtons();
+  redrawRegionPage(pageNum);
+  syncSelectHud();
+}
+
 function beginCrop() {
   const image = selectedImageItem();
   if (!image) {
@@ -10702,6 +10728,17 @@ document.addEventListener("keydown", (event) => {
     }
     if (shortcut === "paste") {
       // #226: 막지 않는다. 진짜 paste 이벤트가 클립보드를 훨씬 많이 보여 준다.
+      return;
+    }
+  }
+  // #236: 고른 것이 있으면 화살표로 조금씩 민다. 손으로는 이만큼 정확히 못 옮긴다.
+  if (!typing && !overlayOpen() && state.selectIndices.length && state.interactMode !== "view") {
+    const pageNum = state.selectPage || state.page;
+    const view = state.pageViews.find((item) => item.pageNum === pageNum);
+    const nudge = nudgeFor(event, view?.cssWidth, view?.cssHeight);
+    if (nudge) {
+      event.preventDefault();
+      nudgeSelection(pageNum, nudge);
       return;
     }
   }

@@ -47,3 +47,17 @@ export function canUndo(history) {
 export function canRedo(history) {
   return history.redo.length > 0;
 }
+
+/**
+ * 방금 적은 것과 같은 줄기의 변화면 **그 한 벌의 끝만 고친다** (#236).
+ * 화살표를 스무 번 눌렀다고 되돌리기를 스무 번 하게 만들면 못 쓴다.
+ */
+export function extendChange(history, { page, after } = {}) {
+  const last = history?.undo?.[history.undo.length - 1];
+  if (!last || last.page !== String(page)) {
+    return false;
+  }
+  last.after = cloneItems(after);
+  history.redo.length = 0;
+  return true;
+}
