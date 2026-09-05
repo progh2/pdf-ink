@@ -181,8 +181,40 @@ export function stampTilt(x, y) {
 }
 
 /**
- * Samples are joined with quadratic curves through their midpoints, so a hand
- * stroke reads as a curve instead of a chain of little straight bits (#135).
+ * Cubic control points for the Catmull-Rom segment p1→p2, using the centripetal
+ * (alpha=0.5) parameterisation. The resulting Bézier passes through p1 and p2, so
+ * every captured sample stays on the line — a fast stroke keeps its real corners
+ * instead of rounding them off the way a midpoint quadratic does (#286).
+ * Coincident neighbours collapse the weights, so we fall back to a uniform cubic
+ * there and never emit a NaN control point.
+ */
+export function catmullRomControls(p0, p1, p2, p3, alpha = 0.5) {
+  const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+  const a01 = Math.pow(dist(p0, p1), alpha);
+  const a12 = Math.pow(dist(p1, p2), alpha);
+  const a23 = Math.pow(dist(p2, p3), alpha);
+  const third = (from, to) => ({ x: from.x + (to.x - from.x) / 3, y: from.y + (to.y - from.y) / 3 });
+  const d1 = 3 * a01 * (a01 + a12);
+  const d2 = 3 * a23 * (a23 + a12);
+  const c1 = d1 > 1e-9
+    ? {
+        x: (a01 * a01 * p2.x - a12 * a12 * p0.x + (2 * a01 * a01 + 3 * a01 * a12 + a12 * a12) * p1.x) / d1,
+        y: (a01 * a01 * p2.y - a12 * a12 * p0.y + (2 * a01 * a01 + 3 * a01 * a12 + a12 * a12) * p1.y) / d1,
+      }
+    : third(p1, p2);
+  const c2 = d2 > 1e-9
+    ? {
+        x: (a23 * a23 * p1.x - a12 * a12 * p3.x + (2 * a23 * a23 + 3 * a23 * a12 + a12 * a12) * p2.x) / d2,
+        y: (a23 * a23 * p1.y - a12 * a12 * p3.y + (2 * a23 * a23 + 3 * a23 * a12 + a12 * a12) * p2.y) / d2,
+      }
+    : third(p2, p1);
+  return { c1, c2 };
+}
+
+/**
+ * Samples are joined with a centripetal Catmull-Rom spline that passes through
+ * every point, so a hand stroke reads as a curve instead of a chain of little
+ * straight bits and a fast stroke keeps its corners (#135, #286).
  * Same path for live and stored ink, so nothing changes shape on commit.
  */
 function tracePath(ctx, points, canvas, scale, jitter = 0, salt = 0) {
@@ -208,15 +240,15 @@ function tracePath(ctx, points, canvas, scale, jitter = 0, salt = 0) {
     ctx.stroke();
     return;
   }
-  let prev = first;
-  for (let index = 1; index < points.length - 1; index += 1) {
-    const current = at(points[index]);
-    const mid = { x: (prev.x + current.x) / 2, y: (prev.y + current.y) / 2 };
-    ctx.quadraticCurveTo(prev.x, prev.y, mid.x, mid.y);
-    prev = current;
+  const pts = points.map(at);
+  for (let index = 0; index < pts.length - 1; index += 1) {
+    const p0 = pts[index - 1] || pts[index];
+    const p1 = pts[index];
+    const p2 = pts[index + 1];
+    const p3 = pts[index + 2] || pts[index + 1];
+    const { c1, c2 } = catmullRomControls(p0, p1, p2, p3);
+    ctx.bezierCurveTo(c1.x, c1.y, c2.x, c2.y, p2.x, p2.y);
   }
-  const last = at(points[points.length - 1]);
-  ctx.quadraticCurveTo(prev.x, prev.y, last.x, last.y);
   ctx.stroke();
 }
 

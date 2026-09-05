@@ -15,7 +15,7 @@ import {
   stampItemSize,
   stampPaintLayout,
 } from "./tools.js";
-import { applyEraserToInk, itemHitsEraser, removeHitItems, removeHitStamps, stampInkItem, stampTilt } from "./ink.js";
+import { applyEraserToInk, catmullRomControls, itemHitsEraser, removeHitItems, removeHitStamps, stampInkItem, stampTilt } from "./ink.js";
 
 const inkSrc = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "ink.js"), "utf8");
 const paintStampSrc = inkSrc.slice(inkSrc.indexOf("export function paintStamp"), inkSrc.indexOf("export function paintErase"));
@@ -208,7 +208,9 @@ describe("#135 부드럽고 빠른 펜", () => {
   const src = readFileSync(join(here, "ink.js"), "utf8");
 
   it("joins samples with curves, not straight bits", () => {
-    assert.match(src, /quadraticCurveTo/);
+    // #286: a centripetal Catmull-Rom spline through every point.
+    assert.match(src, /bezierCurveTo/);
+    assert.match(src, /catmullRomControls/);
     // Two points is still a straight line, one point is still a dot.
     assert.match(src, /if \(points\.length === 2\)[\s\S]*lineTo/);
     assert.match(src, /if \(points\.length === 1\)[\s\S]*0\.15 \* scale/);
@@ -241,5 +243,32 @@ describe("#135 부드럽고 빠른 펜", () => {
     assert.match(main, /window\.requestAnimationFrame\(\(\) => \{[\s\S]*drawLiveLayer/);
     assert.match(main, /getCoalescedEvents/);
     assert.match(main, /for \(const sample of samples\.length > 1 \? samples\.slice\(0, -1\) : \[\]\)/);
+  });
+});
+
+describe("#286 빠른 획 스플라인", () => {
+  const on = (t, p1, c1, c2, p2) => ({
+    x: (1 - t) ** 3 * p1.x + 3 * (1 - t) ** 2 * t * c1.x + 3 * (1 - t) * t * t * c2.x + t ** 3 * p2.x,
+    y: (1 - t) ** 3 * p1.y + 3 * (1 - t) ** 2 * t * c1.y + 3 * (1 - t) * t * t * c2.y + t ** 3 * p2.y,
+  });
+
+  it("keeps finite control points for a normal segment", () => {
+    const { c1, c2 } = catmullRomControls({ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 2, y: 1 }, { x: 3, y: 1 });
+    for (const c of [c1, c2]) {
+      assert.ok(Number.isFinite(c.x) && Number.isFinite(c.y), "no NaN");
+    }
+    // The Bézier endpoints are the segment's own points, so the curve passes
+    // through every captured sample.
+    const start = on(0, { x: 1, y: 0 }, c1, c2, { x: 2, y: 1 });
+    const end = on(1, { x: 1, y: 0 }, c1, c2, { x: 2, y: 1 });
+    assert.deepEqual(start, { x: 1, y: 0 });
+    assert.deepEqual(end, { x: 2, y: 1 });
+  });
+
+  it("falls back to a uniform cubic when a neighbour coincides", () => {
+    // p0 === p1 (a fast start with a doubled sample) must not divide by zero.
+    const { c1, c2 } = catmullRomControls({ x: 5, y: 5 }, { x: 5, y: 5 }, { x: 9, y: 5 }, { x: 9, y: 5 });
+    assert.deepEqual(c1, { x: 5 + 4 / 3, y: 5 });
+    assert.deepEqual(c2, { x: 9 - 4 / 3, y: 5 });
   });
 });
