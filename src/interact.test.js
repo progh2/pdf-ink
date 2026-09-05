@@ -335,8 +335,12 @@ describe("#137·#139 배선", () => {
     assert.equal((html.match(/class="toolbar"/g) || []).length, 1);
   });
 
-  it("swallows the context menu on the paper", () => {
-    assert.match(main, /addEventListener\("contextmenu", \(event\) => \{\s*if \(event\.target\.closest\("\.page-stage"\)\)/);
+  it("swallows the context menu on the paper and opens the paste menu (#260)", () => {
+    const handler = main.slice(main.indexOf('addEventListener("contextmenu", (event) => {'), main.indexOf('addEventListener("pointerdown", onWorkspacePointerDown)'));
+    assert.match(handler, /const stage = event\.target\.closest\("\.page-stage"\)/);
+    assert.match(handler, /event\.preventDefault\(\)/);
+    assert.match(handler, /showPasteMenuAt\(state\.drawPage, point\)/, "빈 곳 우클릭 → 붙여넣기");
+    assert.match(handler, /state\.interactMode === "view"/, "보기 중엔 안 연다");
   });
 });
 
@@ -598,5 +602,32 @@ describe("#236 화살표로 미세 이동", () => {
     assert.equal(nudgeFor(key("ArrowRight", { ctrlKey: true })), null, "Ctrl은 브라우저 몫");
     assert.equal(nudgeFor(key("a")), null);
     assert.equal(nudgeFor(null), null);
+  });
+});
+
+describe("#260 상호작용 묶음", () => {
+  it("shows the hover circle for a mouse too, and for the eraser", () => {
+    const base = { pointerType: "mouse", buttons: 0, interactMode: "edit", onPaper: true, tool: "eraser" };
+    assert.equal(shouldShowHover(base), true, "마우스 지우개도 원을 본다");
+    assert.equal(shouldShowHover({ ...base, pointerType: "pen", tool: "pen" }), true);
+    assert.equal(shouldShowHover({ ...base, tool: "select" }), false, "선택은 그릴 게 없다");
+    assert.equal(shouldShowHover({ ...base, pointerType: "touch" }), false, "손가락은 호버 없음");
+    assert.equal(shouldShowHover({ ...base, buttons: 1 }), false, "누르는 중엔 획이 보인다");
+  });
+
+  it("disables the drawing tools while the page is locked", () => {
+    const root2 = join(dirname(fileURLToPath(import.meta.url)), "..");
+    const css2 = readFileSync(join(root2, "src/style.css"), "utf8");
+    assert.match(css2, /\[data-interact="view"\] \.toolbar \.ink-tool[\s\S]*?pointer-events: none/);
+    assert.match(css2, /#eraser-btn/);
+    assert.match(css2, /#select-btn/);
+  });
+
+  it("keeps images under the ink so you can write over them", () => {
+    const root2 = join(dirname(fileURLToPath(import.meta.url)), "..");
+    const main2 = readFileSync(join(root2, "src/main.js"), "utf8");
+    assert.match(main2, /paintImageLayer\(view\.underCanvas, items, null,/, "모든 이미지가 잉크 아래");
+    const layer = main2.slice(main2.indexOf("function paintImageLayer"), main2.indexOf("function paintMosaic") > 0 ? main2.indexOf("function paintMosaic") : main2.indexOf("function drawStrokesOn"));
+    assert.match(layer, /locked !== null && Boolean\(item\.locked\) !== locked/);
   });
 });
