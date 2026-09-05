@@ -125,7 +125,9 @@ describe("#133 배선", () => {
   it("shares the #126/#127 paths instead of growing a second set", () => {
     assert.match(main, /await flattenAfterWriteBack\(blob\);\s*flashBanner\(`드라이브에 저장했습니다/);
     assert.match(main, /function checkRemote\(\)[\s\S]*checkDropboxRemote\(\);\s*checkDriveRemote\(\)/);
-    assert.match(main, /if \(!String\(identity \|\| ""\)\.startsWith\("gdrive::"\)\) \{\s*state\.driveDoc = null;/);
+    // #277: gdrive:: identity면 되살리고, 아니면 비운다.
+    assert.match(main, /if \(dbxId\.startsWith\("gdrive::"\)\) \{[\s\S]{0,220}state\.driveDoc = \{ id:/);
+    assert.match(main, /\} else \{\s*state\.driveDoc = null;\s*state\.driveSidecarId = "";/);
   });
 });
 
