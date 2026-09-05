@@ -4,6 +4,7 @@ import { validatePdfContents, validatePdfFile } from "./validate.js";
 import {
   fileIdentity,
   listDocuments,
+  loadCaptures,
   loadDocument,
   loadLastSession,
   loadLinkFixes,
@@ -15,6 +16,7 @@ import {
   loadStickers,
   loadStrokes,
   migrateLastIntoFiles,
+  saveCaptures,
   saveDocument,
   saveLinkFixes,
   savePenOnly,
@@ -126,10 +128,11 @@ import {
   sortedIndexes,
 } from "./pageOps.js";
 import {
-  dHash,
-  grayGrid,
   HASH_COLS,
   HASH_ROWS,
+  dHash,
+  grayGrid,
+  hamming,
   matchByHash,
   matchPages,
   matchSummary,
@@ -318,6 +321,7 @@ import {
   topRegionAt,
   wholeImageRect,
 } from "./stickers.js";
+import { addCapture, findCapture, sanitizeCaptures } from "./captureReg.js";
 import { captureRegionPng, composePageRgba, cropRgba, encodePngRgba, readPngText, writePngClipboard } from "./capture.js";
 import {
   pasteAvailability,
@@ -630,6 +634,8 @@ const state = {
   eyedropKind: null,
   // #240: 마지막으로 오려 낸 자리. 붙일 때 제자리를 안다.
   captureFrom: null,
+  // #256: 이 브라우저의 캡처 등록부(지문→자리).
+  captures: sanitizeCaptures(loadCaptures()),
   editingKind: null,
   penOnly: loadPenOnly(),
   penButtonErase: loadPenButtonErase(),
@@ -5805,6 +5811,24 @@ async function bakeForeignImage(src) {
   }
 }
 
+/** 붙이는 그림의 지문. 등록부(#256)와 맞춰 보려고 작은 캔버스에 그려 뜬다. */
+function hashOfImage(img) {
+  try {
+    const w = img.naturalWidth || img.width || 0;
+    const h = img.naturalHeight || img.height || 0;
+    if (w < 2 || h < 2) {
+      return "";
+    }
+    const canvas = offscreenCanvas(64, Math.max(1, Math.round((64 * h) / w)));
+    const ctx = canvas2d(canvas);
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    const shot = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    return dHash(grayGrid(shot.data, canvas.width, canvas.height));
+  } catch {
+    return "";
+  }
+}
+
 function readBlobDataUrl(blob) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -5856,6 +5880,8 @@ async function pasteImageAt(page, at, src, metaRect = null) {
     const img = await loadHtmlImage(raw);
     const scaled = await downscaleImage(img);
     const view = state.pageViews.find((item) => item.pageNum === page);
+    // #256: 이 그림이 우리가 캡처한 것이면(지문 일치) 원래 자리·크기로.
+    const known = metaRect ? { rect: metaRect } : findCapture(state.captures, hashOfImage(img), hamming);
     // #238: 붙여넣기는 보던 크기 그대로. 기기 배율과 지금 쪽 배율을 되돌린다.
     const size = trueSizeOnPage({
       imgWidth: img.naturalWidth || scaled.width,
@@ -5867,9 +5893,9 @@ async function pasteImageAt(page, at, src, metaRect = null) {
       // #242: 92%로 줄이면 붙인 그림이 원래보다 작아진다. 쪽에 꽉 차는 데까지.
       maxShare: 1,
     });
-    // 자리 우선순위 (#253): ①PNG에 심긴 원래 자리(다른 문서에서 캡처한 것도!)
-    // ②이 세션에서 방금 오려 낸 자리 ③누른 자리 ④보이는 화면 한가운데.
-    const home = metaRect || (!at && state.captureFrom ? state.captureFrom.rect : null);
+    // 자리 우선순위 (#256): ①지문으로 찾은 원래 자리(다른 문서·세션도!) ②이 세션
+    // 캡처 ③누른 자리 ④보이는 화면 한가운데. 원래 자리를 알면 누른 자리보다 앞선다.
+    const home = known?.rect || state.captureFrom?.rect || null;
     const spot = home
       ? { x: home.x, y: home.y, w: home.w || size.w, h: home.h || size.h }
       : pastePlacement(at || visiblePasteSpot(page), size);
@@ -5879,8 +5905,6 @@ async function pasteImageAt(page, at, src, metaRect = null) {
       state.selectIndices = [pageStrokes(page).length - 1];
       state.selectPage = page;
     });
-    // #251: 한 번 되붙였으면 그 자리는 소진됐다. 다음 붙여넣기는 화면 중앙으로.
-    state.captureFrom = null;
     selectSelectTool();
     redrawRegionPage(page);
     syncSelectHud();
@@ -7220,9 +7244,18 @@ async function confirmCapture() {
       w: pending.rect.w * view.pdfCanvas.width,
       h: pending.rect.h * view.pdfCanvas.height,
     };
-    // #253: 어디서 오려 냈는지 그림 안에 심는다 — 다른 문서에 붙여도 제자리로.
+    // #253: 어디서 오려 냈는지 그림 안에도 심고(클립보드가 살려 주면 빠른 길),
     const meta = { app: "pdf-ink", v: 1, rect: { ...pending.rect } };
     const result = captureRegionPng(pdf.data, ink.data, view.pdfCanvas.width, view.pdfCanvas.height, boxes, crop, meta);
+    // #256: 지문→자리를 등록부에도 남긴다. 클립보드가 PNG 메타를 지워도 붙일 때
+    // 이 지문으로 원래 자리를 찾는다(재인코딩돼도 픽셀은 그대로).
+    try {
+      const hash = dHash(grayGrid(result.pixels, result.width, result.height));
+      state.captures = addCapture(state.captures, { hash, rect: { ...pending.rect } });
+      saveCaptures(state.captures);
+    } catch {
+      // 등록 실패해도 붙여넣기 자체는 된다.
+    }
     await writePngClipboard(result.png, navigator.clipboard, window.ClipboardItem);
     hideMarquee();
     state.rectTool = null;

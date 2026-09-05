@@ -132,6 +132,7 @@ describe("#253 배선", () => {
     assert.match(main, /await found\.file\.arrayBuffer\(\)/);
     assert.match(main, /pngMetaRect\(bytes\)/);
     const paste = main.slice(main.indexOf("async function pasteImageAt"), main.indexOf("function beginCrop"));
-    assert.match(paste, /const home = metaRect \|\| \(!at && state\.captureFrom/);
+    // #256: 지문 매칭(known)이 최우선.
+    assert.match(paste, /const home = known\?\.rect \|\| state\.captureFrom\?\.rect \|\| null/);
   });
 });
