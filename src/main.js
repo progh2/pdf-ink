@@ -5102,23 +5102,11 @@ function startRect(event, stage) {
   state.drawCanvas = ink;
   state.pendingCapture = null;
   hideMarqueeMenu();
-  state.currentRect = { page: state.drawPage, a: point, b: point, at: { x: event.clientX, y: event.clientY } };
+  // #266: 「끌지 않고 누르면 붙여넣기」 홀드 타이머(#219)를 뺀다 — 영역을
+  // 끌어 만드는 흐름을 방해했다. 붙여넣기는 마퀴 메뉴의 칸과 우클릭(#263)으로.
+  state.currentRect = { page: state.drawPage, a: point, b: point };
   updateMarquee();
-  // #219: 끌지 않고 400ms 누르고 있으면 붙여넣기 메뉴.
-  window.clearTimeout(rectHoldTimer);
-  rectHoldTimer = window.setTimeout(() => {
-    rectHoldTimer = 0;
-    const live = state.currentRect;
-    if (!live || rectBigEnough(rectFromPoints(live.a, live.b))) {
-      return;
-    }
-    state.currentRect = null;
-    hideMarquee();
-    showPasteMenuAt(live.page, live.a);
-  }, PAGE_HOLD_MS);
 }
-
-let rectHoldTimer = 0;
 
 function moveRect(event) {
   if (!state.currentRect || !state.drawCanvas) {
@@ -5126,17 +5114,10 @@ function moveRect(event) {
   }
   event.preventDefault();
   state.currentRect.b = eventToNorm(event, state.drawCanvas);
-  if (rectHoldTimer && rectBigEnough(rectFromPoints(state.currentRect.a, state.currentRect.b))) {
-    // 끌기 시작 — 이건 영역 만들기지 붙여넣기가 아니다.
-    window.clearTimeout(rectHoldTimer);
-    rectHoldTimer = 0;
-  }
   updateMarquee();
 }
 
 function endRect(event) {
-  window.clearTimeout(rectHoldTimer);
-  rectHoldTimer = 0;
   if (!state.currentRect) {
     return;
   }

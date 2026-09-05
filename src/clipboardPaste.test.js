@@ -136,11 +136,13 @@ describe("#219 배선", () => {
     assert.match(refresh, /pasteAvailability\(state\.inkClipboard, navigator\.clipboard\)/, "클립보드 답이 오면 고친다");
   });
 
-  it("opens the same menu on a hold with no drag, showing only 붙여넣기", () => {
+  it("opens the paste-only menu at a point (right-click), showing only 붙여넣기", () => {
+    // #266: 끌지 않고 누르는 홀드 타이머(#219)는 영역 만들기를 방해해 뺐다.
+    // 빈 곳 붙여넣기는 우클릭(#263)이 showPasteMenuAt으로 연다.
     const show = main.slice(main.indexOf("function showPasteMenuAt"), main.indexOf("function restoreMarqueeCells"));
     assert.match(show, /cell\.hidden = cell\.dataset\.marquee !== "paste"/);
-    assert.match(main, /rectHoldTimer = window\.setTimeout/);
-    assert.match(main, /if \(!live \|\| rectBigEnough\(rectFromPoints\(live\.a, live\.b\)\)\) \{\s*return;/, "끌었으면 영역이지 붙여넣기가 아니다");
+    assert.doesNotMatch(main, /rectHoldTimer/, "홀드 타이머는 되돌렸다");
+    assert.match(main, /showPasteMenuAt\(state\.drawPage, point\)/, "우클릭이 그 자리에 연다");
     assert.match(main, /restoreMarqueeCells\(\)/, "닫을 때 칸을 되살린다");
   });
 
