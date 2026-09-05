@@ -2879,6 +2879,13 @@ function syncPenOnly() {
 function syncZoomLock() {
   els.zoomLockBtn.classList.toggle("is-on", state.zoomLock);
   els.zoomLockBtn.setAttribute("aria-pressed", state.zoomLock ? "true" : "false");
+}
+
+/** 제 스위치는 제 함수로 (#232). 남의 함수에 얹혀 있으면 다음에 또 엉킨다. */
+function syncLinkHints() {
+  if (!els.linkHintsBtn) {
+    return;
+  }
   els.linkHintsBtn.classList.toggle("is-on", state.linkHints);
   els.linkHintsBtn.setAttribute("aria-pressed", state.linkHints ? "true" : "false");
   els.writeScreen.dataset.linkHints = state.linkHints ? "on" : "off";
@@ -2921,6 +2928,7 @@ function syncToolSelection() {
   syncInkTools();
   syncPenOnly();
   syncZoomLock();
+  syncLinkHints();
   if (!usesStamp()) {
     state.pendingStamp = null;
     clearStampGhost();
@@ -3556,6 +3564,7 @@ function setZoomLock(on) {
   state.zoomLock = Boolean(on);
   saveZoomLock(state.zoomLock);
   syncZoomLock();
+  syncLinkHints();
 }
 
 function setInteractMode(mode) {
@@ -10284,7 +10293,7 @@ els.linkHintsBtn?.addEventListener("click", () => {
   state.linkHints = !state.linkHints;
   saveLinkHints(state.linkHints);
   flashBanner(state.linkHints ? "링크 자리를 보여 줍니다" : "링크 자리를 감춥니다. 탭하면 그대로 따라갑니다", 2400);
-  syncSettings();
+  syncLinkHints();
 });
 els.zoomLockBtn.addEventListener("click", () => {
   setZoomLock(!state.zoomLock);
