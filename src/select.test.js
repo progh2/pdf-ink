@@ -302,3 +302,27 @@ describe("#240 회전 손잡이는 상자 밖에만", () => {
     assert.equal(rotateHandleAt(bounds, { x: 0.9, y: 0.9 }, 400, 600), null);
   });
 });
+
+describe("#290 클론 새 이름표", () => {
+  it("gives a copied item its own id so the merge does not fold it into the source", () => {
+    const src = [{ type: "stamp", id: "s:1", x: 0.5, y: 0.5, w: 10, h: 6 }];
+    let n = 0;
+    const clone = copyItems(src, [0], 0.04, 0.04, () => `s:new-${(n += 1)}`);
+    assert.equal(clone[0].id, "s:new-1");
+    assert.notEqual(clone[0].id, src[0].id);
+  });
+
+  it("re-ids on each paste so a double paste never collides", () => {
+    const clip = [{ type: "stamp", id: "s:1", x: 0.5, y: 0.5 }];
+    let n = 0;
+    const makeId = () => `s:p-${(n += 1)}`;
+    const first = offsetItems(clip, 0.04, 0.04, makeId);
+    const second = offsetItems(clip, 0.08, 0.08, makeId);
+    assert.notEqual(first[0].id, second[0].id);
+  });
+
+  it("leaves a legacy id-less item untouched", () => {
+    const src = [{ type: "pen", points: [{ x: 0, y: 0 }] }];
+    assert.equal("id" in offsetItems(src, 0, 0)[0], false);
+  });
+});

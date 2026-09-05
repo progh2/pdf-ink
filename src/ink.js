@@ -8,6 +8,7 @@ import {
   stampPaintLayout,
 } from "./tools.js";
 import { STAMP_GHOST_ALPHA } from "./stampGhost.js";
+import { newItemId } from "./inkMerge.js";
 
 export function distPointToSegment(point, start, end) {
   const dx = end.x - start.x;
@@ -157,10 +158,12 @@ export function applyEraserToInk(items, eraser, cssWidth, cssHeight) {
   return items.concat(eraser);
 }
 
-export function stampInkItem(label, x, y, tilt = 0, size) {
+export function stampInkItem(label, x, y, tilt = 0, size, id = newItemId()) {
   const box = stampItemSize(size);
   return {
     type: "stamp",
+    // #290: 획처럼 안정적인 이름표 — 옮겨도 병합이 같은 도장으로 알아본다.
+    id,
     stamp: normalizeStamp(label),
     x,
     y,
