@@ -146,6 +146,8 @@ describe("#56 GoodNotes 4 utility bar", () => {
       "rotate",
       "pagecopy",
       "pagepaste",
+      "shelfadd",
+      "shelf",
       "save",
       "bake",
       "saveas",

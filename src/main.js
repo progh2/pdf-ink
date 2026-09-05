@@ -4,7 +4,11 @@ import { validatePdfContents, validatePdfFile } from "./validate.js";
 import {
   fileIdentity,
   listDocuments,
+  deleteShelfEntry,
   loadCaptures,
+  loadShelf,
+  pruneShelfStore,
+  putShelfEntry,
   loadDocument,
   loadLastSession,
   loadLinkFixes,
@@ -321,6 +325,13 @@ import {
   topRegionAt,
   wholeImageRect,
 } from "./stickers.js";
+import {
+  SHELF_TTL_MS,
+  newShelfId,
+  pruneShelf,
+  shelfEntry,
+  shelfRemainLabel,
+} from "./shelf.js";
 import { addCapture, findCapture, sanitizeCaptures } from "./captureReg.js";
 import { captureRegionPng, composePageRgba, cropRgba, encodePngRgba, readPngText, writePngClipboard } from "./capture.js";
 import {
@@ -457,6 +468,11 @@ const els = {
   splitStage: document.querySelector("#split-stage"),
   areaLayer: document.querySelector("#area-layer"),
   areaLinkPanel: document.querySelector("#area-link-panel"),
+  shelfSheet: document.querySelector("#shelf-sheet"),
+  shelfBackdrop: document.querySelector("#shelf-backdrop"),
+  shelfHint: document.querySelector("#shelf-hint"),
+  shelfGrid: document.querySelector("#shelf-grid"),
+  shelfDone: document.querySelector("#shelf-done"),
   inkMoveSheet: document.querySelector("#ink-move-sheet"),
   inkMoveBackdrop: document.querySelector("#ink-move-backdrop"),
   inkMoveHint: document.querySelector("#ink-move-hint"),
@@ -1991,6 +2007,12 @@ async function renderRecents() {
   let rows = [];
   try {
     await migrateLastIntoFiles();
+    // #267: 선반의 7일 지난 것을 정리한다.
+    try {
+      await pruneShelfStore(pruneShelf(await loadShelf()).map((one) => one.id));
+    } catch {
+      // 정리 실패는 조용히
+    }
     rows = await listDocuments();
   } catch {
     rows = [];
@@ -6828,6 +6850,162 @@ function pasteCurrentPage() {
   flashBanner(`${out.at + 1}쪽에 붙여넣었습니다.`);
 }
 
+/* ---- 선반 (#267) ---------------------------------------------------- */
+
+/** 지금 쪽을 그림(배경)+필기로 굳혀 선반에 담는다. 다른 문서에서도 꺼내 쓴다. */
+async function shelveCurrentPage() {
+  const leaf = leafAt(state.leaves, state.page);
+  if (!leaf) {
+    return;
+  }
+  flashBanner("선반에 담는 중…");
+  try {
+    const base = await basePageCss();
+    let src = "";
+    let w = 1;
+    let h = 1;
+    if (leaf.kind !== "outline" && state.pdf) {
+      const page = await state.pdf.getPage(leaf.pdfPage);
+      const rotation = ((page.rotate || 0) + (leaf.rotate || 0)) % 360;
+      const vb = page.getViewport({ scale: 1, rotation });
+      const viewport = page.getViewport({ scale: 1000 / Math.max(1, vb.width), rotation });
+      const canvas = offscreenCanvas(Math.round(viewport.width), Math.round(viewport.height));
+      const ctx = canvas2d(canvas);
+      ctx.fillStyle = "#FFFFFF";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      await renderPdfPage({ pdfCanvas: canvas, renderTask: null }, page, ctx, viewport);
+      src = canvas.toDataURL("image/jpeg", 0.82);
+      w = viewport.width;
+      h = viewport.height;
+    } else {
+      // 빈 쪽: 흰 종이 한 장.
+      const canvas = offscreenCanvas(Math.round(base.width * 2), Math.round(base.height * 2));
+      const ctx = canvas2d(canvas);
+      ctx.fillStyle = "#FFFFFF";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      src = canvas.toDataURL("image/jpeg", 0.82);
+      w = canvas.width;
+      h = canvas.height;
+    }
+    // 미리보기 썸은 작게.
+    const thumbCanvas = offscreenCanvas(240, Math.round((240 * h) / Math.max(1, w)));
+    const timg = await loadHtmlImage(src);
+    thumbCanvas.getContext("2d").drawImage(timg, 0, 0, thumbCanvas.width, thumbCanvas.height);
+    const entry = shelfEntry({
+      kind: "page",
+      name: `${state.fileName || "문서"} · ${state.page}쪽`,
+      src,
+      thumb: thumbCanvas.toDataURL("image/jpeg", 0.7),
+      items: cloneItems(pageStrokes(state.page)),
+      w,
+      h,
+    });
+    if (entry) {
+      await putShelfEntry(entry);
+      flashBanner("선반에 담았습니다.");
+    }
+  } catch {
+    flashBanner("선반에 담지 못했습니다.");
+  }
+}
+
+/** 클립보드에서 온 그림을 선반에 담는다 (#267). 붙일 때 재활용. */
+async function shelveImage(src, name = "그림") {
+  try {
+    const img = await loadHtmlImage(src);
+    const w = img.naturalWidth || img.width || 1;
+    const h = img.naturalHeight || img.height || 1;
+    const thumbCanvas = offscreenCanvas(240, Math.round((240 * h) / Math.max(1, w)));
+    thumbCanvas.getContext("2d").drawImage(img, 0, 0, thumbCanvas.width, thumbCanvas.height);
+    const entry = shelfEntry({ kind: "image", name, src, thumb: thumbCanvas.toDataURL("image/jpeg", 0.7), w, h });
+    if (entry) {
+      await putShelfEntry(entry);
+    }
+  } catch {
+    // 담기 실패는 조용히
+  }
+}
+
+async function openShelf() {
+  if (!els.shelfSheet) {
+    return;
+  }
+  els.shelfGrid.replaceChildren();
+  els.shelfSheet.hidden = false;
+  els.shelfHint.textContent = "선반을 읽는 중…";
+  let list = [];
+  try {
+    list = pruneShelf(await loadShelf());
+    // 오래된 것은 저장소에서도 지운다.
+    await pruneShelfStore(list.map((one) => one.id));
+  } catch {
+    list = [];
+  }
+  els.shelfHint.textContent = "문서 사이를 오가는 임시 보관함입니다. 이 브라우저(모든 탭)에서만 보이고, 7일 뒤 지워집니다.";
+  els.shelfGrid.replaceChildren();
+  if (!list.length) {
+    const empty = document.createElement("p");
+    empty.className = "shelf-empty";
+    empty.textContent = "선반이 비어 있습니다. ⋯의 「이 쪽을 선반에」로 담으세요.";
+    els.shelfGrid.append(empty);
+    return;
+  }
+  for (const entry of list) {
+    const card = document.createElement("div");
+    card.className = "shelf-card";
+    const img = document.createElement("img");
+    img.src = entry.thumb || entry.src;
+    img.alt = entry.name;
+    img.title = "탭하면 붙입니다";
+    img.addEventListener("click", () => pasteFromShelf(entry));
+    const meta = document.createElement("div");
+    meta.className = "shelf-meta";
+    const label = document.createElement("span");
+    label.textContent = `${entry.kind === "page" ? "쪽" : "그림"} · ${shelfRemainLabel(entry)}`;
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "shelf-del";
+    del.textContent = "지우기";
+    del.addEventListener("click", async () => {
+      await deleteShelfEntry(entry.id);
+      card.remove();
+    });
+    meta.append(label, del);
+    card.append(img, meta);
+    els.shelfGrid.append(card);
+  }
+}
+
+function closeShelf() {
+  if (els.shelfSheet) {
+    els.shelfSheet.hidden = true;
+  }
+}
+
+/** 선반 항목을 지금 문서에. 쪽이면 새 쪽으로 끼우고, 그림이면 이미지로 놓는다. */
+async function pasteFromShelf(entry) {
+  closeShelf();
+  if (state.interactMode === "view") {
+    flashBanner("보기 중입니다. 자물쇠를 풀면 붙일 수 있습니다.");
+    return;
+  }
+  if (entry.kind === "image") {
+    await pasteImageAt(state.page, null, entry.src);
+    return;
+  }
+  // 쪽: 지금 쪽 뒤에 새 빈 쪽을 끼우고 그 그림을 고정 배경으로, 필기를 얹는다 (#204식).
+  const index = state.page - 1;
+  const leaf = leafAt(state.leaves, state.page);
+  const id = `o:shelf-${Date.now().toString(36)}`;
+  const image = imageItem({ x: 0, y: 0, w: 1, h: 1, src: entry.src, locked: true });
+  commitLeafChange(inkKey(leaf) || id, () => {
+    state.leaves = insertOutlineAfter(state.leaves, index, id);
+    state.pages[id] = [image, ...cloneItems(entry.items || [])];
+  });
+  afterPageOp(state.page + 1);
+  flashBanner(`${state.page + 1}쪽에 붙여넣었습니다.`);
+}
+
 function movePageByDrag(from, to) {
   if (from === to) {
     return;
@@ -9592,6 +9770,18 @@ function selectMoreAction(action) {
     pasteCurrentPage();
     return;
   }
+  if (action === "shelfadd") {
+    closeMorePanel();
+    ignoreAfterPanel = true;
+    shelveCurrentPage();
+    return;
+  }
+  if (action === "shelf") {
+    closeMorePanel();
+    ignoreAfterPanel = true;
+    openShelf();
+    return;
+  }
   if (action === "settings") {
     closeMorePanel();
     ignoreAfterPanel = true;
@@ -10557,6 +10747,8 @@ bindLinkFixPanel();
 bindWheelPanel();
 els.eyedropBtn?.addEventListener("click", armEyedropper);
 els.inkMoveDone?.addEventListener("click", closeInkMove);
+els.shelfDone?.addEventListener("click", closeShelf);
+els.shelfBackdrop?.addEventListener("click", closeShelf);
 els.inkMoveApply?.addEventListener("click", applyInkMove);
 els.inkMoveModeAdd?.addEventListener("click", () => setInkMoveAssignMode("add"));
 els.inkMoveModeInsert?.addEventListener("click", () => setInkMoveAssignMode("insert"));

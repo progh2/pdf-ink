@@ -207,6 +207,8 @@
         </div>
         <button type="button" data-more="pagecopy">이 쪽 복사</button>
         <button type="button" data-more="pagepaste" id="pagepaste-item">쪽 붙여넣기</button>
+        <button type="button" data-more="shelfadd">이 쪽을 선반에</button>
+        <button type="button" data-more="shelf">선반 열기</button>
         <button type="button" data-more="save">저장</button>
         <button type="button" data-more="bake">PDF에 굽기</button>
         <button type="button" data-more="saveas">다른 이름으로 저장</button>
@@ -389,6 +391,18 @@
         <div class="area-link-url-row">
           <input id="area-link-url" type="url" placeholder="https://" aria-label="웹 주소" />
           <button type="button" id="area-link-url-go">열기</button>
+        </div>
+      </div>
+
+      <div class="sheet" id="shelf-sheet" hidden>
+        <button type="button" class="sheet-backdrop" id="shelf-backdrop" aria-label="닫기"></button>
+        <div class="sheet-card" role="dialog" aria-labelledby="shelf-title">
+          <h2 id="shelf-title">선반</h2>
+          <p class="shelf-hint" id="shelf-hint">
+            문서 사이를 오가는 임시 보관함입니다. 이 브라우저(모든 탭)에서만 보이고, 7일 뒤 지워집니다.
+          </p>
+          <div class="shelf-grid" id="shelf-grid"></div>
+          <button type="button" class="sheet-done" id="shelf-done">닫기</button>
         </div>
       </div>
 
