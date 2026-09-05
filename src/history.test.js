@@ -8,6 +8,7 @@ import {
   canUndo,
   cloneItems,
   createHistory,
+  extendChange,
   recordChange,
   redoChange,
   undoChange,
@@ -86,5 +87,42 @@ describe("undo/redo", () => {
 
   it("keeps the stack in memory only", () => {
     assert.doesNotMatch(src, /localStorage|indexedDB|fetch\(/);
+  });
+});
+
+describe("#236 이어지는 변화는 한 벌", () => {
+  it("edits the last entry instead of stacking another", () => {
+    const history = createHistory();
+    recordChange(history, { page: "1", before: [{ x: 0 }], after: [{ x: 1 }] });
+    assert.equal(extendChange(history, { page: "1", after: [{ x: 2 }] }), true);
+    assert.equal(history.undo.length, 1, "한 벌 그대로");
+    assert.deepEqual(history.undo[0].after, [{ x: 2 }], "끝만 옮겨간다");
+    assert.deepEqual(history.undo[0].before, [{ x: 0 }], "시작은 처음 그 자리");
+  });
+
+  it("undoes the whole run in one go", () => {
+    const history = createHistory();
+    const pages = { 1: [{ x: 5 }] };
+    recordChange(history, { page: "1", before: [{ x: 0 }], after: [{ x: 1 }] });
+    extendChange(history, { page: "1", after: [{ x: 5 }] });
+    undoChange(history, pages);
+    assert.deepEqual(pages[1], [{ x: 0 }], "스무 번 눌러도 한 번에 되돌아간다");
+  });
+
+  it("refuses to extend a different page, or nothing at all", () => {
+    const history = createHistory();
+    assert.equal(extendChange(history, { page: "1", after: [] }), false, "적어 둔 것이 없다");
+    recordChange(history, { page: "1", before: [], after: [] });
+    assert.equal(extendChange(history, { page: "2", after: [] }), false, "다른 쪽은 다른 일");
+  });
+
+  it("clears the redo pile, like any other change", () => {
+    const history = createHistory();
+    const pages = { 1: [] };
+    recordChange(history, { page: "1", before: [], after: [{ x: 1 }] });
+    undoChange(history, pages);
+    recordChange(history, { page: "1", before: [], after: [{ x: 2 }] });
+    extendChange(history, { page: "1", after: [{ x: 3 }] });
+    assert.equal(history.redo.length, 0);
   });
 });
