@@ -631,3 +631,15 @@ describe("#260 상호작용 묶음", () => {
     assert.match(layer, /locked !== null && Boolean\(item\.locked\) !== locked/);
   });
 });
+
+describe("#268 S펜 옆버튼이 주소창으로 튕기지 않게", () => {
+  it("prevents the browser default on a pen side-button press over the paper", () => {
+    assert.match(main, /event\.pointerType === "pen" && event\.button > 0 && event\.target\.closest\("\.page-stage"\)\)\s*\{\s*event\.preventDefault\(\)/);
+  });
+
+  it("blocks back/forward navigation (buttons 3·4) while editing", () => {
+    assert.match(main, /event\.button === 3 \|\| event\.button === 4\)[\s\S]{0,80}els\.writeScreen\.hidden\)[\s\S]{0,40}preventDefault/);
+    assert.match(main, /addEventListener\(\s*"pointerdown",[\s\S]{0,200}capture: true/);
+    assert.match(main, /addEventListener\("auxclick"/);
+  });
+});
