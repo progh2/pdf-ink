@@ -1,7 +1,7 @@
 const STROKE_PREFIX = "pdf-ink:strokes:";
 const PEN_ONLY_KEY = "pdf-ink:pen-only";
 const DB_NAME = "pdf-ink";
-const DB_VERSION = 5;
+const DB_VERSION = 6;
 const SESSION_STORE = "session";
 const FILES_STORE = "files";
 /** Stickers live in this browser only, never on a server (#79). */
@@ -11,6 +11,8 @@ const STICKER_FOLDER_STORE = "sticker-folders";
 const THUMB_STORE = "thumbs";
 /** 선반: 문서 사이를 오가는 임시 복사 보관함 (#267). */
 const SHELF_STORE = "shelf";
+/** 붙여넣은 이미지 원본(dataURL). localStorage 대신 여기 — 용량이 크다 (#273). */
+const INK_IMAGE_STORE = "inkimages";
 
 export function fileIdentity(file) {
   return `${file.name}::${file.size}::${file.lastModified}`;
@@ -94,6 +96,9 @@ function openDb() {
       }
       if (!db.objectStoreNames.contains(SHELF_STORE)) {
         db.createObjectStore(SHELF_STORE, { keyPath: "id" });
+      }
+      if (!db.objectStoreNames.contains(INK_IMAGE_STORE)) {
+        db.createObjectStore(INK_IMAGE_STORE);
       }
     };
     request.onsuccess = () => resolve(request.result);
@@ -415,4 +420,71 @@ export async function pruneShelfStore(keepIds) {
     tx.onerror = () => reject(tx.error);
   });
   db.close();
+}
+
+
+/* ---- 붙여넣은 이미지 원본 (#273) : 문서별로 IndexedDB에 ---- */
+
+function inkImageKey(identity, id) {
+  return `${identity}::${id}`;
+}
+
+/** 문서의 이미지 지도(id→src)를 저장하고, 지금 안 쓰는 것은 지운다. */
+export async function saveInkImages(identity, images, liveIds) {
+  if (!identity) {
+    return;
+  }
+  const db = await openDb();
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction(INK_IMAGE_STORE, "readwrite");
+    const store = tx.objectStore(INK_IMAGE_STORE);
+    for (const [id, src] of Object.entries(images || {})) {
+      if (src) {
+        store.put(src, inkImageKey(identity, id));
+      }
+    }
+    // 이 문서의 것 중 지금 안 쓰는 이미지는 지운다.
+    const prefix = `${identity}::`;
+    const keep = new Set([...(liveIds || [])].map((id) => inkImageKey(identity, id)));
+    const keysReq = store.getAllKeys();
+    keysReq.onsuccess = () => {
+      for (const key of keysReq.result || []) {
+        if (typeof key === "string" && key.startsWith(prefix) && !keep.has(key)) {
+          store.delete(key);
+        }
+      }
+    };
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+  db.close();
+}
+
+/** 문서의 이미지 지도(id→src)를 읽는다. */
+export async function loadInkImages(identity) {
+  if (!identity) {
+    return {};
+  }
+  const db = await openDb();
+  const map = await new Promise((resolve, reject) => {
+    const tx = db.transaction(INK_IMAGE_STORE, "readonly");
+    const store = tx.objectStore(INK_IMAGE_STORE);
+    const out = {};
+    const prefix = `${identity}::`;
+    const req = store.openCursor();
+    req.onsuccess = () => {
+      const cursor = req.result;
+      if (!cursor) {
+        resolve(out);
+        return;
+      }
+      if (typeof cursor.key === "string" && cursor.key.startsWith(prefix)) {
+        out[cursor.key.slice(prefix.length)] = cursor.value;
+      }
+      cursor.continue();
+    };
+    req.onerror = () => reject(req.error);
+  });
+  db.close();
+  return map;
 }

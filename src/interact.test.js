@@ -643,3 +643,28 @@ describe("#268 S펜 옆버튼이 주소창으로 튕기지 않게", () => {
     assert.match(main, /addEventListener\("auxclick"/);
   });
 });
+
+describe("#274 삼성 S펜 배럴 버튼", () => {
+  const map = { barrel: "eraser", second: "select" };
+
+  it("reads the barrel from button 0 · buttons 0 (Samsung Internet)", () => {
+    assert.equal(penButtonAction({ pointerType: "pen", button: 0, buttons: 0, buttonMap: map, enabled: true }), "eraser");
+  });
+
+  it("does not fire on a normal tip contact (buttons has the primary bit)", () => {
+    assert.equal(penButtonAction({ pointerType: "pen", button: 0, buttons: 1, buttonMap: map, enabled: true }), null);
+  });
+
+  it("ignores hover (button -1)", () => {
+    assert.equal(penButtonAction({ pointerType: "pen", button: -1, buttons: 0, buttonMap: map, enabled: true }), null);
+  });
+
+  it("still respects the standard barrel (button 2) and eraser tip (5)", () => {
+    assert.equal(penButtonAction({ pointerType: "pen", button: 2, buttons: 0, buttonMap: map, enabled: true }), "eraser");
+    assert.equal(penButtonAction({ pointerType: "pen", button: 5, buttons: 0, buttonMap: map, enabled: true }), "eraser");
+  });
+
+  it("does nothing when the pen-button setting is off", () => {
+    assert.equal(penButtonAction({ pointerType: "pen", button: 0, buttons: 0, buttonMap: map, enabled: false }), null);
+  });
+});

@@ -94,7 +94,8 @@ describe("#83 배선", () => {
   it("carries the graveyard in the sidecar and in local storage", () => {
     assert.match(inkFile, /gone: gone && typeof gone === "object" \? gone : \{\}/);
     assert.equal((main.match(/gone: state\.inkGone,/g) || []).length, 3, "사이드카를 쓰는 세 곳 전부");
-    assert.match(main, /saveStrokes\(state\.identity, state\.pages, state\.leaves, state\.outline, state\.inkGone\)/);
+    // #273: 이미지는 IndexedDB로 빠지고 localStorage엔 가벼운 필기(light)만.
+    assert.match(main, /saveStrokes\(state\.identity, light, state\.leaves, state\.outline, state\.inkGone\)/);
   });
 
   it("pulls other devices' ink on the sync beat, quietly unless something arrived", () => {
