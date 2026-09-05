@@ -92,17 +92,6 @@ export function normalizePenButtons(map) {
  * What this pen gesture should do (#139). The eraser end always erases: it is a
  * physical eraser, not a button to assign. A mouse never gets here.
  */
-/**
- * 삼성 S펜(삼성 인터넷)은 배럴 버튼을 눌러도 표준 비트를 안 준다: 평소
- * button -1(hover), 배럴 누르면 **button 0 · buttons 0**으로 온다 (#274).
- * button 0은 보통 촉이지만, 펜이 종이에 닿으면 buttons에 1이 서야 정상이다.
- * **button 0인데 buttons에 촉 비트(1)가 없으면** 삼성 배럴로 본다.
- */
-function isSamsungBarrel(button, bits) {
-  // 정확히 button 0 · buttons 0. 촉 접촉은 buttons에 1이 서므로 여기 안 걸린다.
-  return button === 0 && bits === 0;
-}
-
 export function penButtonAction({ pointerType, buttons, button, buttonMap, enabled = true } = {}) {
   if (!enabled || pointerType !== "pen") {
     return null;
@@ -115,7 +104,9 @@ export function penButtonAction({ pointerType, buttons, button, buttonMap, enabl
   let action = null;
   if (bits & PEN_SECOND_BIT || button === PEN_SECOND_BUTTON) {
     action = map.second;
-  } else if (bits & PEN_BARREL_BIT || button === PEN_BARREL_BUTTON || isSamsungBarrel(button, bits)) {
+  } else if (bits & PEN_BARREL_BIT || button === PEN_BARREL_BUTTON) {
+    // #280: 삼성 배럴(button 0·buttons 0) 감지를 뺀다 — 그 폰은 정상 촉 획도
+    // button 0·buttons 0으로 보고해, 모든 획이 배럴로 잡혀 필기가 아예 안 됐다.
     action = map.barrel;
   }
   return action && action !== "none" ? action : null;
