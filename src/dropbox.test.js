@@ -178,7 +178,9 @@ describe("#82 드롭박스 배선", () => {
     assert.match(main, /if \(isConflict\(payload\)\)/);
     assert.match(main, /드롭박스에서 파일이 바뀌었습니다/);
     // A local file opened afterwards must not write to Dropbox.
-    assert.match(main, /if \(!String\(identity \|\| ""\)\.startsWith\("dbx::"\)\) \{\s*state\.dropboxDoc = null;/);
+    // #277: dbx:: identity면 되살리고, 아니면 비운다.
+    assert.match(main, /if \(dbxId\.startsWith\("dbx::"\)\) \{[\s\S]{0,240}state\.dropboxDoc = \{ path,/);
+    assert.match(main, /\} else \{\s*state\.dropboxDoc = null;/);
   });
 
   it("checks the bytes are a pdf before opening them", () => {

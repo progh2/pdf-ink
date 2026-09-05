@@ -2293,10 +2293,23 @@ async function openPdfBuffer(buffer, { identity, name, page = 1, handle = null }
   writeStrokesNow();
   // Always replace: a handle from the previous file must never write this one.
   state.fileHandle = handle;
-  if (!String(identity || "").startsWith("dbx::")) {
+  // #277: 새로고침·재열기 땐 클라우드 문서를 identity에서 되살린다 — 안 그러면
+  // 저장 버튼·자동저장·동기가 다 죽는다(메모리 변수라 새로고침에 사라진다).
+  const dbxId = String(identity || "");
+  if (dbxId.startsWith("dbx::")) {
+    if (!state.dropboxDoc) {
+      const path = dbxId.slice("dbx::".length);
+      state.dropboxDoc = { path, name: name || path.split("/").pop() || "문서.pdf", rev: "", size: buffer.byteLength || 0 };
+    }
+  } else {
     state.dropboxDoc = null;
   }
-  if (!String(identity || "").startsWith("gdrive::")) {
+  if (dbxId.startsWith("gdrive::")) {
+    if (!state.driveDoc) {
+      state.driveDoc = { id: dbxId.slice("gdrive::".length), name: name || "문서.pdf", version: "", parent: "" };
+      state.driveSidecarId = "";
+    }
+  } else {
     state.driveDoc = null;
     state.driveSidecarId = "";
   }

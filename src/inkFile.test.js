@@ -187,3 +187,25 @@ describe("#271 헤더 저장·동기 버튼", () => {
     assert.match(main, /if \(!force\) \{\s*flashBanner/, "강제 동기는 조용히");
   });
 });
+
+describe("#277 새로고침·재열기 후 클라우드 문서 복원", () => {
+  const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+  const main = readFileSync(join(root, "src/main.js"), "utf8");
+
+  it("rebuilds the dropbox doc from the identity when it is not in memory", () => {
+    const open = main.slice(main.indexOf("async function openPdfBuffer"), main.indexOf("async function openPdfBuffer") + 900);
+    assert.match(open, /const path = dbxId\.slice\("dbx::"\.length\)/);
+    assert.match(open, /state\.dropboxDoc = \{ path, name:/);
+    assert.match(open, /if \(!state\.dropboxDoc\)/, "이미 열려 있으면 덮지 않는다");
+  });
+
+  it("rebuilds the drive doc too", () => {
+    const open = main.slice(main.indexOf("async function openPdfBuffer"), main.indexOf("async function openPdfBuffer") + 1100);
+    assert.match(open, /state\.driveDoc = \{ id: dbxId\.slice\("gdrive::"\.length\)/);
+  });
+
+  it("still starts the sync watch, which shows the save button", () => {
+    assert.match(main, /startSyncWatch\(\)/);
+    assert.match(main, /function startSyncWatch[\s\S]{0,120}syncHeaderSave\(\)/);
+  });
+});
