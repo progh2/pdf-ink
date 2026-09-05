@@ -5945,7 +5945,18 @@ async function pasteImageAt(page, at, src, metaRect = null) {
     selectSelectTool();
     redrawRegionPage(page);
     syncSelectHud();
-    flashBanner("붙여넣었습니다.");
+    // #262: 원래 자리로 붙인 경우, 숫자를 그대로 보여 준다 — 어긋남을 눈이
+    // 아니라 좌표로 재려고. p%는 쪽 폭·높이에 대한 퍼센트.
+    if (home) {
+      const pc = (v) => `${(v * 100).toFixed(1)}%`;
+      flashBanner(
+        `붙임 ${pc(spot.x)},${pc(spot.y)} ${pc(spot.w)}×${pc(spot.h)}` +
+          (known?.rect ? ` · 원본 ${pc(known.rect.x)},${pc(known.rect.y)} ${pc(known.rect.w)}×${pc(known.rect.h)}` : ""),
+        7000,
+      );
+    } else {
+      flashBanner("붙여넣었습니다.");
+    }
   } catch {
     flashBanner("그림을 붙이지 못했습니다.");
   }
