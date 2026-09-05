@@ -377,6 +377,7 @@ import {
   makeOutlineEntry,
   normalizeOutline,
   flattenOutline,
+  firstOutlineEntryForPage,
   firstOutlineTitleForPage,
   outlineDestPage,
   outlinePageLabel,
@@ -5763,6 +5764,7 @@ function saveTocTitle(id, title) {
   state.outline = renameOutlineEntry(state.outline, id, title);
   persistStrokes();
   renderTocList();
+  syncPreviewOutlineCaptions();
 }
 
 function removeTocEntry(id) {
@@ -5822,6 +5824,67 @@ function renameTocRow(row, entry) {
   const title = row?.querySelector(".preview-toc-title");
   if (title && entry) {
     beginTocTitleEdit(title, entry);
+  }
+}
+
+function ensurePreviewTocCaption(row, title) {
+  const meta = row?.querySelector(".preview-meta");
+  if (!meta) {
+    return null;
+  }
+  let caption = meta.querySelector(".preview-toc-caption");
+  if (!caption) {
+    caption = document.createElement("span");
+    caption.className = "preview-toc-caption";
+    meta.append(caption);
+  }
+  setOutlineTitleText(caption, title);
+  caption.title = title;
+  return caption;
+}
+
+/** After a rename, put the caption back (or drop it) without remaking rows. */
+function syncPreviewOutlineCaptions() {
+  if (!els.previewList || els.previewDrawer?.hidden || state.previewTab === "toc") {
+    return;
+  }
+  els.previewList.querySelectorAll(".preview-row").forEach((row) => {
+    const pageNum = Number(row.dataset.page);
+    const tocTitle = firstOutlineTitleForPage(state.outline, pageNum, state.leaves);
+    const meta = row.querySelector(".preview-meta");
+    if (!meta) {
+      return;
+    }
+    meta.querySelector(".preview-toc-edit")?.remove();
+    const caption = meta.querySelector(".preview-toc-caption");
+    if (tocTitle) {
+      ensurePreviewTocCaption(row, tocTitle);
+    } else if (caption) {
+      caption.remove();
+    }
+  });
+}
+
+/**
+ * Double-tap on a preview row edits that page's outline title (#217).
+ * No entry yet: add one for the page, then open the same rename field.
+ */
+function beginPreviewOutlineEdit(row, pageNum) {
+  if (!row || row.querySelector(".preview-toc-edit")) {
+    return;
+  }
+  let entry = firstOutlineEntryForPage(state.outline, pageNum, state.leaves);
+  if (!entry) {
+    state.outline = addOutlineEntry(state.outline, pageNum, state.leaves);
+    persistStrokes();
+    entry = firstOutlineEntryForPage(state.outline, pageNum, state.leaves);
+  }
+  if (!entry) {
+    return;
+  }
+  const caption = ensurePreviewTocCaption(row, entry.title || outlineTitleForPage(pageNum));
+  if (caption) {
+    beginTocTitleEdit(caption, entry);
   }
 }
 
@@ -6271,6 +6334,9 @@ function bindPreviewRowGestures(row, fallbackPage) {
   let pointerId = null;
   let dragging = false;
   let held = false;
+  let lastTapAt = 0;
+  let lastTapX = 0;
+  let lastTapY = 0;
 
   const pageOf = () => pageOfLeaf(state.leaves, row.dataset.leaf) || fallbackPage;
 
@@ -6362,11 +6428,28 @@ function bindPreviewRowGestures(row, fallbackPage) {
         togglePagePick(row.dataset.leaf);
         return;
       }
+      const now = performance.now();
+      const away = Math.hypot(event.clientX - lastTapX, event.clientY - lastTapY);
+      if (isDoubleTap(now, lastTapAt, away)) {
+        lastTapAt = 0;
+        beginPreviewOutlineEdit(row, pageOf());
+        return;
+      }
+      lastTapAt = now;
+      lastTapX = event.clientX;
+      lastTapY = event.clientY;
       goToPage(pageOf());
     }
   };
 
   row.addEventListener("pointerup", end);
+  row.addEventListener("dblclick", (event) => {
+    event.preventDefault();
+    if (state.pickMode) {
+      return;
+    }
+    beginPreviewOutlineEdit(row, pageOf());
+  });
   row.addEventListener("pointercancel", release);
   row.addEventListener("contextmenu", (event) => {
     event.preventDefault();
@@ -6397,9 +6480,12 @@ function makePreviewRow(leaf) {
   }
   const thumb = document.createElement("canvas");
   thumb.className = "preview-thumb";
+  const wrap = document.createElement("div");
+  wrap.className = "preview-thumb-wrap";
   const meta = document.createElement("div");
   meta.className = "preview-meta";
   const label = document.createElement("span");
+  label.className = "preview-page-label";
   label.textContent = leaf.kind === "outline" ? leaf.title : `${pageNum}`;
   const star = document.createElement("button");
   star.type = "button";
@@ -6407,6 +6493,7 @@ function makePreviewRow(leaf) {
   star.classList.toggle("is-on", leaf.bookmark);
   star.textContent = leaf.bookmark ? "★" : "☆";
   star.setAttribute("aria-label", "책갈피");
+  star.addEventListener("pointerdown", (event) => event.stopPropagation());
   star.addEventListener("click", (event) => {
     event.stopPropagation();
     state.leaves = toggleBookmark(state.leaves, pageNum - 1);
@@ -6419,18 +6506,18 @@ function makePreviewRow(leaf) {
     star.classList.toggle("is-on", Boolean(now?.bookmark));
     star.textContent = now?.bookmark ? "★" : "☆";
   });
+  wrap.append(thumb, star);
   const tocTitle = firstOutlineTitleForPage(state.outline, pageNum, state.leaves);
   if (tocTitle) {
     const caption = document.createElement("span");
     caption.className = "preview-toc-caption";
     setOutlineTitleText(caption, tocTitle);
     caption.title = tocTitle;
-    meta.classList.add("has-toc");
-    meta.append(label, caption, star);
+    meta.append(label, caption);
   } else {
-    meta.append(label, star);
+    meta.append(label);
   }
-  row.append(thumb, meta);
+  row.append(wrap, meta);
   bindPreviewRowGestures(row, pageNum);
   return row;
 }

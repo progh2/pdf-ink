@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import {
   addOutlineEntry,
   deleteOutlineEntry,
+  firstOutlineEntryForPage,
   firstOutlineTitleForPage,
   flattenOutline,
   makeOutlineEntry,
@@ -412,25 +413,80 @@ describe("#215 미리보기 썸 아래 목차", () => {
     assert.equal(firstOutlineTitleForPage(entries, 1), "표지");
   });
 
-  it("wires one caption line under the thumb, never as HTML", () => {
+  it("wires a caption only when that page has a TOC title, never as HTML", () => {
     const row = main.slice(main.indexOf("function makePreviewRow"), main.indexOf("function syncPreviewCurrent"));
     assert.match(row, /firstOutlineTitleForPage\(state\.outline, pageNum, state\.leaves\)/);
     assert.match(row, /if \(tocTitle\)/);
     assert.match(row, /preview-toc-caption/);
     assert.match(row, /setOutlineTitleText\(caption, tocTitle\)/);
     assert.doesNotMatch(row, /innerHTML/);
-    assert.match(row, /meta\.append\(label, star\)/, "no caption node when the page has no TOC");
+    assert.match(row, /meta\.append\(label\)/, "no caption node when the page has no TOC");
     assert.match(css, /\.preview-toc-caption \{[\s\S]*font-size: 12px/);
     assert.match(css, /\.preview-toc-caption \{[\s\S]*color: #5c574e/);
-    assert.match(css, /\.preview-toc-caption \{[\s\S]*height: 18px/);
-    assert.match(css, /\.preview-toc-caption \{[\s\S]*line-height: 18px/);
     assert.match(css, /\.preview-toc-caption \{[\s\S]*text-overflow: ellipsis/);
     assert.match(css, /\.preview-toc-caption \{[\s\S]*white-space: nowrap/);
     assert.match(css, /\.preview-toc-caption \{[\s\S]*overflow: hidden/);
-    assert.match(css, /\.preview-toc-caption:empty \{[\s\S]*height: 0/);
     assert.match(css, /\.preview-row \{[\s\S]*gap: 6px/, "6 under the 88 thumb");
     assert.match(css, /\.preview-row \{[\s\S]*min-height: 167px/, "windowed list stride stays");
     assert.match(main, /from "\.\/outline\.js"/);
     assert.match(main, /firstOutlineTitleForPage/);
+  });
+});
+
+describe("#217 미리보기 별은 썸 위, 목차는 쪽번호 옆", () => {
+  const leaves = [
+    { id: "p1", kind: "pdf", pdfPage: 1 },
+    { id: "p2", kind: "pdf", pdfPage: 2 },
+    { id: "p3", kind: "pdf", pdfPage: 3 },
+  ];
+
+  it("finds the first outline entry on a page", () => {
+    const entries = normalizeOutline(
+      [
+        { id: "t:1", title: "서론", page: 2 },
+        { id: "t:2", title: "본문", page: 2 },
+        { id: "t:3", title: "끝", page: 3 },
+      ],
+      leaves,
+    );
+    assert.equal(firstOutlineEntryForPage(entries, 2, leaves)?.title, "서론");
+    assert.equal(firstOutlineEntryForPage(entries, 3, leaves)?.title, "끝");
+    assert.equal(firstOutlineEntryForPage(entries, 1, leaves), null);
+    assert.equal(firstOutlineEntryForPage([], 2, leaves), null);
+  });
+
+  it("puts the star on the thumb and the caption beside the page number", () => {
+    const row = main.slice(main.indexOf("function makePreviewRow"), main.indexOf("function syncPreviewCurrent"));
+    assert.match(row, /preview-thumb-wrap/);
+    assert.match(row, /wrap\.append\(thumb, star\)/);
+    assert.match(row, /meta\.append\(label, caption\)/);
+    assert.match(row, /meta\.append\(label\)/);
+    assert.doesNotMatch(row, /meta\.append\([^)]*star/);
+    assert.match(css, /\.preview-thumb-wrap \{[\s\S]*position: relative/);
+    const starOnThumb = css.slice(css.indexOf(".preview-thumb-wrap .preview-bookmark {"), css.indexOf(".preview-meta {"));
+    assert.match(starOnThumb, /position: absolute/);
+    assert.match(starOnThumb, /top: 0/);
+    assert.match(starOnThumb, /right: 0/);
+    assert.match(css, /\.preview-bookmark \{[\s\S]*width: 44px/);
+    assert.match(css, /\.preview-bookmark \{[\s\S]*height: 44px/);
+    assert.match(css, /\.preview-toc-caption \{[\s\S]*font-size: 12px/);
+    assert.match(css, /\.preview-toc-caption \{[\s\S]*color: #5c574e/);
+    assert.match(css, /\.preview-toc-caption \{[\s\S]*text-overflow: ellipsis/);
+    assert.match(css, /\.preview-row \{[\s\S]*min-height: 167px/, "windowed list stride stays");
+  });
+
+  it("double-tap creates a missing outline entry then edits the title", () => {
+    const edit = main.slice(main.indexOf("function ensurePreviewTocCaption"), main.indexOf("function runTocMenu"));
+    assert.match(edit, /function beginPreviewOutlineEdit/);
+    assert.match(edit, /firstOutlineEntryForPage/);
+    assert.match(edit, /addOutlineEntry\(state\.outline, pageNum, state\.leaves\)/);
+    assert.match(edit, /beginTocTitleEdit/);
+    assert.match(edit, /setOutlineTitleText/);
+    assert.doesNotMatch(edit, /innerHTML|insertAdjacentHTML|DOMParser|outerHTML/);
+    const gestures = main.slice(main.indexOf("function bindPreviewRowGestures"), main.indexOf("function dropIndexForEvent"));
+    assert.match(gestures, /isDoubleTap\(now, lastTapAt, away\)/);
+    assert.match(gestures, /beginPreviewOutlineEdit\(row, pageOf\(\)\)/);
+    assert.match(gestures, /row\.addEventListener\("dblclick"/);
+    assert.match(main, /function saveTocTitle[\s\S]*syncPreviewOutlineCaptions/);
   });
 });
