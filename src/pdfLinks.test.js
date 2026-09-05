@@ -419,3 +419,19 @@ describe("#230 링크 자리 표시 켜고 끄기", () => {
     assert.doesNotMatch(act, /elementFromPoint/, "그림 위인지 아닌지 묻지 않는다");
   });
 });
+
+describe("#232 스위치가 실제로 눌리는가", () => {
+  const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+  const main = readFileSync(join(root, "src/main.js"), "utf8");
+
+  it("has its own sync function, not a passenger on another switch", () => {
+    assert.match(main, /function syncLinkHints\(\) \{/);
+    const zoom = main.slice(main.indexOf("function syncZoomLock"), main.indexOf("function syncLinkHints"));
+    assert.doesNotMatch(zoom, /linkHints/, "배율 고정 함수에 얹혀 있지 않다");
+  });
+
+  it("is applied on click and again whenever the screen is set up", () => {
+    assert.match(main, /saveLinkHints\(state\.linkHints\);[\s\S]{0,120}syncLinkHints\(\)/);
+    assert.ok((main.match(/syncLinkHints\(\)/g) || []).length >= 3, "켠 채로 다시 열어도 남아 있게");
+  });
+});
