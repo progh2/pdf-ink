@@ -252,6 +252,21 @@ function tracePath(ctx, points, canvas, scale, jitter = 0, salt = 0) {
   ctx.stroke();
 }
 
+/**
+ * #288: 획 두께는 페이지 기준(문서 상대)이다. `canvas.width`만으로 정해지므로
+ * 본문·썸네일·굽기가 같은 규칙을 쓰고, 기기/DPR/확대와 무관하게 페이지 내용
+ * 대비 두께가 일정하다 — 넓은 PC에서 얇아 보이던 문제(마스터 지적)를 없앤다.
+ * REF는 폰의 페이지 표시폭 근처라, 폰의 기존 느낌을 유지하고 PC가 두꺼워진다.
+ * (도장·지우개는 CSS 기준 유지: 지우개는 CSS 히트테스트와 맞아야 한다.)
+ */
+export const STROKE_WIDTH_REF_CSS = 430;
+
+export function strokeLineWidth(stroke, canvas) {
+  const w = stroke?.width || 2;
+  const px = canvas?.width || 0;
+  return px > 0 ? w * (px / STROKE_WIDTH_REF_CSS) : w;
+}
+
 export function paintGhost(ctx, stroke, scale, canvas) {
   const points = stroke.points || [];
   if (!points.length) {
@@ -262,7 +277,7 @@ export function paintGhost(ctx, stroke, scale, canvas) {
   ctx.strokeStyle = stroke.color || "rgba(26, 26, 26, 0.4)";
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
-  ctx.lineWidth = (stroke.width || 2) * scale;
+  ctx.lineWidth = strokeLineWidth(stroke, canvas);
   tracePath(ctx, points, canvas, scale);
   ctx.restore();
 }
@@ -277,7 +292,7 @@ export function paintPen(ctx, stroke, scale, canvas) {
   ctx.strokeStyle = stroke.color || "#1A1A1A";
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
-  ctx.lineWidth = (stroke.width || 2) * scale;
+  ctx.lineWidth = strokeLineWidth(stroke, canvas);
   tracePath(ctx, points, canvas, scale);
   ctx.restore();
 }
@@ -292,7 +307,7 @@ export function paintHighlighter(ctx, stroke, scale, canvas) {
   ctx.strokeStyle = highlighterStrokeStyle(stroke.color || "#FFE566", stroke.opacity ?? HIGHLIGHTER_OPACITY_DEFAULT);
   ctx.lineCap = "butt";
   ctx.lineJoin = "round";
-  ctx.lineWidth = (stroke.width || 2) * scale;
+  ctx.lineWidth = strokeLineWidth(stroke, canvas);
   tracePath(ctx, points, canvas, scale);
   ctx.restore();
 }
@@ -302,7 +317,7 @@ export function paintPencil(ctx, stroke, scale, canvas) {
   if (!points.length) {
     return;
   }
-  const width = (stroke.width || 2) * scale;
+  const width = strokeLineWidth(stroke, canvas);
   ctx.save();
   ctx.globalCompositeOperation = "source-over";
   ctx.strokeStyle = PENCIL_COLOR;

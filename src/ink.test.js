@@ -15,7 +15,7 @@ import {
   stampItemSize,
   stampPaintLayout,
 } from "./tools.js";
-import { applyEraserToInk, catmullRomControls, itemHitsEraser, removeHitItems, removeHitStamps, stampInkItem, stampTilt } from "./ink.js";
+import { STROKE_WIDTH_REF_CSS, applyEraserToInk, catmullRomControls, itemHitsEraser, removeHitItems, removeHitStamps, stampInkItem, stampTilt, strokeLineWidth } from "./ink.js";
 
 const inkSrc = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "ink.js"), "utf8");
 const paintStampSrc = inkSrc.slice(inkSrc.indexOf("export function paintStamp"), inkSrc.indexOf("export function paintErase"));
@@ -270,5 +270,22 @@ describe("#286 빠른 획 스플라인", () => {
     const { c1, c2 } = catmullRomControls({ x: 5, y: 5 }, { x: 5, y: 5 }, { x: 9, y: 5 }, { x: 9, y: 5 });
     assert.deepEqual(c1, { x: 5 + 4 / 3, y: 5 });
     assert.deepEqual(c2, { x: 9 - 4 / 3, y: 5 });
+  });
+});
+
+describe("#288 문서 기준 획 두께", () => {
+  it("scales the line to the page, not the CSS display size", () => {
+    const stroke = { width: 2 };
+    // Same pen, same page fraction: a wider bitmap (bigger displayed page) gives
+    // a thicker line, so a big-screen PC no longer draws thinner than a phone.
+    const narrow = strokeLineWidth(stroke, { width: STROKE_WIDTH_REF_CSS });
+    const wide = strokeLineWidth(stroke, { width: STROKE_WIDTH_REF_CSS * 2 });
+    assert.equal(narrow, 2);
+    assert.equal(wide, 4);
+  });
+
+  it("falls back to the raw width when the canvas has no size", () => {
+    assert.equal(strokeLineWidth({ width: 3 }, { width: 0 }), 3);
+    assert.equal(strokeLineWidth({}, null), 2);
   });
 });
