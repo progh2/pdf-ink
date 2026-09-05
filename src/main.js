@@ -5612,6 +5612,34 @@ function pasteClipboard() {
  * 클립보드의 그림을 — 굿노트 웹은 고른 필기를 그림으로 올려 준다.
  * 누른 자리를 가운데로 놓는다.
  */
+/**
+ * 지금 화면에 보이는 그 쪽 부분의 한가운데 (#251). 외부 그림은 「원래 자리」를
+ * 알 수 없으니, 하드코딩된 왼쪽 위가 아니라 **보고 있는 곳**에 놓아야 한다.
+ * 확대·스크롤은 DOM 사각형으로 그대로 되받는다.
+ */
+function visiblePasteSpot(page) {
+  const view = state.pageViews.find((item) => item.pageNum === page);
+  if (!view?.stage) {
+    return null;
+  }
+  const box = view.stage.getBoundingClientRect();
+  if (!(box.width > 0) || !(box.height > 0)) {
+    return null;
+  }
+  const wrap = els.workspace.getBoundingClientRect();
+  const left = Math.max(box.left, wrap.left);
+  const right = Math.min(box.right, wrap.right);
+  const top = Math.max(box.top, wrap.top);
+  const bottom = Math.min(box.bottom, wrap.bottom);
+  if (right <= left || bottom <= top) {
+    return null;
+  }
+  return {
+    x: ((left + right) / 2 - box.left) / box.width,
+    y: ((top + bottom) / 2 - box.top) / box.height,
+  };
+}
+
 async function pasteHere() {
   const spot = state.pendingCapture;
   const page = spot?.page || state.page;
@@ -5786,10 +5814,12 @@ function pasteInkAt(page, at) {
     view?.cssWidth || 400,
     view?.cssHeight || 600,
   );
-  // #240: 누른 자리가 있으면 거기로, 없으면 **있던 그 자리에** 그대로.
+  // 누른 자리로, 없으면 지금 보이는 화면 한가운데로 (#251). 옛날엔 있던
+  // 자리 그대로였는데, 다른 쪽으로 복사하면 화면 밖에 떨어지기도 했다.
+  const target = at || visiblePasteSpot(page);
   const shift =
-    at && bounds
-      ? { x: at.x - (bounds.x + bounds.w / 2), y: at.y - (bounds.y + bounds.h / 2) }
+    target && bounds
+      ? { x: target.x - (bounds.x + bounds.w / 2), y: target.y - (bounds.y + bounds.h / 2) }
       : { x: 0, y: 0 };
   const pasted = offsetItems(state.inkClipboard, shift.x, shift.y);
   commitPageChange(page, () => {
@@ -5828,17 +5858,20 @@ async function pasteImageAt(page, at, src) {
       // #242: 92%로 줄이면 붙인 그림이 원래보다 작아진다. 쪽에 꽉 차는 데까지.
       maxShare: 1,
     });
-    // 우리가 오려 낸 것이면 그 자리에 그대로 앉힌다 (#240).
+    // 우리가 오려 낸 것이면 그 자리에 그대로 (#240). 아니면 누른 자리, 그도
+    // 없으면 지금 보고 있는 화면 한가운데 — 하드코딩된 왼쪽 위가 아니라 (#251).
     const home = !at && state.captureFrom ? state.captureFrom.rect : null;
     const spot = home
       ? { x: home.x, y: home.y, w: home.w || size.w, h: home.h || size.h }
-      : pastePlacement(at, size);
+      : pastePlacement(at || visiblePasteSpot(page), size);
     const item = imageItem({ src: scaled.src, x: spot.x, y: spot.y, w: spot.w, h: spot.h });
     commitPageChange(page, () => {
       pageStrokes(page).push(item);
       state.selectIndices = [pageStrokes(page).length - 1];
       state.selectPage = page;
     });
+    // #251: 한 번 되붙였으면 그 자리는 소진됐다. 다음 붙여넣기는 화면 중앙으로.
+    state.captureFrom = null;
     selectSelectTool();
     redrawRegionPage(page);
     syncSelectHud();
