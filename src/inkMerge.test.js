@@ -109,3 +109,20 @@ describe("#83 배선", () => {
     assert.match(main, /id: newItemId\(\),\s*points: \[point\]/);
   });
 });
+
+describe("#290 도장 이동 증식", () => {
+  it("keeps a moved stamp single: same id folds with the remote old position", () => {
+    const moved = { type: "stamp", id: "s:1", stamp: "승인", x: 0.6, y: 0.6 };
+    const oldSpot = { type: "stamp", id: "s:1", stamp: "승인", x: 0.2, y: 0.2 };
+    // Local has the stamp at its new place; the sidecar still has the old place.
+    const merged = mergePageItems([moved], [oldSpot], {});
+    assert.equal(merged.length, 1);
+    assert.equal(merged[0].x, 0.6);
+  });
+
+  it("would duplicate an id-less stamp (why stamps now carry an id)", () => {
+    const moved = { type: "stamp", stamp: "승인", x: 0.6, y: 0.6 };
+    const oldSpot = { type: "stamp", stamp: "승인", x: 0.2, y: 0.2 };
+    assert.equal(mergePageItems([moved], [oldSpot], {}).length, 2);
+  });
+});

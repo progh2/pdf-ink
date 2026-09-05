@@ -1,6 +1,16 @@
 import { distPointToSegment } from "./ink.js";
+import { newItemId } from "./inkMerge.js";
 import { rotateRectAround } from "./rotate.js";
 import { stampItemSize } from "./tools.js";
+
+/**
+ * A clone that lands in the same page as its source needs its own name tag, or
+ * the two share an id and the sidecar merge collapses them into one (#290).
+ * Items without an id (legacy) are left as they are — the content hash keys them.
+ */
+export function reIdItem(item, makeId = newItemId) {
+  return item && item.id != null ? { ...item, id: makeId() } : item;
+}
 
 export const PASTE_NUDGE = 0.04;
 /** Extra CSS px around a stroke so a tap on thin ink still grabs it (#86). */
@@ -283,15 +293,15 @@ export function translateItems(items, indices, dx, dy) {
   return (items || []).map((item, index) => (move.has(index) ? translateItem(item, dx, dy) : item));
 }
 
-export function copyItems(items, indices, dx = 0, dy = 0) {
+export function copyItems(items, indices, dx = 0, dy = 0, makeId = newItemId) {
   return (indices || [])
     .map((index) => items[index])
     .filter(isSelectable)
-    .map((item) => translateItem(JSON.parse(JSON.stringify(item)), dx, dy));
+    .map((item) => reIdItem(translateItem(JSON.parse(JSON.stringify(item)), dx, dy), makeId));
 }
 
-export function offsetItems(items, dx = PASTE_NUDGE, dy = PASTE_NUDGE) {
-  return (items || []).map((item) => translateItem(item, dx, dy));
+export function offsetItems(items, dx = PASTE_NUDGE, dy = PASTE_NUDGE, makeId = newItemId) {
+  return (items || []).map((item) => reIdItem(translateItem(item, dx, dy), makeId));
 }
 
 export function pasteItems(items, clipboard) {
