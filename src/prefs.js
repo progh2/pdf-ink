@@ -29,6 +29,7 @@ const ZOOM_LOCK_KEY = "pdf-ink:zoom-lock";
 const INTERACT_KEY = "pdf-ink:interact-mode";
 const ERASER_KEY = "pdf-ink:eraser";
 const FREE_RATIO_KEY = "pdf-ink:free-ratio";
+const LINK_HINTS_KEY = "pdf-ink:link-hints";
 
 export const DEFAULT_SLOTS = [
   { type: "pen", color: "#1A1A1A", width: 2, opacity: HIGHLIGHTER_OPACITY_DEFAULT, stamp: "참 잘했어요" },
@@ -335,4 +336,13 @@ export function loadFreeRatio() {
 
 export function saveFreeRatio(on) {
   writeRaw(FREE_RATIO_KEY, on ? "1" : "0");
+}
+
+/** 링크 자리를 색으로 보여 줄까 (#230). 기본은 보여 준다 — 안 보이면 못 누른다. */
+export function loadLinkHints() {
+  return readRaw(LINK_HINTS_KEY) !== "0";
+}
+
+export function saveLinkHints(on) {
+  writeRaw(LINK_HINTS_KEY, on ? "1" : "0");
 }

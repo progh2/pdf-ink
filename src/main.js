@@ -30,6 +30,7 @@ import {
   loadFreeRatio,
   loadInkTools,
   loadInteractMode,
+  loadLinkHints,
   loadPenButtonErase,
   loadPenButtons,
   loadPreviewWidth,
@@ -43,6 +44,7 @@ import {
   saveFreeRatio,
   saveInkTools,
   saveInteractMode,
+  saveLinkHints,
   savePenButtonErase,
   savePenButtons,
   savePreviewWidth,
@@ -484,6 +486,7 @@ const els = {
   nextBtn: document.querySelector("#next-btn"),
   pageLabel: document.querySelector("#page-label"),
   zoomLockBtn: document.querySelector("#zoom-lock-btn"),
+  linkHintsBtn: document.querySelector("#link-hints-btn"),
   interactBtn: document.querySelector("#interact-btn"),
   undoBtn: document.querySelector("#undo-btn"),
   redoBtn: document.querySelector("#redo-btn"),
@@ -613,6 +616,8 @@ const state = {
   inkTools: loadInkTools(),
   // #224: 끄면 비율대로, 켜면 자유롭게 늘어난다.
   freeRatio: loadFreeRatio(),
+  // #230: 링크 자리를 색으로 보여 줄까. 판정과는 무관하다.
+  linkHints: loadLinkHints(),
   // #206: 스포이드가 다음 탭을 기다리는 중인가.
   eyedropKind: null,
   editingKind: null,
@@ -2874,6 +2879,9 @@ function syncPenOnly() {
 function syncZoomLock() {
   els.zoomLockBtn.classList.toggle("is-on", state.zoomLock);
   els.zoomLockBtn.setAttribute("aria-pressed", state.zoomLock ? "true" : "false");
+  els.linkHintsBtn.classList.toggle("is-on", state.linkHints);
+  els.linkHintsBtn.setAttribute("aria-pressed", state.linkHints ? "true" : "false");
+  els.writeScreen.dataset.linkHints = state.linkHints ? "on" : "off";
 }
 
 function syncInteract() {
@@ -10271,6 +10279,12 @@ els.penButtonBtn?.addEventListener("click", () => {
 });
 els.penOnlyBtn.addEventListener("click", () => {
   setPenOnly(!state.penOnly);
+});
+els.linkHintsBtn?.addEventListener("click", () => {
+  state.linkHints = !state.linkHints;
+  saveLinkHints(state.linkHints);
+  flashBanner(state.linkHints ? "링크 자리를 보여 줍니다" : "링크 자리를 감춥니다. 탭하면 그대로 따라갑니다", 2400);
+  syncSettings();
 });
 els.zoomLockBtn.addEventListener("click", () => {
   setZoomLock(!state.zoomLock);
