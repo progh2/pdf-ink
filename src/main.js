@@ -577,6 +577,7 @@ const els = {
   settingsSheet: document.querySelector("#settings-sheet"),
   settingsBackdrop: document.querySelector("#settings-backdrop"),
   settingsDone: document.querySelector("#settings-done"),
+  buildTag: document.querySelector("#build-tag"),
   slotPanel: document.querySelector("#slot-panel"),
   slotPalette: document.querySelector("#slot-palette"),
   colorPick: document.querySelector("#color-pick"),
@@ -10917,10 +10918,42 @@ window.addEventListener("resize", () => {
   }, 120);
 });
 
+// #248: 이 앱의 버그 절반은 조용한 예외였다 — 없는 함수를 부르면 화면엔
+// 아무 표시도 없이 스위치만 죽었다. 잡히지 않은 예외·거부를 배너로 띄워
+// "안 된다"를 "무슨 예외가 났다"로 바꾼다. console은 그대로 두어(콘솔 지우지
+// 않음) 개발자 도구로 원인을 더 볼 수 있게 한다.
+let lastErrorBannerMessage = "";
+let lastErrorBannerAt = 0;
+
+function reportAppError(rawMessage) {
+  const message = String(rawMessage ?? "알 수 없는 오류").slice(0, 80);
+  const now = Date.now();
+  if (message === lastErrorBannerMessage && now - lastErrorBannerAt < 10000) {
+    // 같은 메시지가 짧은 시간에 반복되면(예: 매 프레임 실패) 배너를 도배하지 않는다.
+    return;
+  }
+  lastErrorBannerMessage = message;
+  lastErrorBannerAt = now;
+  flashBanner(`앱 오류: ${message}`, 6000);
+}
+
+window.addEventListener("error", (event) => {
+  reportAppError(event.message || event.error?.message);
+});
+
+window.addEventListener("unhandledrejection", (event) => {
+  reportAppError(event.reason?.message || String(event.reason));
+});
+
 applyChrome();
 syncToolSelection();
 syncHistoryButtons();
 syncRectTool();
+
+// #248: 새로고침한 화면이 새 버전인지 알 수 있게, 설정 시트에 빌드 표식을 찍는다.
+// typeof 가드는 이 파일을 텍스트로만 읽는 계약 테스트·정적 분석에서 정의되지
+// 않은 전역이라도 안전하게 지나가도록 하기 위함이다.
+els.buildTag.textContent = typeof __BUILD_TAG__ === "string" ? __BUILD_TAG__ : "dev";
 
 migrateLastIntoFiles()
   .then(() => loadLastSession())

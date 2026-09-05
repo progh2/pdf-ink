@@ -2213,6 +2213,15 @@ body {
   text-underline-offset: 3px;
 }
 
+/* #248: 새로고침한 화면이 새 버전인지 육안으로 알 수 있게, 짧은 빌드 표식을
+   소스 문단 옆에 조용히 붙인다. */
+.build-tag {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  color: #8B8378;
+}
+
 /* 링크 고치기 (#190). 영역 연결 패널과 같은 옷을 입는다. */
 .link-fix-panel {
   gap: 10px;
