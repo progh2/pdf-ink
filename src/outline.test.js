@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import {
   addOutlineEntry,
   deleteOutlineEntry,
+  firstOutlineTitleForPage,
   flattenOutline,
   makeOutlineEntry,
   normalizeOutline,
@@ -370,5 +371,60 @@ describe("#161 목차는 쪽 순서에 들어간다", () => {
     const list = addOutlineEntry(made, 5, leaves);
     // The hand-made order is kept; only the new one is placed.
     assert.deepEqual(list.map((entry) => entry.title), ["뒤", "앞", "페이지 5"]);
+  });
+});
+
+describe("#215 미리보기 썸 아래 목차", () => {
+  const leaves = [
+    { id: "p1", kind: "pdf", pdfPage: 1 },
+    { id: "p2", kind: "pdf", pdfPage: 2 },
+    { id: "p3", kind: "pdf", pdfPage: 3 },
+  ];
+
+  it("uses the first outline title for that page", () => {
+    const entries = normalizeOutline(
+      [
+        { id: "t:1", title: "서론", page: 2 },
+        { id: "t:2", title: "본문", page: 2 },
+        { id: "t:3", title: "끝", page: 3 },
+      ],
+      leaves,
+    );
+    assert.equal(firstOutlineTitleForPage(entries, 2, leaves), "서론");
+    assert.equal(firstOutlineTitleForPage(entries, 3, leaves), "끝");
+    assert.equal(firstOutlineTitleForPage(entries, 1, leaves), "");
+    assert.equal(firstOutlineTitleForPage([], 2, leaves), "");
+    assert.equal(firstOutlineTitleForPage(entries, 2), "서론");
+  });
+
+  it("follows the leaf when pages move (#107)", () => {
+    const [entry] = normalizeOutline([{ id: "t:1", title: "서론", page: 2 }], leaves);
+    const moved = [leaves[1], leaves[0], leaves[2]];
+    assert.equal(firstOutlineTitleForPage([entry], 1, moved), "서론");
+    assert.equal(firstOutlineTitleForPage([entry], 2, moved), "");
+  });
+
+  it("skips a blank title and takes the next on that page", () => {
+    const entries = [
+      { id: "t:1", title: "   ", page: 1 },
+      { id: "t:2", title: "표지", page: 1 },
+    ];
+    assert.equal(firstOutlineTitleForPage(entries, 1), "표지");
+  });
+
+  it("wires one caption line under the thumb, never as HTML", () => {
+    const row = main.slice(main.indexOf("function makePreviewRow"), main.indexOf("function syncPreviewCurrent"));
+    assert.match(row, /firstOutlineTitleForPage\(state\.outline, pageNum, state\.leaves\)/);
+    assert.match(row, /if \(tocTitle\)/);
+    assert.match(row, /preview-toc-caption/);
+    assert.match(row, /setOutlineTitleText\(caption, tocTitle\)/);
+    assert.doesNotMatch(row, /innerHTML/);
+    assert.match(row, /meta\.append\(label, star\)/, "no caption node when the page has no TOC");
+    assert.match(css, /\.preview-toc-caption \{[\s\S]*text-overflow: ellipsis/);
+    assert.match(css, /\.preview-toc-caption \{[\s\S]*white-space: nowrap/);
+    assert.match(css, /\.preview-toc-caption \{[\s\S]*overflow: hidden/);
+    assert.match(css, /\.preview-row \{[\s\S]*min-height: 167px/, "windowed list stride stays");
+    assert.match(main, /from "\.\/outline\.js"/);
+    assert.match(main, /firstOutlineTitleForPage/);
   });
 });
