@@ -144,6 +144,8 @@ describe("#56 GoodNotes 4 utility bar", () => {
       "image",
       "sticker",
       "rotate",
+      "pagecopy",
+      "pagepaste",
       "save",
       "bake",
       "saveas",

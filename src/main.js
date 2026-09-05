@@ -6815,6 +6815,38 @@ function runPageMenu(action) {
   }
 }
 
+/** ⋯에서 지금 쪽을 복사 (#264). 미리보기 길게 누르기 메뉴와 같은 클립을 쓴다. */
+function copyCurrentPage() {
+  const index = state.page - 1;
+  const clip = copyPageLeaf(state.leaves, state.pages, index);
+  if (!clip) {
+    flashBanner("복사할 쪽이 없습니다.");
+    return;
+  }
+  state.pageClip = clip;
+  flashBanner(`${state.page}쪽을 복사했습니다.`);
+}
+
+/** 복사한 쪽을 지금 쪽 뒤에 끼운다 (#264). */
+function pasteCurrentPage() {
+  if (!canPastePage(state.pageClip)) {
+    flashBanner("붙여넣을 쪽이 없습니다. 먼저 「이 쪽 복사」를 하세요.", 3000);
+    return;
+  }
+  const index = state.page - 1;
+  const leaf = leafAt(state.leaves, state.page);
+  const out = pastePageLeaf(state.leaves, state.pages, index, state.pageClip);
+  if (!out.key) {
+    return;
+  }
+  commitLeafChange(inkKey(leaf) || out.key, () => {
+    state.leaves = out.leaves;
+    state.pages = out.pages;
+  });
+  afterPageOp(out.at + 1);
+  flashBanner(`${out.at + 1}쪽에 붙여넣었습니다.`);
+}
+
 function movePageByDrag(from, to) {
   if (from === to) {
     return;
@@ -9565,6 +9597,18 @@ function selectMoreAction(action) {
     closeMorePanel();
     ignoreAfterPanel = true;
     openInkMove();
+    return;
+  }
+  if (action === "pagecopy") {
+    closeMorePanel();
+    ignoreAfterPanel = true;
+    copyCurrentPage();
+    return;
+  }
+  if (action === "pagepaste") {
+    closeMorePanel();
+    ignoreAfterPanel = true;
+    pasteCurrentPage();
     return;
   }
   if (action === "settings") {

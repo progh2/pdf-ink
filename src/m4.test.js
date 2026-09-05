@@ -45,6 +45,8 @@ describe("M4 #31 chrome", () => {
       "image",
       "sticker",
       "rotate",
+      "pagecopy",
+      "pagepaste",
       "save",
       "bake",
       "saveas",

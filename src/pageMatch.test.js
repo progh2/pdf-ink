@@ -308,3 +308,29 @@ describe("#204 양쪽 창", () => {
     assert.match(apply, /state\.pages\[id\] = \[payload\.image, \.\.\.payload\.items\]/);
   });
 });
+
+describe("#264 ⋯에서 페이지 복사·붙여넣기", () => {
+  const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+  const main = readFileSync(join(root, "src/main.js"), "utf8");
+  const html = readFileSync(join(root, "index.html"), "utf8");
+
+  it("offers both on the overflow menu", () => {
+    assert.match(html, /data-more="pagecopy">이 쪽 복사/);
+    assert.match(html, /data-more="pagepaste"/);
+    assert.match(main, /action === "pagecopy"[\s\S]{0,80}copyCurrentPage\(\)/);
+    assert.match(main, /action === "pagepaste"[\s\S]{0,80}pasteCurrentPage\(\)/);
+  });
+
+  it("copies the current page into the same clip the preview menu uses", () => {
+    const copy = main.slice(main.indexOf("function copyCurrentPage"), main.indexOf("function pasteCurrentPage"));
+    assert.match(copy, /copyPageLeaf\(state\.leaves, state\.pages, index\)/);
+    assert.match(copy, /state\.pageClip = clip/);
+  });
+
+  it("pastes after the current page, and says so when the clip is empty", () => {
+    const paste = main.slice(main.indexOf("function pasteCurrentPage"), main.indexOf("function movePageByDrag"));
+    assert.match(paste, /if \(!canPastePage\(state\.pageClip\)\)/);
+    assert.match(paste, /pastePageLeaf\(state\.leaves, state\.pages, index, state\.pageClip\)/);
+    assert.match(paste, /commitLeafChange/, "되돌리기 한 벌");
+  });
+});
