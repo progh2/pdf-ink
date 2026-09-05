@@ -156,6 +156,41 @@ export function handleAt(bounds, point, hit = 0.038) {
   return best;
 }
 
+/**
+ * 붙여넣은 그림을 **원래 크기**로 (#238).
+ *
+ * `imageSizeOnPage`는 무조건 쪽 폭의 절반으로 넣는다 — 파일에서 고를 때는
+ * 그 편이 편하지만, 캡처해서 붙일 때는 화면에서 보던 크기 그대로여야 한다.
+ * 그림의 픽셀을 **화면의 CSS 점**으로 바꾸고(캡처는 기기 배율만큼 크다),
+ * 다시 **지금 쪽 배율**로 나눠 종이 위 비율을 얻는다.
+ */
+export function trueSizeOnPage({
+  imgWidth,
+  imgHeight,
+  cssWidth,
+  cssHeight,
+  devicePixelRatio = 1,
+  pageScale = 1,
+  maxShare = 0.92,
+} = {}) {
+  const iw = Math.max(1, Number(imgWidth) || 1);
+  const ih = Math.max(1, Number(imgHeight) || 1);
+  const pageW = Math.max(1, Number(cssWidth) || 1);
+  const pageH = Math.max(1, Number(cssHeight) || 1);
+  const dpr = Math.max(0.1, Number(devicePixelRatio) || 1);
+  const zoom = Math.max(0.05, Number(pageScale) || 1);
+  // 화면 점 → 지금 배율에서 종이가 차지하는 몫.
+  const cssW = iw / dpr / zoom;
+  const cssH = ih / dpr / zoom;
+  let w = cssW / pageW;
+  let h = cssH / pageH;
+  // 쪽보다 크면 비율을 지키며 줄인다 — 넣자마자 화면 밖이면 못 쓴다.
+  const over = Math.max(w / maxShare, h / maxShare, 1);
+  w /= over;
+  h /= over;
+  return { w: Math.max(0.04, w), h: Math.max(0.04, h), shrunk: over > 1 };
+}
+
 export function acceptImageSrc(src) {
   if (typeof src !== "string" || !src) {
     return false;

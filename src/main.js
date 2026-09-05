@@ -354,6 +354,7 @@ import {
   imageSizeOnPage,
   lockImage,
   resizeImage,
+  trueSizeOnPage,
 } from "./image.js";
 import { addRotation, angleDegFromCenter, imagePaintDest, normalizeRotation, rotateItems, rotateSelectedItems } from "./rotate.js";
 import {
@@ -5811,7 +5812,15 @@ async function pasteImageAt(page, at, src) {
     const img = await loadHtmlImage(raw);
     const scaled = await downscaleImage(img);
     const view = state.pageViews.find((item) => item.pageNum === page);
-    const size = imageSizeOnPage(scaled.width, scaled.height, view?.cssWidth || 400, view?.cssHeight || 600);
+    // #238: 붙여넣기는 보던 크기 그대로. 기기 배율과 지금 쪽 배율을 되돌린다.
+    const size = trueSizeOnPage({
+      imgWidth: img.naturalWidth || scaled.width,
+      imgHeight: img.naturalHeight || scaled.height,
+      cssWidth: view?.cssWidth || 400,
+      cssHeight: view?.cssHeight || 600,
+      devicePixelRatio: window.devicePixelRatio || 1,
+      pageScale: state.userScale || 1,
+    });
     const spot = pastePlacement(at, size);
     const item = imageItem({ src: scaled.src, x: spot.x, y: spot.y, w: spot.w, h: spot.h });
     commitPageChange(page, () => {

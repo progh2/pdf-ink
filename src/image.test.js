@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   IMAGE_HANDLE_CSS,
   acceptImageFile,
@@ -11,6 +14,7 @@ import {
   imageSizeOnPage,
   lockImage,
   resizeImage,
+  trueSizeOnPage,
 } from "./image.js";
 
 describe("이미지", () => {
@@ -93,5 +97,61 @@ describe("#224 비율 유지 크기 조절", () => {
       const tiny = resizeImage(item, "se", { x: 0, y: 0 }, opts);
       assert.ok(tiny.w >= 0.04 && tiny.h >= 0.04);
     }
+  });
+});
+
+describe("#238 붙여넣기는 보던 크기 그대로", () => {
+  const page = { cssWidth: 400, cssHeight: 600 };
+
+  it("puts a 200pt-wide capture at half a 400pt page", () => {
+    const size = trueSizeOnPage({ imgWidth: 200, imgHeight: 300, ...page });
+    assert.ok(Math.abs(size.w - 0.5) < 1e-9);
+    assert.ok(Math.abs(size.h - 0.5) < 1e-9);
+  });
+
+  it("undoes the device pixel ratio — a phone capture is not twice as big", () => {
+    const size = trueSizeOnPage({ imgWidth: 400, imgHeight: 600, ...page, devicePixelRatio: 2 });
+    assert.ok(Math.abs(size.w - 0.5) < 1e-9, "2배 화면의 400px은 200pt다");
+  });
+
+  it("undoes the zoom — the same capture lands the same however far you zoomed", () => {
+    const atOne = trueSizeOnPage({ imgWidth: 200, imgHeight: 200, ...page });
+    const atThree = trueSizeOnPage({ imgWidth: 600, imgHeight: 600, ...page, pageScale: 3 });
+    assert.ok(Math.abs(atOne.w - atThree.w) < 1e-9, "3배로 확대해 캡처해도 같은 크기");
+  });
+
+  it("keeps a huge capture on the paper, in proportion", () => {
+    const size = trueSizeOnPage({ imgWidth: 4000, imgHeight: 2000, ...page });
+    assert.ok(size.w <= 0.92 && size.h <= 0.92, "쪽 밖으로 안 나간다");
+    assert.ok(Math.abs(size.w / size.h - (4000 / 400) / (2000 / 600)) < 1e-9, "비율은 그대로");
+    assert.equal(size.shrunk, true, "줄였다고 말해 준다");
+  });
+
+  it("never lands so small it cannot be grabbed", () => {
+    const size = trueSizeOnPage({ imgWidth: 2, imgHeight: 2, ...page });
+    assert.ok(size.w >= 0.04 && size.h >= 0.04);
+  });
+
+  it("survives nonsense instead of producing NaN", () => {
+    const size = trueSizeOnPage({});
+    assert.ok(Number.isFinite(size.w) && Number.isFinite(size.h));
+  });
+});
+
+describe("#238 배선", () => {
+  const root4 = join(dirname(fileURLToPath(import.meta.url)), "..");
+  const main4 = readFileSync(join(root4, "src/main.js"), "utf8");
+
+  it("uses the true size when pasting, not the half-page default", () => {
+    const paste = main4.slice(main4.indexOf("async function pasteImageAt"), main4.indexOf("function beginCrop"));
+    assert.match(paste, /trueSizeOnPage\(\{/);
+    assert.match(paste, /devicePixelRatio: window\.devicePixelRatio \|\| 1/);
+    assert.match(paste, /pageScale: state\.userScale \|\| 1/);
+    assert.doesNotMatch(paste, /imageSizeOnPage/, "붙여넣기는 반쪽 규칙을 안 쓴다");
+  });
+
+  it("leaves the file picker on the old rule, where half a page is handy", () => {
+    const add = main4.slice(main4.indexOf("async function addImageFile"), main4.indexOf("function rotateCurrentPage"));
+    assert.match(add, /imageSizeOnPage\(/);
   });
 });
