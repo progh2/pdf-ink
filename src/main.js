@@ -2102,10 +2102,18 @@ function newStroke(point, forceEraser = false) {
 
 function placeStamp(view, point) {
   const item = stampInkItem(activeSlot().stamp, point.x, point.y, stampTilt(point.x, point.y));
+  let index = -1;
   commitPageChange(view.pageNum, () => {
-    pageStrokes(view.pageNum).push(item);
+    const list = pageStrokes(view.pageNum);
+    list.push(item);
+    index = list.length - 1;
   });
+  // #276: 찍고 나면 계속 찍는 게 아니라 방금 찍은 도장을 골라 크기를 조절한다.
+  state.selectIndices = index >= 0 ? [index] : [];
+  state.selectPage = view.pageNum;
+  selectSelectTool();
   drawStrokesOn(view);
+  syncSelectHud();
 }
 
 /**
@@ -10794,6 +10802,14 @@ for (const kind of ["pointerdown", "pointermove", "pointerup"]) {
     els.penProbe.textContent = `${kind} · ${describePenEvent(event, state.penButtons)}`;
   });
 }
+// #275: 새는 키가 무엇인지 — 시험 칸에 포커스를 두고 눌러 보면 여기 찍힌다.
+for (const kind of ["keydown", "keyup"]) {
+  els.penProbe?.addEventListener(kind, (event) => {
+    els.penProbe.classList.add("is-live");
+    els.penProbe.textContent = `${kind} · key="${event.key}" code=${event.code} keyCode=${event.keyCode}`;
+    event.preventDefault();
+  });
+}
 
 els.linkHintsBtn?.addEventListener("click", () => {
   state.linkHints = !state.linkHints;
@@ -11175,6 +11191,31 @@ document.addEventListener("pointerdown", (event) => {
   }
   closeAllPanels();
 });
+
+// #275: S펜 버튼 등이 편집 중 한 글자 키(—·ㆍ 등)를 흘려 주소창에 들어가던 것.
+// 종이엔 글자 입력이 없으니, 입력칸 밖의 조합 없는 한 글자 키는 삼킨다.
+function isTextTarget(target) {
+  return Boolean(target?.closest?.("input, textarea, [contenteditable='true']"));
+}
+function swallowStrayKey(event) {
+  if (els.writeScreen.hidden || isTextTarget(event.target)) {
+    return;
+  }
+  if (event.ctrlKey || event.metaKey || event.altKey) {
+    return; // 단축키·붙여넣기는 그대로
+  }
+  const key = String(event.key || "");
+  // 한 글자(문자·기호)만. 화살표·Enter·Backspace 등 기능키는 이름이 길다.
+  if (key.length === 1) {
+    event.preventDefault();
+  }
+}
+document.addEventListener("keydown", swallowStrayKey, { capture: true });
+document.addEventListener("beforeinput", (event) => {
+  if (!els.writeScreen.hidden && !isTextTarget(event.target) && typeof event.data === "string" && event.data) {
+    event.preventDefault();
+  }
+}, { capture: true });
 
 document.addEventListener("paste", onNativePaste);
 els.workspace.addEventListener("dragover", onPaperDragOver);

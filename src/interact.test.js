@@ -668,3 +668,26 @@ describe("#274 삼성 S펜 배럴 버튼", () => {
     assert.equal(penButtonAction({ pointerType: "pen", button: 0, buttons: 0, buttonMap: map, enabled: false }), null);
   });
 });
+
+describe("#275 편집 중 한 글자 키가 새지 않게", () => {
+  it("swallows a lone character key outside inputs while editing", () => {
+    assert.match(main, /function swallowStrayKey\(event\)/);
+    assert.match(main, /if \(event\.ctrlKey \|\| event\.metaKey \|\| event\.altKey\)[\s\S]{0,40}return;/, "단축키는 그대로");
+    assert.match(main, /if \(key\.length === 1\) \{\s*event\.preventDefault\(\)/);
+    assert.match(main, /addEventListener\("keydown", swallowStrayKey, \{ capture: true \}\)/);
+    assert.match(main, /addEventListener\(\s*"beforeinput"/);
+  });
+
+  it("never touches keys typed into a real input", () => {
+    assert.match(main, /function isTextTarget\(target\)[\s\S]{0,120}input, textarea, \[contenteditable/);
+  });
+});
+
+describe("#276 도장 찍은 뒤 크기 조정", () => {
+  it("selects the stamp it just placed instead of staying in stamp mode", () => {
+    const place = main.slice(main.indexOf("function placeStamp"), main.indexOf("function placeStamp") + 600);
+    assert.match(place, /state\.selectIndices = index >= 0 \? \[index\] : \[\]/);
+    assert.match(place, /selectSelectTool\(\)/);
+    assert.match(place, /syncSelectHud\(\)/);
+  });
+});
