@@ -1423,6 +1423,37 @@ async function blankThumbShape(leaf, size) {
   }
 }
 
+/**
+ * 한 뷰의 pdf 캔버스에는 렌더가 하나만 돈다 (#258). pdf.js는 같은 캔버스에
+ * 두 render()가 겹치면 던진다. 새로 그리기 전에 진행 중인 것을 취소하고,
+ * 취소로 생기는 예외는 정상 흐름이므로 삼킨다.
+ */
+async function renderPdfPage(view, page, ctx, viewport) {
+  if (view.renderTask) {
+    try {
+      view.renderTask.cancel();
+    } catch {
+      // 이미 끝났을 수 있다.
+    }
+  }
+  const task = page.render({ canvasContext: ctx, viewport });
+  view.renderTask = task;
+  try {
+    await task.promise;
+  } catch (error) {
+    // 취소는 우리가 시킨 것 — 오류가 아니다.
+    if (error?.name === "RenderingCancelledException") {
+      return "cancelled";
+    }
+    throw error;
+  } finally {
+    if (view.renderTask === task) {
+      view.renderTask = null;
+    }
+  }
+  return "done";
+}
+
 async function renderPageView(view) {
   const token = ++view.token;
   const leaf = leafAt(state.leaves, view.pageNum);
@@ -1474,8 +1505,10 @@ async function renderPageView(view) {
   const ctx = canvas2d(view.pdfCanvas);
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, view.pdfCanvas.width, view.pdfCanvas.height);
-  await page.render({ canvasContext: ctx, viewport: pixel }).promise;
-  if (token !== view.token) {
+  // #258: 링크로 쪽을 넘기면 이전 렌더가 같은 캔버스에서 아직 돌 수 있다.
+  // token은 결과만 버릴 뿐 render()를 멈추지 않아 「같은 캔버스 중복 렌더」가
+  // 났다. 새 렌더 전에 진행 중인 것을 취소한다.
+  if (await renderPdfPage(view, page, ctx, pixel) === "cancelled" || token !== view.token) {
     return;
   }
   view.rendered = true;
