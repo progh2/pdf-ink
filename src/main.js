@@ -308,6 +308,7 @@ import {
   wholeImageRect,
 } from "./stickers.js";
 import { captureRegionPng, composePageRgba, cropRgba, encodePngRgba, writePngClipboard } from "./capture.js";
+import { pasteAvailability, pastePlacement, readClipboardImage } from "./clipboardPaste.js";
 import {
   copyItems,
   copyItemsInRect,
@@ -3667,6 +3668,7 @@ function syncSelectHud() {
 function hideMarqueeMenu() {
   if (els.marqueeMenu) {
     els.marqueeMenu.hidden = true;
+    restoreMarqueeCells();
   }
 }
 
@@ -4892,12 +4894,52 @@ function placeMarqueeMenuUi() {
   els.marqueeMenu.style.top = `${pos.top}px`;
 }
 
+/**
+ * 붙여넣을 것이 있는지 보고 칸을 흐리게 한다 (#219). 시스템 클립보드는
+ * 물어봐야 알 수 있어 비동기다 — 먼저 내 것으로 판단해 놓고, 답이 오면 고친다.
+ */
+function refreshPasteCell() {
+  const cell = els.marqueeMenu?.querySelector('[data-marquee="paste"]');
+  if (!cell) {
+    return;
+  }
+  const mine = state.inkClipboard.length > 0;
+  cell.disabled = !mine;
+  pasteAvailability(state.inkClipboard, navigator.clipboard).then((found) => {
+    if (!els.marqueeMenu?.hidden) {
+      cell.disabled = !found.ready;
+    }
+  });
+}
+
 function showMarqueeMenu() {
   if (!state.pendingCapture || !els.marqueeMenu) {
     return;
   }
   els.marqueeMenu.hidden = false;
+  refreshPasteCell();
   placeMarqueeMenuUi();
+}
+
+/**
+ * 영역 도구로 **끌지 않고 오래 누르면** 그 자리에 붙여넣기 메뉴가 열린다
+ * (#219). 끌어서 만든 영역의 메뉴와 같은 메뉴라, 칸이 두 벌이 되지 않는다.
+ */
+function showPasteMenuAt(page, point) {
+  state.pendingCapture = { page, rect: { x: point.x, y: point.y, w: 0, h: 0 }, pasteOnly: true };
+  els.marqueeMenu.hidden = false;
+  for (const cell of els.marqueeMenu.querySelectorAll("[data-marquee]")) {
+    // 영역이 없으니 영역을 다루는 칸은 숨긴다.
+    cell.hidden = cell.dataset.marquee !== "paste";
+  }
+  refreshPasteCell();
+  placeMarqueeMenuUi();
+}
+
+function restoreMarqueeCells() {
+  for (const cell of els.marqueeMenu?.querySelectorAll("[data-marquee]") || []) {
+    cell.hidden = false;
+  }
 }
 
 function updateMarquee() {
@@ -4952,9 +4994,23 @@ function startRect(event, stage) {
   state.drawCanvas = ink;
   state.pendingCapture = null;
   hideMarqueeMenu();
-  state.currentRect = { page: state.drawPage, a: point, b: point };
+  state.currentRect = { page: state.drawPage, a: point, b: point, at: { x: event.clientX, y: event.clientY } };
   updateMarquee();
+  // #219: 끌지 않고 400ms 누르고 있으면 붙여넣기 메뉴.
+  window.clearTimeout(rectHoldTimer);
+  rectHoldTimer = window.setTimeout(() => {
+    rectHoldTimer = 0;
+    const live = state.currentRect;
+    if (!live || rectBigEnough(rectFromPoints(live.a, live.b))) {
+      return;
+    }
+    state.currentRect = null;
+    hideMarquee();
+    showPasteMenuAt(live.page, live.a);
+  }, PAGE_HOLD_MS);
 }
+
+let rectHoldTimer = 0;
 
 function moveRect(event) {
   if (!state.currentRect || !state.drawCanvas) {
@@ -4962,10 +5018,17 @@ function moveRect(event) {
   }
   event.preventDefault();
   state.currentRect.b = eventToNorm(event, state.drawCanvas);
+  if (rectHoldTimer && rectBigEnough(rectFromPoints(state.currentRect.a, state.currentRect.b))) {
+    // 끌기 시작 — 이건 영역 만들기지 붙여넣기가 아니다.
+    window.clearTimeout(rectHoldTimer);
+    rectHoldTimer = 0;
+  }
   updateMarquee();
 }
 
 function endRect(event) {
+  window.clearTimeout(rectHoldTimer);
+  rectHoldTimer = 0;
   if (!state.currentRect) {
     return;
   }
@@ -5478,6 +5541,94 @@ function pasteClipboard() {
   }
   syncToolSelection();
   syncSelectHud();
+}
+
+/**
+ * 메뉴에서 부르는 붙여넣기 (#219). 내 것이 있으면 그것을, 없으면 시스템
+ * 클립보드의 그림을 — 굿노트 웹은 고른 필기를 그림으로 올려 준다.
+ * 누른 자리를 가운데로 놓는다.
+ */
+async function pasteHere() {
+  const spot = state.pendingCapture;
+  const page = spot?.page || state.page;
+  const at = spot?.rect ? { x: spot.rect.x + spot.rect.w / 2, y: spot.rect.y + spot.rect.h / 2 } : null;
+  hideMarqueeMenu();
+  if (state.interactMode === "view") {
+    flashBanner("보기 중입니다. 자물쇠를 풀면 붙일 수 있습니다.");
+    return;
+  }
+  if (state.inkClipboard.length) {
+    pasteInkAt(page, at);
+    return;
+  }
+  const src = await readClipboardImage(navigator.clipboard, readBlobDataUrl);
+  if (!src) {
+    flashBanner("붙여넣을 것이 없습니다.");
+    return;
+  }
+  await pasteImageAt(page, at, src);
+}
+
+function readBlobDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
+}
+
+/** 앱 안에서 복사한 항목을 누른 자리에. */
+function pasteInkAt(page, at) {
+  const view = state.pageViews.find((item) => item.pageNum === page);
+  const bounds = selectedBounds(
+    state.inkClipboard,
+    state.inkClipboard.map((_, index) => index),
+    view?.cssWidth || 400,
+    view?.cssHeight || 600,
+  );
+  const shift =
+    at && bounds
+      ? { x: at.x - (bounds.x + bounds.w / 2), y: at.y - (bounds.y + bounds.h / 2) }
+      : { x: 0.04, y: 0.04 };
+  const pasted = offsetItems(state.inkClipboard, shift.x, shift.y);
+  commitPageChange(page, () => {
+    const list = pageStrokes(page);
+    const start = list.length;
+    list.push(...pasted);
+    state.selectIndices = pasted.map((_, index) => start + index);
+    state.selectPage = page;
+  });
+  selectSelectTool();
+  redrawRegionPage(page);
+  syncSelectHud();
+}
+
+/** 바깥에서 온 그림을 누른 자리에. 크기는 이미지 넣기(#25)와 같은 규칙. */
+async function pasteImageAt(page, at, src) {
+  try {
+    if (!acceptImageSrc(src)) {
+      flashBanner("PNG, JPEG, WebP만 붙일 수 있습니다.");
+      return;
+    }
+    const img = await loadHtmlImage(src);
+    const scaled = await downscaleImage(img);
+    const view = state.pageViews.find((item) => item.pageNum === page);
+    const size = imageSizeOnPage(scaled.width, scaled.height, view?.cssWidth || 400, view?.cssHeight || 600);
+    const spot = pastePlacement(at, size);
+    const item = imageItem({ src: scaled.src, x: spot.x, y: spot.y, w: spot.w, h: spot.h });
+    commitPageChange(page, () => {
+      pageStrokes(page).push(item);
+      state.selectIndices = [pageStrokes(page).length - 1];
+      state.selectPage = page;
+    });
+    selectSelectTool();
+    redrawRegionPage(page);
+    syncSelectHud();
+    flashBanner("붙여넣었습니다.");
+  } catch {
+    flashBanner("그림을 붙이지 못했습니다.");
+  }
 }
 
 function beginCrop() {
@@ -10128,6 +10279,10 @@ function runMarqueeAction(action) {
     return;
   }
   {
+    if (action === "paste") {
+      pasteHere();
+      return;
+    }
     if (action === "copy") {
       copyRegion();
       return;
