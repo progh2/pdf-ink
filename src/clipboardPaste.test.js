@@ -11,6 +11,8 @@ import {
   pastePlacement,
   pasteTypesOf,
   pickImageType,
+  privatePasteApp,
+  privatePasteMessage,
   readClipboardImage,
   readPasteEvent,
   svgDataUrl,
@@ -231,5 +233,56 @@ describe("#226 배선", () => {
 
   it("points at Ctrl+V when the menu route came up empty on a desktop", () => {
     assert.match(main2, /pointer: fine[\s\S]{0,120}Ctrl\+V로 해 보세요/);
+  });
+});
+
+describe("#228 앱 안에만 있는 것", () => {
+  it("recognises GoodNotes' own marker for what it is", () => {
+    const found = privatePasteApp("com.goodnotesapp.goodnotes5.notes");
+    assert.equal(found.app, "굿노트");
+  });
+
+  it("recognises the shape of an app-private marker even when we do not know the app", () => {
+    assert.ok(privatePasteApp("com.some.other.app"), "역순 도메인 하나뿐이면 이름표다");
+    assert.equal(privatePasteApp("com.some.other.app").app, "");
+  });
+
+  it("does not mistake real text for a marker", () => {
+    assert.equal(privatePasteApp("내일 회의 준비"), null);
+    assert.equal(privatePasteApp("https://example.com/a"), null);
+    assert.equal(privatePasteApp(""), null);
+    assert.equal(privatePasteApp("com.a ".repeat(40)), null, "길고 띄어쓰기 있는 것은 글이다");
+  });
+
+  it("says why it cannot work, and what to do instead", () => {
+    const message = privatePasteMessage(privatePasteApp("com.goodnotesapp.goodnotes5.notes"));
+    assert.match(message, /굿노트이 필기를 앱 안에만 담아서|굿노트/);
+    assert.match(message, /이미지로 내보/, "다음에 할 일을 준다");
+  });
+});
+
+describe("#228 배선", () => {
+  const root3 = join(dirname(fileURLToPath(import.meta.url)), "..");
+  const main3 = readFileSync(join(root3, "src/main.js"), "utf8");
+  const css3 = readFileSync(join(root3, "src/style.css"), "utf8");
+
+  it("explains an app-private marker instead of listing formats", () => {
+    const handler = main3.slice(main3.indexOf("async function onNativePaste"), main3.indexOf("function pageUnderPointer"));
+    assert.match(handler, /const locked = privatePasteApp\(found\.text\)/);
+    assert.ok(handler.indexOf("privatePasteMessage") < handler.indexOf("클립보드: "), "이름표면 형식 얘기까지 가지 않는다");
+  });
+
+  it("takes an image dropped on the paper, at the spot it landed", () => {
+    const drop = main3.slice(main3.indexOf("async function onPaperDrop"), main3.indexOf("function readBlobText"));
+    assert.match(drop, /acceptImageFile\(one\)\.ok/, "같은 검사(#25)를 지난다");
+    assert.match(drop, /pasteImageAt\(spot\.page, spot\.at/);
+    assert.match(drop, /state\.interactMode === "view"/, "보기 중엔 안 놓는다");
+  });
+
+  it("stops the browser from opening the file over the document", () => {
+    const over = main3.slice(main3.indexOf("function onPaperDragOver"), main3.indexOf("function onPaperDragLeave"));
+    assert.match(over, /event\.preventDefault\(\)/);
+    assert.match(over, /types \|\| \[\]\)\.includes\("Files"\)/, "파일일 때만 가로챈다");
+    assert.match(css3, /is-dropping::after/, "놓을 곳을 보여 준다");
   });
 });

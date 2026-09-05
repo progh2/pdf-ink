@@ -191,3 +191,38 @@ export function readPasteEvent(dataTransfer) {
   }
   return { file: null, src: "", saw, text: get("text/plain").slice(0, 80) };
 }
+
+
+/* ---- 앱 안에만 있는 것 (#228) ------------------------------------------ */
+
+/**
+ * 어떤 앱은 시스템 클립보드에 **이름표만** 올리고 내용은 제 안에 둔다.
+ * 굿노트가 그렇다: `text/plain`에 `com.goodnotesapp.goodnotes5.notes` 하나뿐이고
+ * 필기는 앱 밖으로 나오지 않는다. 어떤 웹앱도 못 읽는다 — 그러니 「형식이
+ * 이상하다」가 아니라 **왜 안 되는지**를 말해야 한다.
+ */
+export const PRIVATE_PASTE_MARKERS = [
+  { match: /goodnotes/i, app: "굿노트" },
+  { match: /com\.apple\.notes/i, app: "애플 메모" },
+  { match: /notability/i, app: "노타빌리티" },
+  { match: /^com\.[\w.]+$/i, app: "" },
+];
+
+/** 그 글자가 「앱 안에만 있다」는 이름표인가. 맞으면 앱 이름(알면)을 준다. */
+export function privatePasteApp(text) {
+  const clean = String(text || "").trim();
+  if (!clean || clean.includes(" ") || clean.length > 120) {
+    return null;
+  }
+  for (const marker of PRIVATE_PASTE_MARKERS) {
+    if (marker.match.test(clean)) {
+      return { app: marker.app, marker: clean };
+    }
+  }
+  return null;
+}
+
+export function privatePasteMessage(found) {
+  const who = found?.app || "그 앱";
+  return `${who}이 필기를 앱 안에만 담아서 붙일 수 없습니다. ${who}에서 이미지로 내보낸 뒤 끌어다 놓거나 붙여넣으세요.`;
+}

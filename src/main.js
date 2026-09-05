@@ -312,7 +312,14 @@ import {
   wholeImageRect,
 } from "./stickers.js";
 import { captureRegionPng, composePageRgba, cropRgba, encodePngRgba, writePngClipboard } from "./capture.js";
-import { pasteAvailability, pastePlacement, readClipboardImage, readPasteEvent } from "./clipboardPaste.js";
+import {
+  pasteAvailability,
+  pastePlacement,
+  privatePasteApp,
+  privatePasteMessage,
+  readClipboardImage,
+  readPasteEvent,
+} from "./clipboardPaste.js";
 import {
   copyItems,
   copyItemsInRect,
@@ -5630,8 +5637,68 @@ async function onNativePaste(event) {
     pasteInkAt(page, at);
     return;
   }
-  // 붙일 것이 없다 — 무엇이 있었는지 그대로 말해 준다.
+  // 앱 안에만 있는 것이면 왜 안 되는지를 말한다 — 형식 얘기는 도움이 안 된다.
+  const locked = privatePasteApp(found.text);
+  if (locked) {
+    flashBanner(privatePasteMessage(locked), 7000);
+    return;
+  }
   flashBanner(`붙일 수 있는 그림이 없습니다 · 클립보드: ${found.saw}${found.text ? ` · "${found.text}"` : ""}`, 6000);
+}
+
+/**
+ * 종이에 그림 파일을 끌어다 놓기 (#228). 붙여넣기가 막힌 앱에서도 「이미지로
+ * 내보내서 끌어다 놓기」는 늘 통한다 — 파일은 앱 밖으로 나오기 때문이다.
+ * 놓은 자리가 가운데가 된다.
+ */
+function pageUnderPointer(event) {
+  const stage = event.target.closest?.(".page-stage") || document.elementFromPoint(event.clientX, event.clientY)?.closest?.(".page-stage");
+  if (!stage) {
+    return null;
+  }
+  const page = Number(stage.dataset.page) || 0;
+  const box = stage.getBoundingClientRect();
+  return page
+    ? {
+        page,
+        at: { x: (event.clientX - box.left) / (box.width || 1), y: (event.clientY - box.top) / (box.height || 1) },
+      }
+    : null;
+}
+
+function onPaperDragOver(event) {
+  if (!state.pdf || els.writeScreen.hidden || state.interactMode === "view") {
+    return;
+  }
+  if (!pageUnderPointer(event) || !(event.dataTransfer?.types || []).includes("Files")) {
+    return;
+  }
+  // 막지 않으면 브라우저가 그 파일을 열어 버려 문서가 사라진다.
+  event.preventDefault();
+  event.dataTransfer.dropEffect = "copy";
+  els.workspace.classList.add("is-dropping");
+}
+
+function onPaperDragLeave() {
+  els.workspace.classList.remove("is-dropping");
+}
+
+async function onPaperDrop(event) {
+  els.workspace.classList.remove("is-dropping");
+  if (!state.pdf || els.writeScreen.hidden) {
+    return;
+  }
+  const spot = pageUnderPointer(event);
+  const file = [...(event.dataTransfer?.files || [])].find((one) => acceptImageFile(one).ok);
+  if (!spot || !file) {
+    return;
+  }
+  event.preventDefault();
+  if (state.interactMode === "view") {
+    flashBanner("보기 중입니다. 자물쇠를 풀면 놓을 수 있습니다.");
+    return;
+  }
+  await pasteImageAt(spot.page, spot.at, await readBlobDataUrl(file));
 }
 
 function readBlobText(blob) {
@@ -10540,6 +10607,9 @@ document.addEventListener("pointerdown", (event) => {
 });
 
 document.addEventListener("paste", onNativePaste);
+els.workspace.addEventListener("dragover", onPaperDragOver);
+els.workspace.addEventListener("dragleave", onPaperDragLeave);
+els.workspace.addEventListener("drop", onPaperDrop);
 document.addEventListener("keydown", (event) => {
   const typing = event.target.closest?.("input, textarea, [contenteditable='true']");
   // #225: PC에서 손이 키보드에 있을 때. 칸에 글씨를 치는 중이면 브라우저 몫이다.
