@@ -15,7 +15,7 @@ import {
   stampItemSize,
   stampPaintLayout,
 } from "./tools.js";
-import { STROKE_WIDTH_REF_CSS, applyEraserToInk, catmullRomControls, itemHitsEraser, removeHitItems, removeHitStamps, stampInkItem, stampTilt, strokeLineWidth } from "./ink.js";
+import { STROKE_WIDTH_REF_CSS, applyEraserToInk, catmullRomControls, itemHitsEraser, paintPen, removeHitItems, removeHitStamps, stampInkItem, stampTilt, strokeLineWidth } from "./ink.js";
 
 const inkSrc = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "ink.js"), "utf8");
 const paintStampSrc = inkSrc.slice(inkSrc.indexOf("export function paintStamp"), inkSrc.indexOf("export function paintErase"));
@@ -287,5 +287,51 @@ describe("#288 문서 기준 획 두께", () => {
   it("falls back to the raw width when the canvas has no size", () => {
     assert.equal(strokeLineWidth({ width: 3 }, { width: 0 }), 3);
     assert.equal(strokeLineWidth({}, null), 2);
+  });
+});
+
+describe("#294 증분 펜 렌더", () => {
+  function mockCtx() {
+    const calls = { moveTo: [], bezierCurveTo: 0, clearRect: 0 };
+    return {
+      calls,
+      save() {},
+      restore() {},
+      beginPath() {},
+      moveTo(x, y) {
+        calls.moveTo.push([x, y]);
+      },
+      lineTo() {},
+      bezierCurveTo() {
+        calls.bezierCurveTo += 1;
+      },
+      stroke() {},
+    };
+  }
+  const canvas = { width: 1000, height: 1000 };
+  const stroke = {
+    type: "pen",
+    width: 2,
+    points: [
+      { x: 0.1, y: 0.1 },
+      { x: 0.2, y: 0.2 },
+      { x: 0.3, y: 0.1 },
+      { x: 0.4, y: 0.3 },
+      { x: 0.5, y: 0.1 },
+    ],
+  };
+
+  it("draws every segment from the start", () => {
+    const ctx = mockCtx();
+    paintPen(ctx, stroke, 1, canvas);
+    assert.equal(ctx.calls.bezierCurveTo, stroke.points.length - 1);
+  });
+
+  it("draws only the tail when given a start index", () => {
+    const ctx = mockCtx();
+    paintPen(ctx, stroke, 1, canvas, 3);
+    // From index 3: one segment (3→4), and the path begins at point 3.
+    assert.equal(ctx.calls.bezierCurveTo, 1);
+    assert.deepEqual(ctx.calls.moveTo[0], [0.4 * 1000, 0.3 * 1000]);
   });
 });

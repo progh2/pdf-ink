@@ -220,7 +220,13 @@ export function catmullRomControls(p0, p1, p2, p3, alpha = 0.5) {
  * straight bits and a fast stroke keeps its corners (#135, #286).
  * Same path for live and stored ink, so nothing changes shape on commit.
  */
-function tracePath(ctx, points, canvas, scale, jitter = 0, salt = 0) {
+/**
+ * #294: `startAt`으로 꼬리만 다시 그릴 수 있다. 라이브 층에서 불투명한 펜은
+ * 캔버스를 지우지 않고 새로 늘어난 구간만 덧그린다 — 매 프레임 전체를 다시
+ * 그리던 O(n) 비용이 사라져 긴 획도 끊기지 않는다. 이웃점은 전체 배열에서
+ * 그대로 참조하므로 마지막 구간을 덧그려도 커밋한 모양과 정확히 같다.
+ */
+function tracePath(ctx, points, canvas, scale, jitter = 0, salt = 0, startAt = 0) {
   const at = (point) => {
     const jx = jitter ? (hashUnit(point.x, point.y, salt) - 0.5) * jitter * 2 : 0;
     const jy = jitter ? (hashUnit(point.y, point.x, salt + 9) - 0.5) * jitter * 2 : 0;
@@ -230,21 +236,24 @@ function tracePath(ctx, points, canvas, scale, jitter = 0, salt = 0) {
   if (!points.length) {
     return;
   }
-  const first = at(points[0]);
-  ctx.moveTo(first.x, first.y);
   if (points.length === 1) {
+    const first = at(points[0]);
+    ctx.moveTo(first.x, first.y);
     ctx.lineTo(first.x + 0.15 * scale, first.y);
     ctx.stroke();
     return;
   }
   if (points.length === 2) {
-    const only = at(points[1]);
-    ctx.lineTo(only.x, only.y);
+    const first = at(points[0]);
+    ctx.moveTo(first.x, first.y);
+    ctx.lineTo(at(points[1]).x, at(points[1]).y);
     ctx.stroke();
     return;
   }
   const pts = points.map(at);
-  for (let index = 0; index < pts.length - 1; index += 1) {
+  const begin = Math.min(Math.max(0, Math.round(startAt) || 0), pts.length - 1);
+  ctx.moveTo(pts[begin].x, pts[begin].y);
+  for (let index = begin; index < pts.length - 1; index += 1) {
     const p0 = pts[index - 1] || pts[index];
     const p1 = pts[index];
     const p2 = pts[index + 1];
@@ -285,7 +294,7 @@ export function paintGhost(ctx, stroke, scale, canvas) {
   ctx.restore();
 }
 
-export function paintPen(ctx, stroke, scale, canvas) {
+export function paintPen(ctx, stroke, scale, canvas, startAt = 0) {
   const points = stroke.points || [];
   if (!points.length) {
     return;
@@ -296,7 +305,7 @@ export function paintPen(ctx, stroke, scale, canvas) {
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
   ctx.lineWidth = strokeLineWidth(stroke, canvas);
-  tracePath(ctx, points, canvas, scale);
+  tracePath(ctx, points, canvas, scale, 0, 0, startAt);
   ctx.restore();
 }
 
