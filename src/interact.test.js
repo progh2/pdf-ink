@@ -9,8 +9,6 @@ import {
   INTERACT_UNLOCKED_LABEL,
   NUDGE_BIG,
   NUDGE_STEP,
-  PEN_ACTIONS,
-  PEN_BUTTON_DEFAULTS,
   VIEW_NOTICE_TEXT,
   allowsInkButton,
   appendInkPoint,
@@ -18,7 +16,6 @@ import {
   beginInkPoints,
   canCreateInk,
   cursorForTool,
-  describePenEvent,
   finishInkPoints,
   hoverShapeForTool,
   interactModeLabel,
@@ -26,9 +23,7 @@ import {
   isReusedInkStart,
   isStrokePointer,
   normFromRect,
-  normalizePenButtons,
   nudgeFor,
-  penButtonAction,
   rectFromPoints,
   shortcutAllowed,
   shortcutFor,
@@ -259,91 +254,6 @@ describe("보기 중 안내 (#86)", () => {
   });
 });
 
-describe("#137·#139 펜 버튼", () => {
-  const erase = (extra) => penButtonAction({ pointerType: "pen", ...extra });
-
-  it("erases with the barrel and the eraser end by default", () => {
-    assert.equal(erase({ buttons: 3 }), "eraser", "tip + barrel");
-    assert.equal(erase({ buttons: 32 }), "eraser", "eraser end");
-    assert.equal(erase({ button: 5 }), "eraser");
-    assert.equal(erase({ buttons: 1 }), null, "plain tip draws");
-  });
-
-  it("tells the second button apart and follows the setting", () => {
-    assert.equal(erase({ buttons: 5 }), "select", "tip + second button, default 선택");
-    assert.equal(erase({ buttons: 5, buttonMap: { second: "eraser" } }), "eraser");
-    assert.equal(erase({ buttons: 3, buttonMap: { barrel: "select" } }), "select");
-    assert.equal(erase({ buttons: 3, buttonMap: { barrel: "none" } }), null, "없음 draws normally");
-  });
-
-  it("keeps the eraser end an eraser, whatever the buttons are set to", () => {
-    assert.equal(erase({ buttons: 32, buttonMap: { barrel: "none", second: "none" } }), "eraser");
-  });
-
-  it("never lets a mouse right-click draw or erase", () => {
-    assert.equal(penButtonAction({ pointerType: "mouse", buttons: 2, button: 2 }), null);
-    assert.equal(penButtonAction({ pointerType: "touch", buttons: 2 }), null);
-    assert.equal(allowsInkButton({ pointerType: "mouse", button: 2 }), false);
-    assert.equal(allowsInkButton({ pointerType: "mouse", button: 0 }), true);
-    assert.equal(allowsInkButton({ pointerType: "touch" }), true);
-  });
-
-  it("can be switched off entirely", () => {
-    assert.equal(erase({ buttons: 32, enabled: false }), null);
-  });
-
-  it("lets a pen start a stroke on any of its buttons", () => {
-    for (const button of [1, 2, 5]) {
-      assert.equal(allowsInkButton({ pointerType: "pen", button }), true, `button ${button}`);
-    }
-    assert.equal(allowsInkButton({ pointerType: "pen", button: 3 }), false);
-  });
-
-  it("normalizes a stored map, falling back to the defaults", () => {
-    assert.deepEqual(normalizePenButtons(null), PEN_BUTTON_DEFAULTS);
-    assert.deepEqual(normalizePenButtons({ barrel: "nonsense", second: "none" }), {
-      barrel: "eraser",
-      second: "none",
-    });
-    assert.deepEqual(PEN_ACTIONS, ["eraser", "select", "none"]);
-  });
-});
-
-describe("#137·#139 배선", () => {
-  it("lets the pen button start a stroke and erase just that stroke", () => {
-    assert.match(main, /allowsInkButton\(\{ pointerType: event\.pointerType, button: event\.button \}\)/);
-    assert.match(main, /penAction = penButtonAction\(\{/);
-    assert.match(main, /newStroke\(point, penAction === "eraser"\)/);
-    assert.match(main, /buttonMap: state\.penButtons/);
-    // The tool itself is untouched by the eraser action.
-    const start = main.slice(main.indexOf("function startStroke"), main.indexOf("function moveStroke"));
-    assert.doesNotMatch(start, /state\.tool = "eraser"/);
-  });
-
-  it("turns the select tool on for the select action, so handles appear", () => {
-    assert.match(main, /if \(penAction === "select"\) \{[\s\S]*selectSelectTool\(\);[\s\S]*startSelect\(event, stage\)/);
-  });
-
-  it("keeps the switch and the two mappings in settings", () => {
-    assert.match(main, /penButtons: loadPenButtons\(\)/);
-    assert.match(main, /savePenButtons\(state\.penButtons\)/);
-    assert.match(html, /id="pen-button-btn"/);
-    assert.match(html, /data-pen-barrel="eraser"/);
-    assert.match(html, /data-pen-second="select"/);
-    assert.match(html, /data-pen-barrel="none"/);
-    // No new bar cell for any of it.
-    assert.equal((html.match(/class="toolbar"/g) || []).length, 1);
-  });
-
-  it("swallows the context menu on the paper and opens the paste menu (#260)", () => {
-    const handler = main.slice(main.indexOf('addEventListener("contextmenu", (event) => {'), main.indexOf('addEventListener("pointerdown", onWorkspacePointerDown)'));
-    assert.match(handler, /const stage = event\.target\.closest\("\.page-stage"\)/);
-    assert.match(handler, /event\.preventDefault\(\)/);
-    assert.match(handler, /showPasteMenuAt\(state\.drawPage, point\)/, "빈 곳 우클릭 → 붙여넣기");
-    assert.match(handler, /state\.interactMode === "view"/, "보기 중엔 안 연다");
-  });
-});
-
 describe("#155 더블탭", () => {
   it("needs two taps close in time and place", () => {
     assert.equal(isDoubleTap(1000, 900, 4), true);
@@ -556,24 +466,6 @@ describe("#234 호버 표시", () => {
     assert.equal(hoverShapeForTool("highlighter"), "highlighter");
     assert.equal(hoverShapeForTool("select"), "point");
     assert.equal(hoverShapeForTool("pen"), "nib");
-  });
-});
-
-describe("#234 펜 버튼 시험", () => {
-  it("reads the raw report back in words", () => {
-    const line = describePenEvent({ pointerType: "pen", buttons: 3, button: 0 }, { barrel: "eraser", second: "select" });
-    assert.match(line, /buttons 3/);
-    assert.match(line, /촉\+배럴/);
-    assert.match(line, /→ eraser/, "무엇으로 읽혔는지까지");
-  });
-
-  it("says plainly when a press carried no button at all", () => {
-    const line = describePenEvent({ pointerType: "pen", buttons: 1, button: 0 }, { barrel: "eraser" });
-    assert.match(line, /→ 없음/, "기기가 버튼을 안 보낸 것이 보인다");
-  });
-
-  it("survives being handed nothing", () => {
-    assert.equal(describePenEvent(null), "");
   });
 });
 

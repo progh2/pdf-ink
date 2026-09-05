@@ -1,5 +1,4 @@
 import { defaultToolbarPosition, slotLineWidth } from "./viewport.js";
-import { normalizePenButtons } from "./interact.js";
 import { clampPreviewWidth, PREVIEW_WIDTH_DEFAULT } from "./pageWindow.js";
 import { defaultFloat, floatFromLegacySide, migrateDock } from "./toolbar.js";
 import {
@@ -17,8 +16,6 @@ import {
 const TOOLBAR_POS_KEY = "pdf-ink:toolbar-pos";
 const PREVIEW_WIDTH_KEY = "pdf-ink:preview-width";
 const DROPBOX_KEY = "pdf-ink:dropbox";
-const PEN_BUTTON_KEY = "pdf-ink:pen-button";
-const PEN_BUTTON_MAP_KEY = "pdf-ink:pen-buttons";
 const RECENT_COLORS_KEY = "pdf-ink:recent-colors";
 const TOOLBAR_FLOAT_KEY = "pdf-ink:toolbar-float";
 const SLOTS_KEY = "pdf-ink:pen-slots";
@@ -294,26 +291,7 @@ export function clearDropboxSession() {
   }
 }
 
-/** 펜 버튼 (#137·#139). Default on, and each button can be assigned. */
-export function loadPenButtonErase() {
-  return readRaw(PEN_BUTTON_KEY) !== "0";
-}
 
-export function savePenButtonErase(on) {
-  writeRaw(PEN_BUTTON_KEY, on ? "1" : "0");
-}
-
-export function loadPenButtons() {
-  try {
-    return normalizePenButtons(JSON.parse(readRaw(PEN_BUTTON_MAP_KEY) || "null"));
-  } catch {
-    return normalizePenButtons(null);
-  }
-}
-
-export function savePenButtons(map) {
-  writeRaw(PEN_BUTTON_MAP_KEY, JSON.stringify(normalizePenButtons(map)));
-}
 
 /** Colours the reader mixed themselves (#158). */
 export function loadRecentColors() {

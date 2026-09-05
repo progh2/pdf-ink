@@ -39,8 +39,6 @@ import {
   loadInkTools,
   loadInteractMode,
   loadLinkHints,
-  loadPenButtonErase,
-  loadPenButtons,
   loadPreviewWidth,
   loadRecentColors,
   loadToolbarFloat,
@@ -53,8 +51,6 @@ import {
   saveInkTools,
   saveInteractMode,
   saveLinkHints,
-  savePenButtonErase,
-  savePenButtons,
   savePreviewWidth,
   saveRecentColors,
   saveToolbarFloat,
@@ -94,7 +90,6 @@ import {
   beginInkPoints,
   canCreateInk,
   cursorForTool,
-  describePenEvent,
   finishInkPoints,
   hoverShapeForTool,
   interactModeLabel,
@@ -102,7 +97,6 @@ import {
   isStrokePointer,
   normFromRect,
   nudgeFor,
-  penButtonAction,
   rectBigEnough,
   rectFromPoints,
   shortcutAllowed,
@@ -462,7 +456,6 @@ const els = {
   recents: document.querySelector("#recents"),
   otherPdf: document.querySelector("#other-pdf"),
   penOnlyBtn: document.querySelector("#pen-only-btn"),
-  penButtonBtn: document.querySelector("#pen-button-btn"),
   shareThumbsBtn: document.querySelector("#share-thumbs-btn"),
   docTitle: document.querySelector("#doc-title"),
   workspace: document.querySelector("#workspace"),
@@ -517,7 +510,6 @@ const els = {
   pageLabel: document.querySelector("#page-label"),
   zoomLockBtn: document.querySelector("#zoom-lock-btn"),
   linkHintsBtn: document.querySelector("#link-hints-btn"),
-  penProbe: document.querySelector("#pen-probe"),
   interactBtn: document.querySelector("#interact-btn"),
   headerSaveBtn: document.querySelector("#header-save-btn"),
   undoBtn: document.querySelector("#undo-btn"),
@@ -659,8 +651,6 @@ const state = {
   captures: sanitizeCaptures(loadCaptures()),
   editingKind: null,
   penOnly: loadPenOnly(),
-  penButtonErase: loadPenButtonErase(),
-  penButtons: loadPenButtons(),
   recentColors: loadRecentColors(),
   toolbarPos: loadToolbarPosition(window.innerWidth, window.innerHeight),
   toolbarFloat: loadToolbarFloat(window.innerWidth, window.innerHeight),
@@ -1064,18 +1054,11 @@ let liveWorker = null;
 let liveCanvasSeq = 0;
 
 function liveWorkerReady() {
-  if (liveWorker !== null) {
-    return liveWorker;
-  }
-  liveWorker = false;
-  try {
-    if (typeof Worker === "function" && "transferControlToOffscreen" in HTMLCanvasElement.prototype) {
-      liveWorker = new Worker(new URL("./livePaint.worker.js", import.meta.url), { type: "module" });
-    }
-  } catch {
-    liveWorker = false;
-  }
-  return liveWorker;
+  // #282: 워커 라이브 층을 끈다. 비동기 메시지라 「지우기」가 다음 획의
+  // 「그리기」보다 늦게 도착하면 짧은 획이 먹히고, 커밋과 어긋나 뗄 때
+  // 깜빡였다. 메인 스레드에서 동기로 그리면 순서가 보장된다. #172(willRead
+  // Frequently 제거)로 이미 충분히 빠르다.
+  return false;
 }
 
 function adoptLiveCanvas(view) {
@@ -2685,21 +2668,8 @@ function startStroke(event, stage) {
     noticeViewMode();
     return;
   }
-  // #137·#139: a pen also arrives on button 1 (second), 2 (barrel), 5 (eraser).
-  if (!state.pdf || !allowsInkButton({ pointerType: event.pointerType, button: event.button })) {
-    return;
-  }
-  const penAction = penButtonAction({
-    pointerType: event.pointerType,
-    buttons: event.buttons,
-    button: event.button,
-    buttonMap: state.penButtons,
-    enabled: state.penButtonErase,
-  });
-  if (penAction === "select") {
-    // Picking needs the tool on, or the selection has no handles to work with.
-    selectSelectTool();
-    startSelect(event, stage);
+  // #281: 획은 표준 주 버튼(0)만 시작한다. S펜 버튼 기능은 없앴다.
+  if (!state.pdf || !allowsInkButton({ button: event.button })) {
     return;
   }
   if (!allowsInkPointer(event) || overlayOpen() || ignoreAfterPanel) {
@@ -2746,7 +2716,7 @@ function startStroke(event, stage) {
   state.drawing = true;
   predictedTail = [];
   // 지우개는 그 획만 지우고 도구는 그대로 (#137).
-  state.currentStroke = newStroke(point, penAction === "eraser");
+  state.currentStroke = newStroke(point);
   state.currentStroke.points = beginInkPoints(point, client, lastInkUpClient);
   if (canShapeHold(state.currentStroke.type)) {
     shapeHold.begin({
@@ -2981,13 +2951,9 @@ function syncPenOnly() {
   els.penOnlyBtn.setAttribute("aria-pressed", state.penOnly ? "true" : "false");
   els.shareThumbsBtn?.classList.toggle("is-on", state.shareThumbs);
   els.shareThumbsBtn?.setAttribute("aria-pressed", state.shareThumbs ? "true" : "false");
-  els.penButtonBtn?.classList.toggle("is-on", state.penButtonErase);
-  els.penButtonBtn?.setAttribute("aria-pressed", state.penButtonErase ? "true" : "false");
   document.querySelectorAll("#pen-barrel-choices [data-pen-barrel]").forEach((btn) => {
-    btn.classList.toggle("is-selected", btn.dataset.penBarrel === state.penButtons.barrel);
   });
   document.querySelectorAll("#pen-second-choices [data-pen-second]").forEach((btn) => {
-    btn.classList.toggle("is-selected", btn.dataset.penSecond === state.penButtons.second);
   });
 }
 
@@ -10767,20 +10733,6 @@ document.querySelectorAll("#view-mode-choices [data-view]").forEach((btn) => {
   btn.addEventListener("click", () => setViewMode(btn.dataset.view));
 });
 
-document.querySelectorAll("#pen-barrel-choices [data-pen-barrel]").forEach((btn) => {
-  btn.addEventListener("click", () => {
-    state.penButtons = { ...state.penButtons, barrel: btn.dataset.penBarrel };
-    savePenButtons(state.penButtons);
-    applyChrome();
-  });
-});
-document.querySelectorAll("#pen-second-choices [data-pen-second]").forEach((btn) => {
-  btn.addEventListener("click", () => {
-    state.penButtons = { ...state.penButtons, second: btn.dataset.penSecond };
-    savePenButtons(state.penButtons);
-    applyChrome();
-  });
-});
 els.shareThumbsBtn?.addEventListener("click", () => {
   state.shareThumbs = !state.shareThumbs;
   applyChrome();
@@ -10794,36 +10746,9 @@ els.shareThumbsBtn?.addEventListener("click", () => {
 });
 els.colorPick?.addEventListener("input", () => applyPickedColor(els.colorPick.value));
 els.colorPick?.addEventListener("change", () => applyPickedColor(els.colorPick.value));
-els.penButtonBtn?.addEventListener("click", () => {
-  state.penButtonErase = !state.penButtonErase;
-  savePenButtonErase(state.penButtonErase);
-  applyChrome();
-});
 els.penOnlyBtn.addEventListener("click", () => {
   setPenOnly(!state.penOnly);
 });
-/**
- * 펜 버튼 시험 (#234). 「S펜 버튼이 안 된다」를 확인하려면 기기가 실제로
- * 무엇을 보내는지 봐야 한다 — 안 보내는 것과 잘못 읽는 것은 고칠 곳이 다르다.
- */
-for (const kind of ["pointerdown", "pointermove", "pointerup"]) {
-  els.penProbe?.addEventListener(kind, (event) => {
-    if (event.pointerType !== "pen" && event.pointerType !== "mouse") {
-      return;
-    }
-    event.preventDefault();
-    els.penProbe.classList.add("is-live");
-    els.penProbe.textContent = `${kind} · ${describePenEvent(event, state.penButtons)}`;
-  });
-}
-// #275: 새는 키가 무엇인지 — 시험 칸에 포커스를 두고 눌러 보면 여기 찍힌다.
-for (const kind of ["keydown", "keyup"]) {
-  els.penProbe?.addEventListener(kind, (event) => {
-    els.penProbe.classList.add("is-live");
-    els.penProbe.textContent = `${kind} · key="${event.key}" code=${event.code} keyCode=${event.keyCode}`;
-    event.preventDefault();
-  });
-}
 
 els.linkHintsBtn?.addEventListener("click", () => {
   state.linkHints = !state.linkHints;
