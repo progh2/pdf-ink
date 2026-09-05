@@ -420,9 +420,15 @@ describe("#215 미리보기 썸 아래 목차", () => {
     assert.match(row, /setOutlineTitleText\(caption, tocTitle\)/);
     assert.doesNotMatch(row, /innerHTML/);
     assert.match(row, /meta\.append\(label, star\)/, "no caption node when the page has no TOC");
+    assert.match(css, /\.preview-toc-caption \{[\s\S]*font-size: 12px/);
+    assert.match(css, /\.preview-toc-caption \{[\s\S]*color: #5c574e/);
+    assert.match(css, /\.preview-toc-caption \{[\s\S]*height: 18px/);
+    assert.match(css, /\.preview-toc-caption \{[\s\S]*line-height: 18px/);
     assert.match(css, /\.preview-toc-caption \{[\s\S]*text-overflow: ellipsis/);
     assert.match(css, /\.preview-toc-caption \{[\s\S]*white-space: nowrap/);
     assert.match(css, /\.preview-toc-caption \{[\s\S]*overflow: hidden/);
+    assert.match(css, /\.preview-toc-caption:empty \{[\s\S]*height: 0/);
+    assert.match(css, /\.preview-row \{[\s\S]*gap: 6px/, "6 under the 88 thumb");
     assert.match(css, /\.preview-row \{[\s\S]*min-height: 167px/, "windowed list stride stays");
     assert.match(main, /from "\.\/outline\.js"/);
     assert.match(main, /firstOutlineTitleForPage/);
