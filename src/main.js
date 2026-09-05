@@ -5030,7 +5030,11 @@ function showMarqueeMenu() {
  * (#219). 끌어서 만든 영역의 메뉴와 같은 메뉴라, 칸이 두 벌이 되지 않는다.
  */
 function showPasteMenuAt(page, point) {
-  state.pendingCapture = { page, rect: { x: point.x, y: point.y, w: 0, h: 0 }, pasteOnly: true };
+  // 손가락만 한 점을 영역으로 삼아, 마퀴 박스를 그 자리에 세운다 — 안 그러면
+  // 박스가 0,0이라 메뉴가 화면 밖에 뜬다 (#263).
+  const tiny = 0.001;
+  state.pendingCapture = { page, rect: { x: point.x, y: point.y, w: tiny, h: tiny }, pasteOnly: true };
+  updateMarquee();
   els.marqueeMenu.hidden = false;
   for (const cell of els.marqueeMenu.querySelectorAll("[data-marquee]")) {
     // 영역이 없으니 영역을 다루는 칸은 숨긴다.
@@ -5918,7 +5922,13 @@ async function pasteImageAt(page, at, src, metaRect = null) {
     const scaled = await downscaleImage(img);
     const view = state.pageViews.find((item) => item.pageNum === page);
     // #256: 이 그림이 우리가 캡처한 것이면(지문 일치) 원래 자리·크기로.
-    const known = metaRect ? { rect: metaRect } : findCapture(state.captures, hashOfImage(img), hamming);
+    const pasteHash = hashOfImage(img);
+    const known = metaRect ? { rect: metaRect } : findCapture(state.captures, pasteHash, hamming);
+    // #263 진단: 왜 매칭이 됐는지/안 됐는지 좌표로 재려고 최소 거리를 재둔다.
+    let bestFar = Infinity;
+    for (const one of state.captures || []) {
+      bestFar = Math.min(bestFar, hamming(pasteHash, one.hash));
+    }
     // #238: 붙여넣기는 보던 크기 그대로. 기기 배율과 지금 쪽 배율을 되돌린다.
     const size = trueSizeOnPage({
       imgWidth: img.naturalWidth || scaled.width,
@@ -5947,15 +5957,19 @@ async function pasteImageAt(page, at, src, metaRect = null) {
     syncSelectHud();
     // #262: 원래 자리로 붙인 경우, 숫자를 그대로 보여 준다 — 어긋남을 눈이
     // 아니라 좌표로 재려고. p%는 쪽 폭·높이에 대한 퍼센트.
+    const pc = (v) => `${(v * 100).toFixed(1)}%`;
     if (home) {
-      const pc = (v) => `${(v * 100).toFixed(1)}%`;
       flashBanner(
         `붙임 ${pc(spot.x)},${pc(spot.y)} ${pc(spot.w)}×${pc(spot.h)}` +
           (known?.rect ? ` · 원본 ${pc(known.rect.x)},${pc(known.rect.y)} ${pc(known.rect.w)}×${pc(known.rect.h)}` : ""),
         7000,
       );
     } else {
-      flashBanner("붙여넣었습니다.");
+      // 원래 자리를 못 찾았다 — 등록 몇 개 중 최소 거리 얼마였는지 (#263).
+      flashBanner(
+        `제자리 못 찾음 · 등록 ${(state.captures || []).length}개 · 최소거리 ${Number.isFinite(bestFar) ? bestFar : "-"}`,
+        7000,
+      );
     }
   } catch {
     flashBanner("그림을 붙이지 못했습니다.");
@@ -9710,6 +9724,10 @@ function movePan(event) {
 
 function onWorkspacePointerDown(event) {
   if (event.target.closest("#other-pdf")) {
+    return;
+  }
+  // #263: 우클릭은 contextmenu가 맡는다. 여기서 선택·획을 시작하면 안 된다.
+  if (event.button === 2) {
     return;
   }
   if (overlayOpen()) {

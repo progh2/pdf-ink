@@ -64,7 +64,8 @@ describe("#256 배선", () => {
 
   it("looks the fingerprint up on paste and lets it win over a pressed spot", () => {
     const paste = main.slice(main.indexOf("async function pasteImageAt"), main.indexOf("function beginCrop"));
-    assert.match(paste, /findCapture\(state\.captures, hashOfImage\(img\), hamming\)/);
+    assert.match(paste, /const pasteHash = hashOfImage\(img\)/);
+    assert.match(paste, /findCapture\(state\.captures, pasteHash, hamming\)/);
     assert.match(paste, /const home = known\?\.rect \|\| state\.captureFrom\?\.rect \|\| null/);
   });
 
