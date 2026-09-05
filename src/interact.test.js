@@ -492,7 +492,9 @@ describe("#225 배선", () => {
     assert.match(keys, /shortcut === "redo"[\s\S]{0,80}redoInk\(\)/);
     assert.match(keys, /copySelection\(\)/);
     assert.match(keys, /shortcut === "cut"[\s\S]{0,80}deleteSelection\(\)/);
-    assert.match(keys, /pasteHere\(\)/);
+    // #226: Ctrl+V는 가로채지 않는다 — 진짜 paste 이벤트가 클립보드를 더 많이 본다.
+    assert.match(keys, /shortcut === "paste"\)\s*\{\s*\/\/ #226/);
+    assert.match(main, /document\.addEventListener\("paste", onNativePaste\)/);
   });
 
   it("does nothing without a document, and no editing while locked", () => {

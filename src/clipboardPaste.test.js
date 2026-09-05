@@ -5,12 +5,15 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   findImageEntry,
+  imageFileOf,
   imageSrcFromHtml,
-  svgDataUrl,
   pasteAvailability,
   pastePlacement,
+  pasteTypesOf,
   pickImageType,
   readClipboardImage,
+  readPasteEvent,
+  svgDataUrl,
 } from "./clipboardPaste.js";
 
 const entry = (types) => ({ types, getType: async (type) => `blob:${type}` });
@@ -151,5 +154,82 @@ describe("#219 배선", () => {
     assert.match(image, /acceptImageSrc\(src\)/, "같은 검사(#25)를 지난다");
     assert.match(image, /pastePlacement\(at, size\)/);
     assert.match(image, /commitPageChange\(page, \(\) =>/);
+  });
+});
+
+describe("#226 진짜 paste 이벤트", () => {
+  const transfer = ({ types = [], data = {}, files = [], items = [] } = {}) => ({
+    types,
+    files,
+    items,
+    getData: (type) => data[type] || "",
+  });
+
+  it("sees every type the source app put there, not just the few the async API gives", () => {
+    const dt = transfer({ types: ["text/plain", "image/svg+xml", "web application/goodnotes"] });
+    assert.deepEqual(pasteTypesOf(dt), ["text/plain", "image/svg+xml", "web application/goodnotes"]);
+  });
+
+  it("counts types carried on items and files too", () => {
+    const dt = transfer({ types: ["text/plain"], files: [{ type: "image/png" }], items: [{ type: "text/html" }] });
+    assert.deepEqual(pasteTypesOf(dt).sort(), ["image/png", "text/html", "text/plain"]);
+  });
+
+  it("takes a pasted file first — nothing to convert", () => {
+    const file = { type: "image/png", name: "x.png" };
+    const found = readPasteEvent(transfer({ files: [file] }));
+    assert.equal(found.file, file);
+  });
+
+  it("pulls a picture out of the html the app wrote", () => {
+    const found = readPasteEvent(transfer({
+      types: ["text/html"],
+      data: { "text/html": '<img src="data:image/png;base64,AA">' },
+    }));
+    assert.equal(found.src, "data:image/png;base64,AA");
+  });
+
+  it("takes handwriting that arrived as a vector, even under text/plain", () => {
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg"><path d="M1 1"/></svg>';
+    const found = readPasteEvent(transfer({ types: ["text/plain"], data: { "text/plain": svg } }));
+    assert.match(found.src, /^data:image\/svg\+xml/, "굿노트가 이렇게 줄 수도 있다");
+  });
+
+  it("reports what was there, with a peek at the text, when nothing fits", () => {
+    const found = readPasteEvent(transfer({
+      types: ["text/plain"],
+      data: { "text/plain": "그냥 글자입니다" },
+    }));
+    assert.equal(found.src, "");
+    assert.match(found.saw, /text\/plain/);
+    assert.match(found.text, /그냥 글자/, "무엇이었는지 눈으로 본다");
+  });
+
+  it("survives an event with no clipboard at all", () => {
+    const found = readPasteEvent(null);
+    assert.equal(found.src, "");
+    assert.equal(found.saw, "빈 클립보드");
+  });
+});
+
+describe("#226 배선", () => {
+  const root2 = join(dirname(fileURLToPath(import.meta.url)), "..");
+  const main2 = readFileSync(join(root2, "src/main.js"), "utf8");
+
+  it("lets the browser's own paste through instead of intercepting Ctrl+V", () => {
+    assert.match(main2, /shortcut === "paste"\)\s*\{\s*\/\/ #226[\s\S]{0,120}return;/);
+    assert.match(main2, /document\.addEventListener\("paste", onNativePaste\)/);
+  });
+
+  it("tries file, then picture, then what the app itself copied", () => {
+    const handler = main2.slice(main2.indexOf("async function onNativePaste"), main2.indexOf("function readBlobText"));
+    assert.ok(handler.indexOf("found.file") < handler.indexOf("found.src"), "파일이 먼저");
+    assert.ok(handler.indexOf("found.src") < handler.indexOf("state.inkClipboard.length"), "그 다음 그림");
+    assert.match(handler, /state\.interactMode === "view"/, "보기 중엔 안 붙인다");
+    assert.match(handler, /input, textarea, \[contenteditable='true'\]/, "칸에 칠 때는 브라우저 몫");
+  });
+
+  it("points at Ctrl+V when the menu route came up empty on a desktop", () => {
+    assert.match(main2, /pointer: fine[\s\S]{0,120}Ctrl\+V로 해 보세요/);
   });
 });
