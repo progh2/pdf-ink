@@ -219,6 +219,7 @@ import {
   AUTOSAVE_MS,
   parseInkFile,
   pickNewer,
+  inkFileImageStats,
   serializeInkFile,
   sidecarName,
   sidecarPath,
@@ -515,6 +516,7 @@ const els = {
   linkHintsBtn: document.querySelector("#link-hints-btn"),
   penProbe: document.querySelector("#pen-probe"),
   interactBtn: document.querySelector("#interact-btn"),
+  headerSaveBtn: document.querySelector("#header-save-btn"),
   undoBtn: document.querySelector("#undo-btn"),
   redoBtn: document.querySelector("#redo-btn"),
   moreBtn: document.querySelector("#more-btn"),
@@ -8594,6 +8596,39 @@ let autosaveTimer = 0;
 let autosaveRunning = false;
 
 /** Called on every change: the upload is a few KB, so it can be quiet. */
+/** 헤더 저장 버튼은 클라우드(드롭박스·드라이브) 문서일 때만 (#271). */
+function syncHeaderSave() {
+  if (els.headerSaveBtn) {
+    els.headerSaveBtn.hidden = !cloudDocOpen();
+  }
+}
+
+/**
+ * 헤더 저장 = 지금 필기를 올리고, 곧바로 다른 기기 것을 받아 합친다 (#271).
+ * 양방향이라 「폰에 쓴 게 PC에 안 보인다」를 한 번 눌러 해소한다.
+ */
+async function headerSaveAndSync() {
+  if (!cloudDocOpen()) {
+    return;
+  }
+  els.headerSaveBtn.disabled = true;
+  showBanner("저장·동기 중…");
+  try {
+    await (state.driveDoc ? saveDriveSidecar() : saveInkSidecar());
+    const added = await pullRemoteInk(true);
+    const stat = inkFileImageStats(state.pages);
+    const extra = stat.images ? ` · 이미지 ${stat.images}장` : "";
+    flashBanner(
+      added > 0 ? `저장·동기 완료 · 다른 기기 필기 ${added}개 받음${extra}` : `저장했습니다${extra}`,
+      3000,
+    );
+  } catch {
+    flashBanner("저장·동기하지 못했습니다.");
+  } finally {
+    els.headerSaveBtn.disabled = false;
+  }
+}
+
 function cloudDocOpen() {
   return Boolean(state.driveDoc || (state.dropboxDoc && dropboxConnected()));
 }
@@ -8872,9 +8907,10 @@ let pullingInk = false;
  * 다른 기기의 필기를 알아서 받아 합친다 (#83). 병합은 안전하므로 묻지 않고,
  * 실제로 새 항목이 왔을 때만 알리고 다시 그린다. 사이드카는 몇 KB다.
  */
-async function pullRemoteInk() {
+async function pullRemoteInk(force = false) {
+  // force면 헤더 저장이 부른 것 — 조용히 알리지 않고, 그리는 중만 피한다.
   if (pullingInk || state.drawing || !cloudDocOpen() || els.writeScreen.hidden) {
-    return;
+    return 0;
   }
   pullingInk = true;
   try {
@@ -8884,10 +8920,14 @@ async function pullRemoteInk() {
         drawStrokesOn(view);
       }
       refreshPdfLinkHints(true);
-      flashBanner(`다른 기기의 필기 ${added}개를 받았습니다`, 2400);
+      if (!force) {
+        flashBanner(`다른 기기의 필기 ${added}개를 받았습니다`, 2400);
+      }
     }
+    return added || 0;
   } catch {
     // 다음 바퀴에 다시
+    return 0;
   } finally {
     pullingInk = false;
   }
@@ -8897,6 +8937,7 @@ function startSyncWatch() {
   window.clearInterval(syncTimer);
   syncTimer = 0;
   hideSyncNote();
+  syncHeaderSave();
   if (!state.dropboxDoc && !state.driveDoc) {
     return;
   }
@@ -8972,7 +9013,10 @@ async function saveDocumentNow() {
     showBanner("저장하는 중…");
     try {
       await (state.driveDoc ? saveDriveSidecar() : saveInkSidecar());
-      flashBanner(`저장했습니다. ${(state.driveDoc || state.dropboxDoc).name} (필기는 옆 파일에)`, 2400);
+      const stat = inkFileImageStats(state.pages);
+      const extra = stat.images ? ` · 이미지 ${stat.images}장 ${stat.kb}KB` : "";
+      const warn = stat.blobRefs ? " · ⚠ 임시 이미지 있음(다시 붙여넣기 필요)" : "";
+      flashBanner(`저장했습니다. ${(state.driveDoc || state.dropboxDoc).name}${extra}${warn}`, 3600);
     } catch {
       flashBanner("필기를 저장하지 못했습니다.");
     }
@@ -10753,6 +10797,7 @@ bindWheelPanel();
 els.eyedropBtn?.addEventListener("click", armEyedropper);
 els.inkMoveDone?.addEventListener("click", closeInkMove);
 els.shelfDone?.addEventListener("click", closeShelf);
+els.headerSaveBtn?.addEventListener("click", headerSaveAndSync);
 els.shelfBackdrop?.addEventListener("click", closeShelf);
 els.inkMoveApply?.addEventListener("click", applyInkMove);
 els.inkMoveModeAdd?.addEventListener("click", () => setInkMoveAssignMode("add"));

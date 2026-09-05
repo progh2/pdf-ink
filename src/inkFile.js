@@ -100,3 +100,22 @@ export function pickNewer(local, remote) {
 export function inkFileSize(text) {
   return typeof text === "string" ? text.length : 0;
 }
+
+/** 저장에 이미지가 몇 장·몇 KB 담겼는지, blob URL(딴 브라우저서 죽음)이 있는지. */
+export function inkFileImageStats(pages) {
+  let images = 0;
+  let bytes = 0;
+  let blobRefs = 0;
+  for (const items of Object.values(pages || {})) {
+    for (const item of items || []) {
+      if (item?.type === "image" && typeof item.src === "string") {
+        images += 1;
+        bytes += item.src.length;
+        if (item.src.startsWith("blob:")) {
+          blobRefs += 1;
+        }
+      }
+    }
+  }
+  return { images, kb: Math.round(bytes / 1024), blobRefs };
+}
