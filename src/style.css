@@ -2526,3 +2526,9 @@ body {
   border-style: solid;
   border-color: #2f6f5e;
 }
+
+/* 고른 것 안쪽에 놓인 선택 바 (#242): 가린 것이 비쳐야 한다. */
+.select-hud.is-inside {
+  opacity: 0.94;
+  box-shadow: 0 6px 18px rgba(40, 32, 22, 0.24);
+}

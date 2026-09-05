@@ -186,10 +186,23 @@ describe("첫 사용 선택 (#86)", () => {
     assert.ok(spot.top + 56 <= 600, "bar must not cover the object");
   });
 
-  it("clamps only when the selection fills the screen", () => {
+  it("goes inside a selection that fills the screen, not to the edge (#242)", () => {
     const spot = selectHudTop({ top: 0, bottom: 800 }, 56, 800);
-    assert.equal(spot.placement, "clamped");
-    assert.ok(spot.top >= 8 && spot.top + 56 <= 800);
+    assert.equal(spot.placement, "inside");
+    assert.ok(spot.top >= 8 && spot.top + 56 <= 800, "화면 안에는 있고");
+    assert.ok(spot.top + 56 <= 800, "고른 것의 아래쪽 안에 앉는다");
+  });
+
+  it("puts it inside the top when the selection is short but hemmed in", () => {
+    // 위아래로 자리가 없고, 안쪽 아래에도 못 앉을 만큼 납작한 경우.
+    const spot = selectHudTop({ top: 4, bottom: 70 }, 56, 90);
+    assert.equal(spot.placement, "inside");
+    assert.ok(spot.top >= 8);
+  });
+
+  it("still prefers outside when there is room", () => {
+    assert.equal(selectHudTop({ top: 200, bottom: 400 }, 56, 800).placement, "below");
+    assert.equal(selectHudTop({ top: 200, bottom: 790 }, 56, 800).placement, "above");
   });
 });
 
