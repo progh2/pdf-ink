@@ -325,3 +325,27 @@ export function saveLinkFixes(identity, fixes) {
     // storage is best effort
   }
 }
+
+/**
+ * 캡처 등록부 (#256). 붙일 때 그림 지문으로 원래 자리를 찾으려고 이 브라우저에
+ * 둔다. 클립보드 재인코딩이 PNG 메타를 지워도 이건 남는다.
+ */
+const CAPTURE_REG_KEY = "pdf-ink:captures";
+
+export function loadCaptures() {
+  try {
+    const raw = localStorage.getItem(CAPTURE_REG_KEY);
+    const data = raw ? JSON.parse(raw) : null;
+    return Array.isArray(data) ? data : [];
+  } catch {
+    return [];
+  }
+}
+
+export function saveCaptures(list) {
+  try {
+    localStorage.setItem(CAPTURE_REG_KEY, JSON.stringify(list || []));
+  } catch {
+    // 등록부는 있으면 좋은 것, 없어도 붙여넣기는 된다.
+  }
+}

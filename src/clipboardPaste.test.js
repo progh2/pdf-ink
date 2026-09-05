@@ -299,7 +299,8 @@ describe("#240 제자리에 붙여넣기", () => {
   it("puts a capture back exactly where it came from when no spot was pressed", () => {
     const paste = main4.slice(main4.indexOf("async function pasteImageAt"), main4.indexOf("function beginCrop"));
     // #253: PNG에 심긴 자리가 최우선, 그다음 이 세션 캡처.
-    assert.match(paste, /const home = metaRect \|\| \(!at && state\.captureFrom \? state\.captureFrom\.rect : null\)/);
+    // #256: 지문으로 찾은 자리(known)가 최우선.
+    assert.match(paste, /const home = known\?\.rect \|\| state\.captureFrom\?\.rect \|\| null/);
     assert.match(paste, /home\s*\?\s*\{ x: home\.x, y: home\.y/);
   });
 
