@@ -318,7 +318,7 @@ import {
   topRegionAt,
   wholeImageRect,
 } from "./stickers.js";
-import { captureRegionPng, composePageRgba, cropRgba, encodePngRgba, writePngClipboard } from "./capture.js";
+import { captureRegionPng, composePageRgba, cropRgba, encodePngRgba, readPngText, writePngClipboard } from "./capture.js";
 import {
   pasteAvailability,
   pastePlacement,
@@ -5691,7 +5691,8 @@ async function onNativePaste(event) {
   if (found.file) {
     event.preventDefault();
     hideMarqueeMenu();
-    await pasteImageAt(page, at, await readBlobDataUrl(found.file));
+    const bytes = new Uint8Array(await found.file.arrayBuffer());
+    await pasteImageAt(page, at, await readBlobDataUrl(found.file), pngMetaRect(bytes));
     return;
   }
   if (found.src) {
@@ -5774,6 +5775,13 @@ function readBlobText(blob) {
   return typeof blob?.text === "function" ? blob.text() : Promise.resolve("");
 }
 
+/** 우리가 캡처한 PNG면 심어 둔 원래 자리를 돌려준다 (#253). 아니면 null. */
+function pngMetaRect(bytes) {
+  const meta = readPngText(bytes);
+  const rect = meta?.app === "pdf-ink" ? meta.rect : null;
+  return rect && [rect.x, rect.y, rect.w, rect.h].every((n) => Number.isFinite(Number(n))) ? rect : null;
+}
+
 /**
  * 바깥 주소(SVG 데이터·blob·http)를 캔버스에 구워 우리 데이터 URL로 (#224).
  * `<img>`는 SVG 안의 스크립트를 돌리지 않으므로 이 길이 안전하다.
@@ -5835,7 +5843,7 @@ function pasteInkAt(page, at) {
 }
 
 /** 바깥에서 온 그림을 누른 자리에. 크기는 이미지 넣기(#25)와 같은 규칙. */
-async function pasteImageAt(page, at, src) {
+async function pasteImageAt(page, at, src, metaRect = null) {
   try {
     // #224: SVG·blob·원격 주소로 온 것도 `<img>`로만 읽어 캔버스에 굽는다.
     // 종이에 남는 것은 언제나 우리가 만든 PNG/JPEG이고, 원본 주소는 안 남는다.
@@ -5858,9 +5866,9 @@ async function pasteImageAt(page, at, src) {
       // #242: 92%로 줄이면 붙인 그림이 원래보다 작아진다. 쪽에 꽉 차는 데까지.
       maxShare: 1,
     });
-    // 우리가 오려 낸 것이면 그 자리에 그대로 (#240). 아니면 누른 자리, 그도
-    // 없으면 지금 보고 있는 화면 한가운데 — 하드코딩된 왼쪽 위가 아니라 (#251).
-    const home = !at && state.captureFrom ? state.captureFrom.rect : null;
+    // 자리 우선순위 (#253): ①PNG에 심긴 원래 자리(다른 문서에서 캡처한 것도!)
+    // ②이 세션에서 방금 오려 낸 자리 ③누른 자리 ④보이는 화면 한가운데.
+    const home = metaRect || (!at && state.captureFrom ? state.captureFrom.rect : null);
     const spot = home
       ? { x: home.x, y: home.y, w: home.w || size.w, h: home.h || size.h }
       : pastePlacement(at || visiblePasteSpot(page), size);
@@ -7211,7 +7219,9 @@ async function confirmCapture() {
       w: pending.rect.w * view.pdfCanvas.width,
       h: pending.rect.h * view.pdfCanvas.height,
     };
-    const result = captureRegionPng(pdf.data, ink.data, view.pdfCanvas.width, view.pdfCanvas.height, boxes, crop);
+    // #253: 어디서 오려 냈는지 그림 안에 심는다 — 다른 문서에 붙여도 제자리로.
+    const meta = { app: "pdf-ink", v: 1, rect: { ...pending.rect } };
+    const result = captureRegionPng(pdf.data, ink.data, view.pdfCanvas.width, view.pdfCanvas.height, boxes, crop, meta);
     await writePngClipboard(result.png, navigator.clipboard, window.ClipboardItem);
     hideMarquee();
     state.rectTool = null;

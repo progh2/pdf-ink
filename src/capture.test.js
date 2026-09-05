@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { captureRegionPng, writePngClipboard } from "./capture.js";
+import {
+  captureRegionPng,
+  encodePngRgba,
+  readPngText,
+  writePngClipboard,
+} from "./capture.js";
 
 describe("영역캡처", () => {
   it("produces a PNG without throwing", () => {
@@ -78,5 +83,55 @@ describe("영역캡처", () => {
     });
     assert.equal(written.length, 1);
     assert.equal(written[0][0].items["image/png"].type, "image/png");
+  });
+});
+
+describe("#253 캡처에 위치를 심어 보내기", () => {
+  it("carries the rect through the PNG and back", () => {
+    const meta = { app: "pdf-ink", v: 1, rect: { x: 0.1, y: 0.2, w: 0.3, h: 0.4 } };
+    const png = encodePngRgba(3, 2, new Uint8ClampedArray(3 * 2 * 4), meta);
+    assert.deepEqual(readPngText(png), meta);
+  });
+
+  it("adds no chunk when there is no meta — a plain PNG stays plain", () => {
+    const png = encodePngRgba(2, 2, new Uint8ClampedArray(16));
+    assert.equal(readPngText(png), null);
+  });
+
+  it("captureRegionPng embeds what it is handed", () => {
+    const px = new Uint8ClampedArray(4 * 4 * 4);
+    const result = captureRegionPng(px, px, 4, 4, [], { x: 0, y: 0, w: 4, h: 4 }, { app: "pdf-ink", rect: { x: 0.5, y: 0.5, w: 0.2, h: 0.2 } });
+    assert.equal(readPngText(result.png).rect.x, 0.5);
+  });
+
+  it("reads nothing out of bytes that are not our PNG", () => {
+    assert.equal(readPngText(new Uint8Array([1, 2, 3])), null);
+    assert.equal(readPngText(new Uint8Array(0)), null);
+  });
+
+  it("survives a foreign tEXt chunk without choking", () => {
+    // 다른 앱이 자기 키워드로 tEXt를 넣은 경우: 우리 것이 아니면 null.
+    const png = encodePngRgba(2, 2, new Uint8ClampedArray(16), null);
+    assert.equal(readPngText(png, "someone-else"), null);
+  });
+});
+
+describe("#253 배선", () => {
+  const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+  const main = readFileSync(join(root, "src/main.js"), "utf8");
+
+  it("embeds the source rect when capturing", () => {
+    const cap = main.slice(main.indexOf("async function confirmCapture"), main.indexOf("function leavesNeedRebuild"));
+    assert.match(cap, /const meta = \{ app: "pdf-ink", v: 1, rect: \{ \.\.\.pending\.rect \} \}/);
+    assert.match(cap, /captureRegionPng\([^)]*boxes, crop, meta\)/);
+  });
+
+  it("reads the embedded rect on a native paste and places by it", () => {
+    assert.match(main, /function pngMetaRect\(bytes\)/);
+    assert.match(main, /meta\?\.app === "pdf-ink" \? meta\.rect : null/);
+    assert.match(main, /await found\.file\.arrayBuffer\(\)/);
+    assert.match(main, /pngMetaRect\(bytes\)/);
+    const paste = main.slice(main.indexOf("async function pasteImageAt"), main.indexOf("function beginCrop"));
+    assert.match(paste, /const home = metaRect \|\| \(!at && state\.captureFrom/);
   });
 });

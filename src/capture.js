@@ -101,7 +101,20 @@ export function cropRgba(data, width, height, box) {
   return { data: out, width: w, height: h };
 }
 
-export function encodePngRgba(width, height, rgba) {
+/** 우리 메타를 담는 PNG 텍스트 청크 열쇠. 다른 앱은 그냥 지나친다. */
+export const CAPTURE_META_KEYWORD = "pdf-ink";
+
+/** tEXt 청크: `keyword\0text`, 둘 다 Latin-1. JSON은 ASCII라 그대로 실린다. */
+function textChunk(keyword, text) {
+  const body = concat([
+    Uint8Array.from(keyword, (ch) => ch.charCodeAt(0) & 0xff),
+    Uint8Array.of(0),
+    Uint8Array.from(String(text), (ch) => ch.charCodeAt(0) & 0xff),
+  ]);
+  return pngChunk("tEXt", body);
+}
+
+export function encodePngRgba(width, height, rgba, meta = null) {
   const raw = new Uint8Array(height * (1 + width * 4));
   for (let y = 0; y < height; y += 1) {
     const dest = y * (1 + width * 4);
@@ -109,18 +122,66 @@ export function encodePngRgba(width, height, rgba) {
     raw.set(rgba.subarray(y * width * 4, (y + 1) * width * 4), dest + 1);
   }
   const ihdr = concat([u32(width), u32(height), Uint8Array.of(8, 6, 0, 0, 0)]);
-  return concat([
-    Uint8Array.of(137, 80, 78, 71, 13, 10, 26, 10),
-    pngChunk("IHDR", ihdr),
-    pngChunk("IDAT", zlibStore(raw)),
-    pngChunk("IEND", new Uint8Array(0)),
-  ]);
+  const parts = [Uint8Array.of(137, 80, 78, 71, 13, 10, 26, 10), pngChunk("IHDR", ihdr)];
+  // #253: 어디서 오려 냈는지를 그림 안에 심는다. 다른 문서·다른 세션에서
+  // 붙여도 원래 자리를 안다. tEXt는 표준이라 뷰어는 무시한다.
+  if (meta) {
+    let text = "";
+    try {
+      text = typeof meta === "string" ? meta : JSON.stringify(meta);
+    } catch {
+      text = "";
+    }
+    if (text) {
+      parts.push(textChunk(CAPTURE_META_KEYWORD, text));
+    }
+  }
+  parts.push(pngChunk("IDAT", zlibStore(raw)), pngChunk("IEND", new Uint8Array(0)));
+  return concat(parts);
 }
 
-export function captureRegionPng(pdf, ink, width, height, mosaicBoxesPx, cropBox) {
+/** 붙일 때: PNG 바이트에서 우리가 심은 위치 메타를 도로 읽는다. 없으면 null. */
+export function readPngText(bytes, keyword = CAPTURE_META_KEYWORD) {
+  const data = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes || []);
+  // 서명 8 + (길이4 타입4 …데이터… crc4) 반복.
+  if (data.length < 8) {
+    return null;
+  }
+  let at = 8;
+  while (at + 8 <= data.length) {
+    const len = (data[at] << 24) | (data[at + 1] << 16) | (data[at + 2] << 8) | data[at + 3];
+    const type = String.fromCharCode(data[at + 4], data[at + 5], data[at + 6], data[at + 7]);
+    const start = at + 8;
+    if (len < 0 || start + len > data.length) {
+      return null;
+    }
+    if (type === "tEXt") {
+      const body = data.subarray(start, start + len);
+      const zero = body.indexOf(0);
+      if (zero >= 0) {
+        const key = String.fromCharCode(...body.subarray(0, zero));
+        if (key === keyword) {
+          const text = String.fromCharCode(...body.subarray(zero + 1));
+          try {
+            return JSON.parse(text);
+          } catch {
+            return null;
+          }
+        }
+      }
+    }
+    if (type === "IEND") {
+      return null;
+    }
+    at = start + len + 4;
+  }
+  return null;
+}
+
+export function captureRegionPng(pdf, ink, width, height, mosaicBoxesPx, cropBox, meta = null) {
   const composed = composePageRgba(pdf, ink, width, height, mosaicBoxesPx);
   const cropped = cropRgba(composed, width, height, cropBox);
-  const png = encodePngRgba(cropped.width, cropped.height, cropped.data);
+  const png = encodePngRgba(cropped.width, cropped.height, cropped.data, meta);
   return { png, width: cropped.width, height: cropped.height, pixels: cropped.data };
 }
 
