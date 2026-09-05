@@ -51,14 +51,6 @@ export function shouldNoticeViewMode({ interactMode, tool, rectTool, now = 0, la
   return Number(now) - Number(lastAt) >= cooldownMs;
 }
 
-/** Pointer Events bits: 2 barrel, 4 second (middle), 32 the inverted eraser tip. */
-export const PEN_BARREL_BIT = 2;
-export const PEN_SECOND_BIT = 4;
-export const PEN_ERASER_BIT = 32;
-export const PEN_BARREL_BUTTON = 2;
-export const PEN_SECOND_BUTTON = 1;
-export const PEN_ERASER_BUTTON = 5;
-
 /** Two taps this close together mean "rename", not "go there twice" (#155). */
 /** 보기 모드에서 손가락이 이만큼 안 움직였으면 끌기가 아니라 탭 (#178). */
 export const PAN_TAP_SLOP_PX = 12;
@@ -73,54 +65,9 @@ export function isDoubleTap(now, lastAt, distancePx, withinMs = DOUBLE_TAP_MS, s
   return Number(now) - Number(lastAt) < withinMs && Number(distancePx) < slopPx;
 }
 
-export const PEN_ACTIONS = ["eraser", "select", "none"];
-export const PEN_ACTION_LABELS = { eraser: "지우개", select: "선택", none: "없음" };
-export const PEN_BUTTON_DEFAULTS = { barrel: "eraser", second: "select" };
-
-export function normalizePenAction(value, fallback = "eraser") {
-  return PEN_ACTIONS.includes(value) ? value : fallback;
-}
-
-export function normalizePenButtons(map) {
-  return {
-    barrel: normalizePenAction(map?.barrel, PEN_BUTTON_DEFAULTS.barrel),
-    second: normalizePenAction(map?.second, PEN_BUTTON_DEFAULTS.second),
-  };
-}
-
-/**
- * What this pen gesture should do (#139). The eraser end always erases: it is a
- * physical eraser, not a button to assign. A mouse never gets here.
- */
-export function penButtonAction({ pointerType, buttons, button, buttonMap, enabled = true } = {}) {
-  if (!enabled || pointerType !== "pen") {
-    return null;
-  }
-  const map = normalizePenButtons(buttonMap);
-  const bits = Number(buttons) || 0;
-  if (bits & PEN_ERASER_BIT || button === PEN_ERASER_BUTTON) {
-    return "eraser";
-  }
-  let action = null;
-  if (bits & PEN_SECOND_BIT || button === PEN_SECOND_BUTTON) {
-    action = map.second;
-  } else if (bits & PEN_BARREL_BIT || button === PEN_BARREL_BUTTON) {
-    // #280: 삼성 배럴(button 0·buttons 0) 감지를 뺀다 — 그 폰은 정상 촉 획도
-    // button 0·buttons 0으로 보고해, 모든 획이 배럴로 잡혀 필기가 아예 안 됐다.
-    action = map.barrel;
-  }
-  return action && action !== "none" ? action : null;
-}
-
-/** Which buttons may start a stroke: a pen also comes in on 1, 2 and 5. */
-export function allowsInkButton({ pointerType, button } = {}) {
-  if (button === undefined || button === 0) {
-    return true;
-  }
-  if (pointerType !== "pen") {
-    return false;
-  }
-  return [PEN_SECOND_BUTTON, PEN_BARREL_BUTTON, PEN_ERASER_BUTTON].includes(button);
+/** #281: S펜 버튼 기능 제거. 획은 표준 주 버튼(0)만 시작한다. */
+export function allowsInkButton({ button } = {}) {
+  return button === undefined || button === 0;
 }
 
 /** Pixel slop for "this pointerdown reused the last pointerup coordinate". */
@@ -378,33 +325,6 @@ export function shouldShowHover({ pointerType, buttons = 0, interactMode, overla
 }
 
 
-/**
- * 펜이 무엇을 보고했는지 사람이 읽을 한 줄 (#234). 「버튼이 안 된다」를
- * 「기기가 버튼을 안 보낸다」와 「우리가 잘못 읽는다」로 가르려면 이게 있어야 한다.
- */
-export function describePenEvent(event, buttonMap) {
-  if (!event) {
-    return "";
-  }
-  const bits = Number(event.buttons) || 0;
-  const names = [];
-  if (bits & 1) names.push("촉");
-  if (bits & PEN_BARREL_BIT) names.push("배럴");
-  if (bits & PEN_SECOND_BIT) names.push("두번째");
-  if (bits & PEN_ERASER_BIT) names.push("지우개꼭지");
-  const action = penButtonAction({
-    pointerType: event.pointerType,
-    buttons: event.buttons,
-    button: event.button,
-    buttonMap,
-  });
-  return [
-    `종류 ${event.pointerType || "?"}`,
-    `buttons ${bits}${names.length ? ` (${names.join("+")})` : ""}`,
-    `button ${event.button ?? "?"}`,
-    `→ ${action || "없음"}`,
-  ].join(" · ");
-}
 
 
 /* ---- 화살표키 미세 이동 (#236) ------------------------------------------ */

@@ -34,34 +34,19 @@ describe("#208 예측 이벤트", () => {
   });
 });
 
-describe("#208 워커 live 층", () => {
-  it("hands the live canvas to a worker where the browser can", () => {
-    assert.match(main, /"transferControlToOffscreen" in HTMLCanvasElement\.prototype/);
-    assert.match(main, /new Worker\(new URL\("\.\/livePaint\.worker\.js", import\.meta\.url\), \{ type: "module" \}\)/);
-    assert.match(main, /worker\.postMessage\(\{ type: "canvas", id: view\.liveId, canvas: off \}, \[off\]\)/);
+
+describe("#282 워커 live 층 비활성", () => {
+  const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+  const main = readFileSync(join(root, "src/main.js"), "utf8");
+
+  it("keeps the live layer on the main thread (no async worker race)", () => {
+    const fn = main.slice(main.indexOf("function liveWorkerReady"), main.indexOf("function adoptLiveCanvas"));
+    assert.match(fn, /return false;/, "워커를 켜지 않는다");
+    assert.doesNotMatch(fn, /new Worker\(/, "워커를 만들지 않는다");
   });
 
-  it("routes size changes through the worker — the main thread may not touch a transferred canvas", () => {
-    assert.match(main, /if \(!\(canvas === view\.liveCanvas && view\.liveId != null\)\) \{\s*canvas\.width = pixelWidth/);
-    assert.match(main, /postLiveSize\(view, pixelWidth, pixelHeight\)/);
-    assert.match(worker, /entry\.canvas\.width = data\.width/);
-  });
-
-  it("keeps painting in the worker on its own frame clock", () => {
-    assert.match(worker, /requestAnimationFrame/);
-    assert.match(worker, /paintItem\(entry\.ctx, entry\.item, entry\.scale, entry\.canvas\)/);
-    assert.match(worker, /import \{ paintItem \} from "\.\/ink\.js"/, "ink.js only — it is pure");
-    assert.equal((worker.match(/import /g) || []).length, 1, "nothing DOM-shaped sneaks in");
-  });
-
-  it("lets canvases go when their stages are torn down", () => {
-    assert.match(main, /for \(const view of \[\.\.\.state\.pageViews, \.\.\.stagePool\]\) \{\s*dropLiveCanvas\(view\)/);
-    assert.match(worker, /views\.delete\(data\.id\)/);
-  });
-
-  it("falls back to the old path when there is no worker", () => {
+  it("still has the direct paint path", () => {
     const draw = main.slice(main.indexOf("function drawLiveLayer"), main.indexOf("function drawStrokesOn"));
-    assert.match(draw, /if \(view\.liveId != null && liveWorker\)/);
-    assert.match(draw, /liveCanvas2d\(canvas\)/, "the direct route is still there");
+    assert.match(draw, /liveCanvas2d\(canvas\)/);
   });
 });
