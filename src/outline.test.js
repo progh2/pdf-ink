@@ -428,7 +428,7 @@ describe("#215 미리보기 썸 아래 목차", () => {
     assert.match(css, /\.preview-toc-caption \{[\s\S]*white-space: nowrap/);
     assert.match(css, /\.preview-toc-caption \{[\s\S]*overflow: hidden/);
     assert.match(css, /\.preview-row \{[\s\S]*gap: 6px/, "6 under the 88 thumb");
-    assert.match(css, /\.preview-row \{[\s\S]*min-height: 167px/, "windowed list stride stays");
+    assert.match(css, /\.preview-row \{[\s\S]*height: calc\(var\(--thumb-h, 117px\) \+ 50px\)/, "windowed list stride stays");
     assert.match(main, /from "\.\/outline\.js"/);
     assert.match(main, /firstOutlineTitleForPage/);
   });
@@ -480,7 +480,7 @@ describe("#217 미리보기 별은 썸 위, 목차는 쪽번호 옆", () => {
     assert.match(css, /\.preview-toc-caption \{[\s\S]*font-size: 12px/);
     assert.match(css, /\.preview-toc-caption \{[\s\S]*color: #5c574e/);
     assert.match(css, /\.preview-toc-caption \{[\s\S]*text-overflow: ellipsis/);
-    assert.match(css, /\.preview-row \{[\s\S]*min-height: 167px/, "windowed list stride stays");
+    assert.match(css, /\.preview-row \{[\s\S]*height: calc\(var\(--thumb-h, 117px\) \+ 50px\)/, "windowed list stride stays");
   });
 
   it("double-tap creates a missing outline entry then edits the title", () => {

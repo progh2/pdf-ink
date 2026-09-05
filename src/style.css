@@ -1414,7 +1414,10 @@ body {
   flex-direction: column;
   align-items: flex-start;
   gap: 6px;
-  min-height: 167px;
+  /* #284: fixed row height (thumb-h + gap 6 + meta 44) matches previewRowStride
+     exactly, so the spacer/window/translate always agree. */
+  height: calc(var(--thumb-h, 117px) + 50px);
+  overflow: hidden;
   padding: 0;
   border: 0;
   background: transparent;
@@ -1503,9 +1506,15 @@ body {
 }
 
 .preview-thumb-wrap {
+  /* #284: a fixed letterbox box so every row is exactly one rowBody tall,
+     no matter the page aspect. A short landscape thumb no longer collapses
+     the row and breaks the virtual scroll math. */
   position: relative;
-  display: inline-block;
-  max-width: var(--thumb-w, 88px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--thumb-w, 88px);
+  height: var(--thumb-h, 117px);
   line-height: 0;
 }
 
