@@ -15,7 +15,10 @@ import {
   appendInkPoints,
   beginInkPoints,
   canCreateInk,
+  cursorForTool,
+  describePenEvent,
   finishInkPoints,
+  hoverShapeForTool,
   interactModeLabel,
   isDoubleTap,
   isReusedInkStart,
@@ -28,6 +31,7 @@ import {
   shortcutFor,
   shouldNoticeViewMode,
   shouldPanPointer,
+  shouldShowHover,
 } from "./interact.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -502,5 +506,66 @@ describe("#225 배선", () => {
     assert.match(keys, /!state\.pdf \|\| els\.writeScreen\.hidden/);
     assert.match(keys, /state\.interactMode === "view"[\s\S]{0,40}return;/, "보기 중엔 붙이지도 지우지도 않는다");
     assert.ok(keys.indexOf("undoInk()") < keys.indexOf('state.interactMode === "view"'), "되돌리기는 보기 중에도 된다");
+  });
+});
+
+describe("#234 도구에 따른 커서", () => {
+  it("says grab while the page is locked, whatever the tool", () => {
+    assert.equal(cursorForTool({ interactMode: "view", tool: "pen" }), "grab");
+  });
+
+  it("draws with a crosshair and picks with an arrow", () => {
+    assert.equal(cursorForTool({ interactMode: "edit", tool: "pen" }), "crosshair");
+    assert.equal(cursorForTool({ interactMode: "edit", tool: "highlighter" }), "crosshair");
+    assert.equal(cursorForTool({ interactMode: "edit", tool: "select" }), "default");
+  });
+
+  it("hides the cursor for the eraser, which draws its own circle", () => {
+    assert.equal(cursorForTool({ interactMode: "edit", tool: "eraser" }), "none");
+  });
+
+  it("shows the eyedropper is armed, above everything else", () => {
+    assert.equal(cursorForTool({ interactMode: "view", tool: "pen", eyedrop: true }), "copy");
+  });
+
+  it("keeps the area tool on a crosshair", () => {
+    assert.equal(cursorForTool({ interactMode: "edit", tool: "select", rectTool: "capture" }), "crosshair");
+  });
+});
+
+describe("#234 호버 표시", () => {
+  it("shows only for a pen that is hovering, on the paper, while editing", () => {
+    const base = { pointerType: "pen", buttons: 0, interactMode: "edit", onPaper: true };
+    assert.equal(shouldShowHover(base), true);
+    assert.equal(shouldShowHover({ ...base, buttons: 1 }), false, "닿아 있으면 획이 보인다");
+    assert.equal(shouldShowHover({ ...base, pointerType: "touch" }), false, "손가락은 호버가 없다");
+    assert.equal(shouldShowHover({ ...base, interactMode: "view" }), false);
+    assert.equal(shouldShowHover({ ...base, onPaper: false }), false);
+    assert.equal(shouldShowHover({ ...base, overlay: true }), false);
+  });
+
+  it("gives each tool its own mark", () => {
+    assert.equal(hoverShapeForTool("eraser"), "eraser");
+    assert.equal(hoverShapeForTool("highlighter"), "highlighter");
+    assert.equal(hoverShapeForTool("select"), "point");
+    assert.equal(hoverShapeForTool("pen"), "nib");
+  });
+});
+
+describe("#234 펜 버튼 시험", () => {
+  it("reads the raw report back in words", () => {
+    const line = describePenEvent({ pointerType: "pen", buttons: 3, button: 0 }, { barrel: "eraser", second: "select" });
+    assert.match(line, /buttons 3/);
+    assert.match(line, /촉\+배럴/);
+    assert.match(line, /→ eraser/, "무엇으로 읽혔는지까지");
+  });
+
+  it("says plainly when a press carried no button at all", () => {
+    const line = describePenEvent({ pointerType: "pen", buttons: 1, button: 0 }, { barrel: "eraser" });
+    assert.match(line, /→ 없음/, "기기가 버튼을 안 보낸 것이 보인다");
+  });
+
+  it("survives being handed nothing", () => {
+    assert.equal(describePenEvent(null), "");
   });
 });
