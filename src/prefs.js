@@ -28,6 +28,7 @@ const VIEW_MODE_KEY = "pdf-ink:view-mode";
 const ZOOM_LOCK_KEY = "pdf-ink:zoom-lock";
 const INTERACT_KEY = "pdf-ink:interact-mode";
 const ERASER_KEY = "pdf-ink:eraser";
+const FREE_RATIO_KEY = "pdf-ink:free-ratio";
 
 export const DEFAULT_SLOTS = [
   { type: "pen", color: "#1A1A1A", width: 2, opacity: HIGHLIGHTER_OPACITY_DEFAULT, stamp: "참 잘했어요" },
@@ -325,4 +326,13 @@ export function loadRecentColors() {
 
 export function saveRecentColors(list) {
   writeRaw(RECENT_COLORS_KEY, JSON.stringify((list || []).slice(0, 5)));
+}
+
+/** 크기 조절이 비율을 지키는가 (#224). 기본은 지킨다 — 사진이 찌그러지면 안 된다. */
+export function loadFreeRatio() {
+  return readRaw(FREE_RATIO_KEY) === "1";
+}
+
+export function saveFreeRatio(on) {
+  writeRaw(FREE_RATIO_KEY, on ? "1" : "0");
 }

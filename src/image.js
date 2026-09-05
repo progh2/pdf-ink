@@ -74,7 +74,40 @@ export function cropImage(item, crop) {
   };
 }
 
-export function resizeImage(item, handle, point) {
+/**
+ * 비율을 지키며 크기 조절 (#224). 잡은 모서리의 **반대쪽 모서리를 고정점**으로
+ * 삼고, 원래 가로세로비에 맞는 상자를 만든다. 종이는 정사각형이 아니므로
+ * 화면상의 비를 지키려면 쪽의 가로세로(cssW·cssH)가 필요하다.
+ */
+export function keepAspect(box, origin, handle, cssWidth = 400, cssHeight = 600) {
+  const pageW = Math.max(1, Number(cssWidth) || 1);
+  const pageH = Math.max(1, Number(cssHeight) || 1);
+  const ratio = ((Number(origin?.w) || 0.4) * pageW) / Math.max(1e-6, (Number(origin?.h) || 0.3) * pageH);
+  if (!Number.isFinite(ratio) || ratio <= 0) {
+    return box;
+  }
+  // 더 많이 끈 쪽을 따라간다: 그래야 손이 가는 대로 커진다.
+  const byWidth = box.w * pageW;
+  const byHeight = box.h * pageH * ratio;
+  const width = Math.max(byWidth, byHeight) / pageW;
+  const height = (width * pageW) / ratio / pageH;
+  const w = Math.max(0.04, width);
+  const h = Math.max(0.04, height);
+  // 고정점은 잡은 모서리의 대각선 반대편.
+  const anchorRight = handle === "nw" || handle === "sw";
+  const anchorBottom = handle === "nw" || handle === "ne";
+  const right = box.x + box.w;
+  const bottom = box.y + box.h;
+  return {
+    ...box,
+    x: anchorRight ? right - w : box.x,
+    y: anchorBottom ? bottom - h : box.y,
+    w,
+    h,
+  };
+}
+
+export function resizeImage(item, handle, point, { freeRatio = false, cssWidth = 400, cssHeight = 600 } = {}) {
   const x1 = item.x;
   const y1 = item.y;
   const x2 = item.x + item.w;
@@ -97,7 +130,8 @@ export function resizeImage(item, handle, point) {
   if (handle === "sw" || handle === "se") {
     bottom = Math.max(py, top + 0.04);
   }
-  return { ...item, x: left, y: top, w: right - left, h: bottom - top };
+  const box = { ...item, x: left, y: top, w: right - left, h: bottom - top };
+  return freeRatio ? box : keepAspect(box, item, handle, cssWidth, cssHeight);
 }
 
 export function handleAt(bounds, point, hit = 0.038) {
