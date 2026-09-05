@@ -168,6 +168,12 @@ describe("#11 모바일 터치 필기", () => {
     assert.match(main, /paperScrollHold/);
     assert.match(main, /shouldPan\(event\)/);
   });
+
+  it("#292 blocks Safari's native pinch zoom so our pinch owns the scroll", () => {
+    assert.match(main, /addEventListener\(\s*"gesturestart"[\s\S]{0,80}passive:\s*false/);
+    assert.match(main, /addEventListener\(\s*"gesturechange"/);
+    assert.match(main, /addEventListener\(\s*"gestureend"/);
+  });
 });
 
 describe("rectFromPoints", () => {

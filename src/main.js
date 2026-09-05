@@ -11120,6 +11120,12 @@ function preventWriteSurfaceTouch(event) {
 
 els.writeScreen.addEventListener("touchstart", preventWriteSurfaceTouch, { passive: false });
 els.writeScreen.addEventListener("touchmove", preventWriteSurfaceTouch, { passive: false });
+// #292: 아이패드 사파리는 핀치 때 웹킷 gesture* 로 비주얼 뷰포트를 확대한다.
+// 그러면 pointermove의 client 좌표가 튀어 스크롤 앵커가 수십 페이지씩 어긋난다.
+// 기본 확대를 막아 포인터 기반 자체 핀치 줌만 남긴다. (다른 브라우저엔 없는 이벤트라 무해)
+els.writeScreen.addEventListener("gesturestart", preventWriteSurfaceTouch, { passive: false });
+els.writeScreen.addEventListener("gesturechange", preventWriteSurfaceTouch, { passive: false });
+els.writeScreen.addEventListener("gestureend", preventWriteSurfaceTouch, { passive: false });
 
 document.addEventListener("pointerdown", (event) => {
   if (state.pendingCapture && !event.target.closest("#marquee-box, #marquee-menu, #area-link-panel, .area-hit, #area-layer")) {
