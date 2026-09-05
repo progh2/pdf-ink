@@ -497,3 +497,14 @@ describe("#217 미리보기 별은 썸 위, 목차는 쪽번호 옆", () => {
     assert.match(main, /function saveTocTitle[\s\S]*syncPreviewOutlineCaptions/);
   });
 });
+
+describe("#220 미리보기 쪽번호 11 #8A8478", () => {
+  it("overrides inherited 13px title color on the page number only", () => {
+    assert.match(css, /\.preview-meta \{[\s\S]*font-size: 13px/);
+    assert.match(css, /\.preview-page-label \{[\s\S]*font-size: 11px/);
+    assert.match(css, /\.preview-page-label \{[\s\S]*color: #8a8478/);
+    assert.match(css, /\.preview-toc-caption \{[\s\S]*font-size: 12px/);
+    assert.match(css, /\.preview-toc-caption \{[\s\S]*color: #5c574e/);
+    assert.match(main, /label\.className = "preview-page-label"/);
+  });
+});

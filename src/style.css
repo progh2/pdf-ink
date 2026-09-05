@@ -1497,8 +1497,11 @@ body {
   font-size: 13px;
 }
 
+/* #220: page number is muted 11px; do not inherit 13px / --title from .preview-meta. */
 .preview-page-label {
   flex: 0 0 auto;
+  color: #8a8478;
+  font-size: 11px;
 }
 
 /* #217: TOC title beside the page number, only when that page has an entry. */
