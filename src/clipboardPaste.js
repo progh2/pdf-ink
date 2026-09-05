@@ -122,3 +122,72 @@ export function pastePlacement(at, size) {
     h,
   };
 }
+
+
+/* ---- 네이티브 paste 이벤트 (#226) -------------------------------------- */
+
+/**
+ * `navigator.clipboard.read()`는 크롬에서 **몇 가지 형식만** 내준다
+ * (text/plain·text/html·image/png 정도). 그래서 굿노트가 필기를 벡터나 제
+ * 형식으로 올려도 우리 눈에는 `text/plain`만 보였다.
+ *
+ * 진짜 `paste` 이벤트의 `clipboardData`는 원본 앱이 넣은 것을 **그대로**
+ * 들고 있다. 붙여넣기의 본길은 이쪽이고, 메뉴에서 부르는 비동기 읽기는
+ * 그럴 수 없을 때의 뒷길이다.
+ */
+export function pasteTypesOf(dataTransfer) {
+  const types = [...(dataTransfer?.types || [])];
+  for (const item of dataTransfer?.items || []) {
+    if (item?.type && !types.includes(item.type)) {
+      types.push(item.type);
+    }
+  }
+  for (const file of dataTransfer?.files || []) {
+    if (file?.type && !types.includes(file.type)) {
+      types.push(file.type);
+    }
+  }
+  return types;
+}
+
+/** 붙일 그림을 든 파일. 굿노트가 파일로 줄 때도 있다. */
+export function imageFileOf(dataTransfer) {
+  for (const file of dataTransfer?.files || []) {
+    if (PASTE_IMAGE_TYPES.includes(String(file?.type || "").toLowerCase())) {
+      return file;
+    }
+  }
+  for (const item of dataTransfer?.items || []) {
+    if (item?.kind === "file" && PASTE_DRAWABLE_TYPES.includes(String(item.type || "").toLowerCase())) {
+      const file = typeof item.getAsFile === "function" ? item.getAsFile() : null;
+      if (file) {
+        return file;
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * 이벤트 하나에서 그릴 것을 찾는다. 파일 → 그림 형식 → HTML 조각 → 벡터 순.
+ * 못 찾으면 무엇이 있었는지 함께 돌려준다.
+ */
+export function readPasteEvent(dataTransfer) {
+  const saw = pasteTypesOf(dataTransfer).join(", ") || "빈 클립보드";
+  const file = imageFileOf(dataTransfer);
+  if (file) {
+    return { file, src: "", saw };
+  }
+  const get = (type) => (typeof dataTransfer?.getData === "function" ? dataTransfer.getData(type) || "" : "");
+  const html = get("text/html");
+  const fromHtml = html ? imageSrcFromHtml(html) || svgDataUrl(html) : "";
+  if (fromHtml) {
+    return { file: null, src: fromHtml, saw };
+  }
+  const svg = get("image/svg+xml") || get("text/plain");
+  const fromSvg = svgDataUrl(svg);
+  if (fromSvg) {
+    return { file: null, src: fromSvg, saw };
+  }
+  return { file: null, src: "", saw, text: get("text/plain").slice(0, 80) };
+}

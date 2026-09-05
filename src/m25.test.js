@@ -115,7 +115,7 @@ describe("M4 #25 chrome", () => {
     assert.match(main, /els\.lockBtn\.hidden = !image \|\| cropping/);
   });
 
-  it("rejects SVG and never reads the clipboard", () => {
+  it("keeps the file picker narrow; pasting is a separate, guarded path (#219·#224·#226)", () => {
     assert.equal(acceptImageFile({ type: "image/svg+xml", name: "a.svg", size: 10 }).ok, false);
     assert.equal(acceptImageFile({ type: "image/png", name: "a.svg", size: 10 }).ok, false);
     assert.equal(acceptImageFile({ type: "image/gif", name: "a.gif", size: 10 }).ok, false);
@@ -124,10 +124,13 @@ describe("M4 #25 chrome", () => {
     assert.equal(acceptImageFile({ type: "image/webp", name: "a.webp", size: 10 }).ok, true);
     assert.equal(acceptImageSrc("data:image/svg+xml;base64,xx"), false);
     assert.equal(acceptImageSrc("data:image/png;base64,xx"), true);
-    assert.doesNotMatch(main, /clipboard\.read|clipboard-read|permissions\.query/);
+    // 파일 고르기는 여전히 SVG를 안 받는다. 붙여넣기는 <img>로만 구워
+    // 들이므로(#224) 다른 길이고, 진짜 paste 이벤트도 쓴다(#226).
+    assert.doesNotMatch(main, /permissions\.query/, "권한을 미리 캐묻지 않는다");
+    assert.match(main, /document\.addEventListener\("paste", onNativePaste\)/);
     assert.doesNotMatch(html, /accept="image\/\*"/);
     assert.match(html, /accept="image\/png,image\/jpeg,image\/webp/);
     assert.match(main, /els\.pasteBtn\.addEventListener\("click"/);
-    assert.doesNotMatch(main, /addEventListener\("paste"/);
+    assert.equal((main.match(/addEventListener\("paste"/g) || []).length, 1, "붙여넣기 경로는 하나뿐");
   });
 });

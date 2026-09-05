@@ -312,7 +312,7 @@ import {
   wholeImageRect,
 } from "./stickers.js";
 import { captureRegionPng, composePageRgba, cropRgba, encodePngRgba, writePngClipboard } from "./capture.js";
-import { pasteAvailability, pastePlacement, readClipboardImage } from "./clipboardPaste.js";
+import { pasteAvailability, pastePlacement, readClipboardImage, readPasteEvent } from "./clipboardPaste.js";
 import {
   copyItems,
   copyItemsInRect,
@@ -5580,10 +5580,58 @@ async function pasteHere() {
   const found = await readClipboardImage(navigator.clipboard, readBlobDataUrl, readBlobText);
   if (!found.src) {
     // 무엇이 들어 있었는지 말해 준다 — 안 되는 이유를 짐작하지 않게 (#224).
-    flashBanner(found.saw ? `붙일 수 있는 그림이 없습니다 · 클립보드: ${found.saw}` : "붙여넣을 것이 없습니다.", 5200);
+    // #226: 비동기 클립보드는 형식 몇 가지만 내준다. 키보드가 있으면 그쪽이 낫다.
+    const hint = window.matchMedia?.("(pointer: fine)")?.matches ? " · Ctrl+V로 해 보세요" : "";
+    flashBanner(
+      found.saw ? `붙일 수 있는 그림이 없습니다 · 클립보드: ${found.saw}${hint}` : "붙여넣을 것이 없습니다.",
+      5200,
+    );
     return;
   }
   await pasteImageAt(page, at, found.src);
+}
+
+/**
+ * 진짜 붙여넣기 (#226). 크롬의 비동기 클립보드는 형식 몇 가지만 내주지만,
+ * 이 이벤트는 원본 앱이 넣은 것을 그대로 들고 온다 — 굿노트가 필기를 벡터로
+ * 올려도 여기서는 보인다.
+ */
+async function onNativePaste(event) {
+  if (!state.pdf || els.writeScreen.hidden || overlayOpen()) {
+    return;
+  }
+  if (event.target.closest?.("input, textarea, [contenteditable='true']")) {
+    return;
+  }
+  if (state.interactMode === "view") {
+    flashBanner("보기 중입니다. 자물쇠를 풀면 붙일 수 있습니다.");
+    return;
+  }
+  const page = state.page;
+  const at = state.pendingCapture?.rect
+    ? { x: state.pendingCapture.rect.x + state.pendingCapture.rect.w / 2, y: state.pendingCapture.rect.y + state.pendingCapture.rect.h / 2 }
+    : null;
+  const found = readPasteEvent(event.clipboardData);
+  if (found.file) {
+    event.preventDefault();
+    hideMarqueeMenu();
+    await pasteImageAt(page, at, await readBlobDataUrl(found.file));
+    return;
+  }
+  if (found.src) {
+    event.preventDefault();
+    hideMarqueeMenu();
+    await pasteImageAt(page, at, found.src);
+    return;
+  }
+  if (state.inkClipboard.length) {
+    event.preventDefault();
+    hideMarqueeMenu();
+    pasteInkAt(page, at);
+    return;
+  }
+  // 붙일 것이 없다 — 무엇이 있었는지 그대로 말해 준다.
+  flashBanner(`붙일 수 있는 그림이 없습니다 · 클립보드: ${found.saw}${found.text ? ` · "${found.text}"` : ""}`, 6000);
 }
 
 function readBlobText(blob) {
@@ -10491,6 +10539,7 @@ document.addEventListener("pointerdown", (event) => {
   closeAllPanels();
 });
 
+document.addEventListener("paste", onNativePaste);
 document.addEventListener("keydown", (event) => {
   const typing = event.target.closest?.("input, textarea, [contenteditable='true']");
   // #225: PC에서 손이 키보드에 있을 때. 칸에 글씨를 치는 중이면 브라우저 몫이다.
@@ -10525,10 +10574,7 @@ document.addEventListener("keydown", (event) => {
       return;
     }
     if (shortcut === "paste") {
-      event.preventDefault();
-      // 붙일 자리: 고른 것이 있으면 그 옆, 없으면 쪽 가운데.
-      state.pendingCapture = null;
-      pasteHere();
+      // #226: 막지 않는다. 진짜 paste 이벤트가 클립보드를 훨씬 많이 보여 준다.
       return;
     }
   }
