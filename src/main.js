@@ -24,27 +24,29 @@ import {
   saveStrokes,
 } from "./storage.js";
 import {
-  loadEraser,
-  loadInkTools,
-  loadInteractMode,
   clearDropboxSession,
   loadDropboxSession,
+  loadEraser,
+  loadFreeRatio,
+  loadInkTools,
+  loadInteractMode,
   loadPenButtonErase,
   loadPenButtons,
-  loadRecentColors,
   loadPreviewWidth,
+  loadRecentColors,
   loadToolbarFloat,
   loadToolbarPosition,
   loadViewMode,
   loadZoomLock,
+  saveDropboxSession,
   saveEraser,
+  saveFreeRatio,
   saveInkTools,
   saveInteractMode,
-  saveDropboxSession,
   savePenButtonErase,
   savePenButtons,
-  saveRecentColors,
   savePreviewWidth,
+  saveRecentColors,
   saveToolbarFloat,
   saveToolbarPosition,
   saveViewMode,
@@ -74,23 +76,25 @@ import { applyEraserToInk, isPixelErase, isStrokeErase, paintGhost, paintItem, p
 import { followStampGhost, stampGhostItem, stampPlaceFromGhost } from "./stampGhost.js";
 import {
   DOUBLE_TAP_MS,
+  PAN_TAP_SLOP_PX,
+  VIEW_NOTICE_MS,
+  VIEW_NOTICE_TEXT,
   allowsInkButton,
   appendInkPoints,
-  isDoubleTap,
   beginInkPoints,
   canCreateInk,
-  isStrokePointer,
-  normFromRect,
-  PAN_TAP_SLOP_PX,
   finishInkPoints,
   interactModeLabel,
+  isDoubleTap,
+  isStrokePointer,
+  normFromRect,
   penButtonAction,
   rectBigEnough,
   rectFromPoints,
-  shouldPanPointer,
+  shortcutAllowed,
+  shortcutFor,
   shouldNoticeViewMode,
-  VIEW_NOTICE_MS,
-  VIEW_NOTICE_TEXT,
+  shouldPanPointer,
 } from "./interact.js";
 import { canRedo, canUndo, cloneItems, createHistory, recordChange, redoChange, undoChange } from "./history.js";
 import { bindUndoHold } from "./undoHold.js";
@@ -450,6 +454,7 @@ const els = {
   inkMoveModeInsert: document.querySelector("#ink-move-mode-insert"),
   inkMoveSkip: document.querySelector("#ink-move-skip"),
   penHover: document.querySelector("#pen-hover"),
+  ratioBtn: document.querySelector("#ratio-btn"),
   linkFixPanel: document.querySelector("#link-fix-panel"),
   linkFixOrigin: document.querySelector("#link-fix-origin"),
   linkFixPage: document.querySelector("#link-fix-page"),
@@ -599,6 +604,8 @@ const state = {
   drawCanvas: null,
   tool: "pen",
   inkTools: loadInkTools(),
+  // #224: 끄면 비율대로, 켜면 자유롭게 늘어난다.
+  freeRatio: loadFreeRatio(),
   // #206: 스포이드가 다음 탭을 기다리는 중인가.
   eyedropKind: null,
   editingKind: null,
@@ -3627,6 +3634,11 @@ function syncSelectHud() {
   els.selectLayer.hidden = false;
   els.floatBar.hidden = false;
   els.cropBtn.hidden = !image || cropping;
+  // #224: 비율 토글은 크기를 조절할 것이 있을 때만 뜬다(도장도 모서리로 늘린다).
+  const sizable = Boolean(image) || selectedStampItem();
+  els.ratioBtn.hidden = !sizable || cropping;
+  els.ratioBtn.classList.toggle("is-on", state.freeRatio);
+  els.ratioBtn.setAttribute("aria-pressed", state.freeRatio ? "true" : "false");
   els.lockBtn.hidden = !image || cropping;
   els.lockBtn.classList.toggle("is-on", Boolean(image?.locked));
   els.lockBtn.textContent = image?.locked ? "고정 해제" : "고정";
@@ -5262,7 +5274,11 @@ function moveSelect(event) {
     next[drag.indices[0]] =
       origin?.type === "stamp"
         ? resizeStamp(origin, drag.handle, point, cssW, cssH)
-        : resizeImage(origin, drag.handle, point);
+        : resizeImage(origin, drag.handle, point, {
+            freeRatio: state.freeRatio,
+            cssWidth: cssW,
+            cssHeight: cssH,
+          });
     state.pages[key] = next;
   } else if (drag.mode === "rotate") {
     const viewNow = state.pageViews.find((item) => item.pageNum === drag.page);
@@ -5561,12 +5577,39 @@ async function pasteHere() {
     pasteInkAt(page, at);
     return;
   }
-  const src = await readClipboardImage(navigator.clipboard, readBlobDataUrl);
-  if (!src) {
-    flashBanner("붙여넣을 것이 없습니다.");
+  const found = await readClipboardImage(navigator.clipboard, readBlobDataUrl, readBlobText);
+  if (!found.src) {
+    // 무엇이 들어 있었는지 말해 준다 — 안 되는 이유를 짐작하지 않게 (#224).
+    flashBanner(found.saw ? `붙일 수 있는 그림이 없습니다 · 클립보드: ${found.saw}` : "붙여넣을 것이 없습니다.", 5200);
     return;
   }
-  await pasteImageAt(page, at, src);
+  await pasteImageAt(page, at, found.src);
+}
+
+function readBlobText(blob) {
+  return typeof blob?.text === "function" ? blob.text() : Promise.resolve("");
+}
+
+/**
+ * 바깥 주소(SVG 데이터·blob·http)를 캔버스에 구워 우리 데이터 URL로 (#224).
+ * `<img>`는 SVG 안의 스크립트를 돌리지 않으므로 이 길이 안전하다.
+ */
+async function bakeForeignImage(src) {
+  try {
+    const img = await loadHtmlImage(src);
+    const width = Math.max(1, img.naturalWidth || img.width || 0);
+    const height = Math.max(1, img.naturalHeight || img.height || 0);
+    if (width < 2 || height < 2) {
+      return "";
+    }
+    const canvas = offscreenCanvas(width, height);
+    const ctx = canvas2d(canvas);
+    // 필기를 오려 온 것은 배경이 비어 있다. 흰 종이를 깔지 않아야 겹쳐 쓸 수 있다.
+    ctx.drawImage(img, 0, 0, width, height);
+    return canvas.toDataURL("image/png");
+  } catch {
+    return "";
+  }
 }
 
 function readBlobDataUrl(blob) {
@@ -5607,11 +5650,14 @@ function pasteInkAt(page, at) {
 /** 바깥에서 온 그림을 누른 자리에. 크기는 이미지 넣기(#25)와 같은 규칙. */
 async function pasteImageAt(page, at, src) {
   try {
-    if (!acceptImageSrc(src)) {
-      flashBanner("PNG, JPEG, WebP만 붙일 수 있습니다.");
+    // #224: SVG·blob·원격 주소로 온 것도 `<img>`로만 읽어 캔버스에 굽는다.
+    // 종이에 남는 것은 언제나 우리가 만든 PNG/JPEG이고, 원본 주소는 안 남는다.
+    const raw = acceptImageSrc(src) ? src : await bakeForeignImage(src);
+    if (!raw) {
+      flashBanner("그 그림은 붙일 수 없습니다.");
       return;
     }
-    const img = await loadHtmlImage(src);
+    const img = await loadHtmlImage(raw);
     const scaled = await downscaleImage(img);
     const view = state.pageViews.find((item) => item.pageNum === page);
     const size = imageSizeOnPage(scaled.width, scaled.height, view?.cssWidth || 400, view?.cssHeight || 600);
@@ -9768,6 +9814,12 @@ bindHold(els.eraserBtn, {
   onShort: selectEraser,
   onLong: openEraserEditor,
 });
+els.ratioBtn?.addEventListener("click", () => {
+  state.freeRatio = !state.freeRatio;
+  saveFreeRatio(state.freeRatio);
+  flashBanner(state.freeRatio ? "자유비율로 늘립니다" : "비율을 지키며 늘립니다", 1600);
+  syncSelectHud();
+});
 els.selectBtn.addEventListener("click", () => {
   if (state.tool === "select") {
     return;
@@ -10441,6 +10493,45 @@ document.addEventListener("pointerdown", (event) => {
 
 document.addEventListener("keydown", (event) => {
   const typing = event.target.closest?.("input, textarea, [contenteditable='true']");
+  // #225: PC에서 손이 키보드에 있을 때. 칸에 글씨를 치는 중이면 브라우저 몫이다.
+  const shortcut = shortcutFor(event);
+  if (shortcutAllowed({ typing: Boolean(typing), overlay: overlayOpen(), action: shortcut })) {
+    if (!state.pdf || els.writeScreen.hidden) {
+      return;
+    }
+    if (shortcut === "undo") {
+      event.preventDefault();
+      undoInk();
+      return;
+    }
+    if (shortcut === "redo") {
+      event.preventDefault();
+      redoInk();
+      return;
+    }
+    if (state.interactMode === "view") {
+      return;
+    }
+    if (shortcut === "copy" || shortcut === "cut") {
+      if (!state.selectIndices.length) {
+        return;
+      }
+      event.preventDefault();
+      copySelection();
+      if (shortcut === "cut") {
+        deleteSelection();
+      }
+      flashBanner(shortcut === "cut" ? "잘라냈습니다" : "복사했습니다", 1400);
+      return;
+    }
+    if (shortcut === "paste") {
+      event.preventDefault();
+      // 붙일 자리: 고른 것이 있으면 그 옆, 없으면 쪽 가운데.
+      state.pendingCapture = null;
+      pasteHere();
+      return;
+    }
+  }
   if (event.key === "Escape" && els.lockMenu && !els.lockMenu.hidden && !typing) {
     event.preventDefault();
     hideLockMenu();

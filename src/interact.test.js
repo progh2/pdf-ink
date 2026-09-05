@@ -24,6 +24,8 @@ import {
   normalizePenButtons,
   penButtonAction,
   rectFromPoints,
+  shortcutAllowed,
+  shortcutFor,
   shouldNoticeViewMode,
   shouldPanPointer,
 } from "./interact.js";
@@ -440,5 +442,63 @@ describe("#174 소스 링크 (AGPL 13조)", () => {
     assert.equal((html.match(/class="source-note"/g) || []).length, 2, "upload screen and settings");
     assert.match(html, /id="source-link"[^>]*href="https:\/\/github\.com\/progh2\/pdf-ink"/);
     assert.match(html, /AGPL-3\.0/);
+  });
+});
+
+describe("#225 키보드 단축키", () => {
+  const press = (key, extra = {}) => ({ key, ctrlKey: true, ...extra });
+
+  it("reads the three the master asked for", () => {
+    assert.equal(shortcutFor(press("c")), "copy");
+    assert.equal(shortcutFor(press("v")), "paste");
+    assert.equal(shortcutFor(press("z")), "undo");
+  });
+
+  it("takes Cmd on a Mac just the same", () => {
+    assert.equal(shortcutFor({ key: "v", metaKey: true }), "paste");
+  });
+
+  it("knows both ways of saying redo", () => {
+    assert.equal(shortcutFor(press("z", { shiftKey: true })), "redo");
+    assert.equal(shortcutFor(press("y")), "redo");
+  });
+
+  it("cuts too, since copy and delete were already there", () => {
+    assert.equal(shortcutFor(press("x")), "cut");
+  });
+
+  it("is not fooled by a bare key or by Alt", () => {
+    assert.equal(shortcutFor({ key: "c" }), "", "그냥 c는 글자다");
+    assert.equal(shortcutFor(press("c", { altKey: true })), "");
+    assert.equal(shortcutFor(press("q")), "");
+    assert.equal(shortcutFor(null), "");
+  });
+
+  it("leaves the keys alone while someone is typing in a box", () => {
+    assert.equal(shortcutAllowed({ typing: true, action: "copy" }), false);
+    assert.equal(shortcutAllowed({ typing: false, action: "copy" }), true);
+  });
+
+  it("stays out of the way when a sheet is open", () => {
+    assert.equal(shortcutAllowed({ overlay: true, action: "undo" }), false);
+    assert.equal(shortcutAllowed({ action: "" }), false);
+  });
+});
+
+describe("#225 배선", () => {
+  it("wires copy, paste, cut and undo to what the buttons already do", () => {
+    const keys = main.slice(main.indexOf("const shortcut = shortcutFor(event)"), main.indexOf("Escape") );
+    assert.match(keys, /shortcut === "undo"[\s\S]{0,80}undoInk\(\)/);
+    assert.match(keys, /shortcut === "redo"[\s\S]{0,80}redoInk\(\)/);
+    assert.match(keys, /copySelection\(\)/);
+    assert.match(keys, /shortcut === "cut"[\s\S]{0,80}deleteSelection\(\)/);
+    assert.match(keys, /pasteHere\(\)/);
+  });
+
+  it("does nothing without a document, and no editing while locked", () => {
+    const keys = main.slice(main.indexOf("const shortcut = shortcutFor(event)"), main.indexOf("Escape"));
+    assert.match(keys, /!state\.pdf \|\| els\.writeScreen\.hidden/);
+    assert.match(keys, /state\.interactMode === "view"[\s\S]{0,40}return;/, "보기 중엔 붙이지도 지우지도 않는다");
+    assert.ok(keys.indexOf("undoInk()") < keys.indexOf('state.interactMode === "view"'), "되돌리기는 보기 중에도 된다");
   });
 });

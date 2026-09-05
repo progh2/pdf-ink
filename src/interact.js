@@ -270,3 +270,42 @@ export const M4_OVERFLOW_LABELS = {
   saveas: "다른 이름으로 저장",
   export: "내보내기",
 };
+
+/* ---- 단축키 (#225) ---------------------------------------------------- */
+
+/**
+ * PC에서 손이 키보드에 있을 때 쓰는 길. 맥은 Cmd, 나머지는 Ctrl —
+ * 어느 쪽이든 같은 뜻이므로 둘 다 받는다.
+ */
+export function shortcutFor(event) {
+  if (!event || !(event.ctrlKey || event.metaKey) || event.altKey) {
+    return "";
+  }
+  const key = String(event.key || "").toLowerCase();
+  if (key === "c") {
+    return "copy";
+  }
+  if (key === "v") {
+    return "paste";
+  }
+  if (key === "x") {
+    return "cut";
+  }
+  if (key === "z") {
+    // Ctrl+Shift+Z도 다시 실행이다(윈도우 관행).
+    return event.shiftKey ? "redo" : "undo";
+  }
+  if (key === "y") {
+    return "redo";
+  }
+  return "";
+}
+
+/** 글씨를 치고 있을 때는 브라우저에게 맡긴다 — 칸 안의 복사는 그쪽 일이다. */
+export function shortcutAllowed({ typing = false, overlay = false, action = "" } = {}) {
+  if (typing) {
+    return false;
+  }
+  // 시트가 열려 있어도 되돌리기는 통하면 곤란하다: 지금 보는 것과 안 맞는다.
+  return !overlay && Boolean(action);
+}

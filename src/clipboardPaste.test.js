@@ -5,6 +5,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   findImageEntry,
+  imageSrcFromHtml,
+  svgDataUrl,
   pasteAvailability,
   pastePlacement,
   pickImageType,
@@ -19,10 +21,29 @@ describe("#219 바깥에서 복사해 온 것", () => {
     assert.equal(pickImageType(["image/jpeg"]), "image/jpeg");
   });
 
-  it("refuses svg, which can carry code", () => {
-    assert.equal(pickImageType(["image/svg+xml"]), "", "#25와 같은 이유");
-    assert.equal(pickImageType(["text/html"]), "");
+  it("takes a vector too — GoodNotes gives one for handwriting (#224)", () => {
+    assert.equal(pickImageType(["image/svg+xml"]), "image/svg+xml");
+    assert.equal(pickImageType(["text/html"]), "text/html");
     assert.equal(pickImageType([]), "");
+    assert.equal(pickImageType(["text/plain"]), "", "글자는 아직 안 붙인다");
+  });
+
+  it("prefers a ready-made picture over a vector when both are there", () => {
+    const found = findImageEntry([entry(["image/svg+xml", "text/html"]), entry(["image/png"])]);
+    assert.equal(found.type, "image/png", "구울 필요 없는 쪽이 먼저");
+  });
+
+  it("pulls the picture out of an html fragment", () => {
+    assert.equal(imageSrcFromHtml('<meta><img src="data:image/png;base64,AA">'), "data:image/png;base64,AA");
+    assert.equal(imageSrcFromHtml("<img src='blob:https://x/y'>"), "blob:https://x/y");
+    assert.equal(imageSrcFromHtml("<p>글자뿐</p>"), "");
+    assert.equal(imageSrcFromHtml('<img src="javascript:alert(1)">'), "", "주소 아닌 것은 안 받는다");
+  });
+
+  it("wraps a vector so an <img> can read it — never a document that runs", () => {
+    const url = svgDataUrl('<svg xmlns="http://www.w3.org/2000/svg"><path d="M0 0"/></svg>');
+    assert.match(url, /^data:image\/svg\+xml;charset=utf-8,/);
+    assert.equal(svgDataUrl("<p>svg 아님</p>"), "");
   });
 
   it("finds the picture among several clipboard items", () => {
@@ -39,7 +60,7 @@ describe("#219 바깥에서 복사해 온 것", () => {
 
     it("looks in the system clipboard when the app holds nothing", async () => {
       const clipboard = { read: async () => [entry(["image/png"])] };
-      assert.deepEqual(await pasteAvailability([], clipboard), { ready: true, source: "image" });
+      assert.deepEqual(await pasteAvailability([], clipboard), { ready: true, source: "image/png" });
     });
 
     it("says no — never maybe — when the clipboard has no picture", async () => {
@@ -56,9 +77,23 @@ describe("#219 바깥에서 복사해 온 것", () => {
 
   it("reads the picture out as something we can draw", async () => {
     const clipboard = { read: async () => [entry(["image/png"])] };
-    const src = await readClipboardImage(clipboard, async (blob) => `data:${blob}`);
-    assert.equal(src, "data:blob:image/png");
-    assert.equal(await readClipboardImage(null, async () => "x"), "");
+    const found = await readClipboardImage(clipboard, async (blob) => `data:${blob}`);
+    assert.equal(found.src, "data:blob:image/png");
+    assert.deepEqual(await readClipboardImage(null, async () => "x"), { src: "", saw: "" });
+  });
+
+  it("turns GoodNotes handwriting (a vector) into something drawable", async () => {
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg"><path d="M0 0"/></svg>';
+    const clipboard = { read: async () => [{ types: ["image/svg+xml"], getType: async () => svg }] };
+    const found = await readClipboardImage(clipboard, async () => "", async (blob) => blob);
+    assert.match(found.src, /^data:image\/svg\+xml/);
+  });
+
+  it("says what the clipboard held when nothing could be used", async () => {
+    const clipboard = { read: async () => [entry(["text/plain", "text/rtf"])] };
+    const found = await readClipboardImage(clipboard, async () => "");
+    assert.equal(found.src, "");
+    assert.match(found.saw, /text\/plain/, "원인을 짐작하지 않게 알려 준다");
   });
 
   describe("놓일 자리", () => {
