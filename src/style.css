@@ -1499,6 +1499,8 @@ body {
 
 .preview-page-label {
   flex: 0 0 auto;
+  color: #8a8478;
+  font-size: 11px;
 }
 
 /* #217: TOC title beside the page number, only when that page has an entry. */

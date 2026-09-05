@@ -476,6 +476,9 @@ describe("#217 미리보기 별은 썸 위, 목차는 쪽번호 옆", () => {
     assert.match(css, /\.preview-bookmark \{[\s\S]*height: 44px/);
     assert.match(css, /\.preview-bookmark \{[\s\S]*color: #d4cfc4/);
     assert.match(css, /\.preview-bookmark\.is-on \{[\s\S]*color: #c4a574/);
+    const pageLabel = css.slice(css.indexOf(".preview-page-label {"), css.indexOf(".preview-toc-caption {"));
+    assert.match(pageLabel, /font-size: 11px/);
+    assert.match(pageLabel, /color: #8a8478/, "Hayan lock: page number is muted 11, not 13/--title");
     assert.match(css, /\.preview-toc-caption \{[\s\S]*font-size: 12px/);
     assert.match(css, /\.preview-toc-caption \{[\s\S]*color: #5c574e/);
     assert.match(css, /\.preview-toc-caption \{[\s\S]*text-overflow: ellipsis/);
