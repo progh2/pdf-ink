@@ -202,6 +202,7 @@ import {
   placeShapeChipMenu,
 } from "./shapeHold.js";
 import { MOSAIC_CELL_CSS, mosaicBoxesPx, mosaicItem } from "./mosaic.js";
+import { clampSpeed, decay, isMoving, velocityFromSamples } from "./momentum.js";
 import { recentCardEntries } from "./recent.js";
 import {
   buildThumbPack,
@@ -9944,6 +9945,45 @@ function movePinch() {
   }
 }
 
+// #296: 관성 스크롤 상태. rAF 핸들과 진행 중 속도.
+let momentumRaf = 0;
+
+function cancelMomentum() {
+  if (momentumRaf) {
+    window.cancelAnimationFrame(momentumRaf);
+    momentumRaf = 0;
+  }
+}
+
+/** 손을 뗄 때의 속도로 스크롤을 이어 굴린다 (스크롤 모드 전용). */
+function startMomentum(vx, vy) {
+  cancelMomentum();
+  let x = clampSpeed(vx);
+  let y = clampSpeed(vy);
+  if (!isMoving(x, y)) {
+    return;
+  }
+  let last = performance.now();
+  const step = (now) => {
+    momentumRaf = 0;
+    const dt = Math.min(50, now - last);
+    last = now;
+    // movePan과 같은 부호: 손을 위로 훑으면(vy<0) scrollTop이 늘어 아래로 간다.
+    els.workspace.scrollLeft -= x * dt;
+    const beforeTop = els.workspace.scrollTop;
+    els.workspace.scrollTop -= y * dt;
+    if (els.workspace.scrollTop === beforeTop) {
+      y = 0; // 위/아래 끝에 닿았다.
+    }
+    x = decay(x, dt);
+    y = decay(y, dt);
+    if (isMoving(x, y)) {
+      momentumRaf = window.requestAnimationFrame(step);
+    }
+  };
+  momentumRaf = window.requestAnimationFrame(step);
+}
+
 function startPan(event) {
   cancelLinkFixHold();
   if (state.interactMode === "view") {
@@ -9971,6 +10011,8 @@ function startPan(event) {
     downY: event.clientY,
     moved: 0,
     target: event.target,
+    // #296: 손 뗄 때 속도를 재려는 최근 이동 표본.
+    samples: [{ t: event.timeStamp || performance.now(), x: event.clientX, y: event.clientY }],
   };
   try {
     els.workspace.setPointerCapture(event.pointerId);
@@ -9998,6 +10040,13 @@ function movePan(event) {
   if (state.viewMode === "scroll") {
     els.workspace.scrollLeft -= dx;
     els.workspace.scrollTop -= dy;
+    // #296: 최근 표본만 남겨 손 뗄 때 속도를 잰다.
+    if (gesture.samples) {
+      gesture.samples.push({ t: event.timeStamp || performance.now(), x: event.clientX, y: event.clientY });
+      if (gesture.samples.length > 6) {
+        gesture.samples.shift();
+      }
+    }
   } else {
     state.panX += dx;
     state.panY += dy;
@@ -10006,6 +10055,8 @@ function movePan(event) {
 }
 
 function onWorkspacePointerDown(event) {
+  // #296: 굴러가는 관성 스크롤은 새 터치로 즉시 멈춘다(탭으로 멈추기).
+  cancelMomentum();
   if (event.target.closest("#other-pdf")) {
     return;
   }
@@ -10197,6 +10248,11 @@ function onWorkspacePointerUp(event) {
   if (gesture?.type === "pan") {
     cancelLinkFixHold();
     const tapped = !gesture.held && (gesture.moved || 0) <= PAN_TAP_SLOP_PX && event.type !== "pointercancel";
+    // #296: 놓기 직전 속도로 관성 스크롤을 굴린다 — 스크롤 모드에서 탭이 아닐 때만.
+    const fling =
+      !tapped && state.viewMode === "scroll" && event.type !== "pointercancel"
+        ? velocityFromSamples(gesture.samples)
+        : null;
     gesture = null;
     if (event.pointerId != null) {
       try {
@@ -10207,6 +10263,8 @@ function onWorkspacePointerUp(event) {
     }
     if (tapped) {
       followPdfLinkAtClient({ x: event.clientX, y: event.clientY });
+    } else if (fling) {
+      startMomentum(fling.vx, fling.vy);
     }
     return;
   }
