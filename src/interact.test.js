@@ -169,10 +169,12 @@ describe("#11 모바일 터치 필기", () => {
     assert.match(main, /shouldPan\(event\)/);
   });
 
-  it("#292 blocks Safari's native pinch zoom so our pinch owns the scroll", () => {
-    assert.match(main, /addEventListener\(\s*"gesturestart"[\s\S]{0,80}passive:\s*false/);
-    assert.match(main, /addEventListener\(\s*"gesturechange"/);
-    assert.match(main, /addEventListener\(\s*"gestureend"/);
+  it("#292/#298 blocks Safari's native pinch zoom at the document level", () => {
+    // iOS pinch-zoom is a document-level recogniser; an element listener missed it
+    // on iPhone, so we prevent gesture* in the capture phase on document.
+    assert.match(main, /function blockGestureZoom/);
+    assert.match(main, /"gesturestart", "gesturechange", "gestureend"/);
+    assert.match(main, /document\.addEventListener\(type, blockGestureZoom, \{ passive: false, capture: true \}\)/);
   });
 });
 
