@@ -1613,6 +1613,17 @@ function acquireStage(pageNum) {
   pooled.stage.dataset.page = String(pageNum);
   pooled.rendered = false;
   pooled.token += 1;
+  // #300: 재활용한 스테이지엔 이전 페이지의 그림이 남아 있다. 다시 그리기 전까지
+  // 그게 (스크롤 슬롯 크기와 어긋나) 작게·엉뚱하게 비쳐 「다른 페이지가 끼어든」
+  // 것처럼 보였다. 픽셀을 지우고 cssWidth를 비워 균일 슬롯 크기로 되돌린다.
+  for (const canvas of [pooled.pdfCanvas, pooled.underCanvas, pooled.inkCanvas, pooled.overCanvas, pooled.maskCanvas]) {
+    if (canvas?.width) {
+      canvas.getContext("2d")?.clearRect(0, 0, canvas.width, canvas.height);
+    }
+  }
+  clearLiveLayer(pooled);
+  pooled.cssWidth = 0;
+  pooled.cssHeight = 0;
   clearPdfLinkHints(pooled);
   return pooled;
 }

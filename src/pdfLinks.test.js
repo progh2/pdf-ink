@@ -228,7 +228,8 @@ describe("#180 링크 자리 표시", () => {
   });
 
   it("never leaves the last page's boxes on a reused stage", () => {
-    assert.match(main, /pooled\.token \+= 1;\s*clearPdfLinkHints\(pooled\)/);
+    // #300: 재활용 스테이지의 옛 픽셀도 지우므로 그 사이 코드가 들어간다.
+    assert.match(main, /pooled\.token \+= 1;[\s\S]*clearPdfLinkHints\(pooled\)/);
     assert.match(main, /view\.rendered = false;\s*clearPdfLinkHints\(view\)/);
   });
 });
