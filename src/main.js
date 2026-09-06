@@ -11206,12 +11206,21 @@ function preventWriteSurfaceTouch(event) {
 
 els.writeScreen.addEventListener("touchstart", preventWriteSurfaceTouch, { passive: false });
 els.writeScreen.addEventListener("touchmove", preventWriteSurfaceTouch, { passive: false });
-// #292: 아이패드 사파리는 핀치 때 웹킷 gesture* 로 비주얼 뷰포트를 확대한다.
-// 그러면 pointermove의 client 좌표가 튀어 스크롤 앵커가 수십 페이지씩 어긋난다.
-// 기본 확대를 막아 포인터 기반 자체 핀치 줌만 남긴다. (다른 브라우저엔 없는 이벤트라 무해)
-els.writeScreen.addEventListener("gesturestart", preventWriteSurfaceTouch, { passive: false });
-els.writeScreen.addEventListener("gesturechange", preventWriteSurfaceTouch, { passive: false });
-els.writeScreen.addEventListener("gestureend", preventWriteSurfaceTouch, { passive: false });
+
+// #292/#298: iOS 사파리는 핀치 때 웹킷 gesture* 로 비주얼 뷰포트를 확대한다. 그러면
+// pointermove의 client 좌표가 튀어 스크롤 앵커가 수십 페이지씩 어긋난다. iOS의 핀치
+// 확대는 문서 레벨 인식기라 요소(#write-screen) 리스너로는 아이폰에서 안 막히곤 했다.
+// 그래서 document 캡처 단계에서 막되, 쓰기 종이 위(크롬 제외)에서만 막는다.
+function blockGestureZoom(event) {
+  const target = event.target;
+  if (!target?.closest?.("#write-screen") || isWriteChrome(target)) {
+    return;
+  }
+  event.preventDefault();
+}
+for (const type of ["gesturestart", "gesturechange", "gestureend"]) {
+  document.addEventListener(type, blockGestureZoom, { passive: false, capture: true });
+}
 
 document.addEventListener("pointerdown", (event) => {
   if (state.pendingCapture && !event.target.closest("#marquee-box, #marquee-menu, #area-link-panel, .area-hit, #area-layer")) {
