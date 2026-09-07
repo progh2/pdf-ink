@@ -38,6 +38,11 @@ describe("#131 PWA", () => {
     assert.match(config, /registerType: "prompt"/);
     assert.match(config, /injectRegister: null/, "we register it ourselves");
     assert.match(main, /onNeedRefresh\(\)[\s\S]*els\.updateNote\.hidden = false/);
+    // #331: 오래 켜둔 탭도 알림이 저절로 뜨도록 주기 점검을 돈다.
+    assert.match(main, /onRegisteredSW\(url, registration\)/);
+    assert.match(main, /setInterval\(check, 15 \* 60 \* 1000\)/);
+    assert.match(main, /visibilitychange/);
+    assert.match(main, /addEventListener\("online", check\)/);
     assert.match(main, /updateSW\(true\)/);
     assert.match(html, /id="update-reload">새로고침/);
   });
