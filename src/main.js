@@ -2571,16 +2571,20 @@ async function openPdfBuffer(buffer, { identity, name, page = 1, handle = null }
   // 저장 버튼·자동저장·동기가 다 죽는다(메모리 변수라 새로고침에 사라진다).
   const dbxId = String(identity || "");
   if (dbxId.startsWith("dbx::")) {
-    if (!state.dropboxDoc) {
-      const path = dbxId.slice("dbx::".length);
+    const path = dbxId.slice("dbx::".length);
+    // #277→#362: path가 다르면 **무조건** 재구성한다. 이전엔 !dropboxDoc일 때만
+    // 만들어서, A가 열린 채 B를 열면 doc이 A로 남아 B가 A의 사이드카를
+    // 병합·업로드했다 — 교차 오염·삭제 전파의 진짜 근본.
+    if (!state.dropboxDoc || state.dropboxDoc.path !== path) {
       state.dropboxDoc = { path, name: name || path.split("/").pop() || "문서.pdf", rev: "", size: buffer.byteLength || 0 };
     }
   } else {
     state.dropboxDoc = null;
   }
   if (dbxId.startsWith("gdrive::")) {
-    if (!state.driveDoc) {
-      state.driveDoc = { id: dbxId.slice("gdrive::".length), name: name || "문서.pdf", version: "", parent: "" };
+    const driveId = dbxId.slice("gdrive::".length);
+    if (!state.driveDoc || state.driveDoc.id !== driveId) {
+      state.driveDoc = { id: driveId, name: name || "문서.pdf", version: "", parent: "" };
       state.driveSidecarId = "";
     }
   } else {

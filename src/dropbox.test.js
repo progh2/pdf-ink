@@ -179,7 +179,8 @@ describe("#82 드롭박스 배선", () => {
     assert.match(main, /드롭박스에서 파일이 바뀌었습니다/);
     // A local file opened afterwards must not write to Dropbox.
     // #277: dbx:: identity면 되살리고, 아니면 비운다.
-    assert.match(main, /if \(dbxId\.startsWith\("dbx::"\)\) \{[\s\S]{0,240}state\.dropboxDoc = \{ path,/);
+    // #362: 재구성 조건 주석이 붙어 창을 넓힌다.
+    assert.match(main, /if \(dbxId\.startsWith\("dbx::"\)\) \{[\s\S]{0,520}state\.dropboxDoc = \{ path,/);
     assert.match(main, /\} else \{\s*state\.dropboxDoc = null;/);
   });
 

@@ -189,3 +189,12 @@ describe("#360 겹침 청소", () => {
     assert.match(src, /state\.inkGone\[key\] = now/, "무덤에 적어 되살아나지 않게");
   });
 });
+
+describe("#362 문서 전환 시 클라우드 doc 재구성", () => {
+  it("rebuilds dropboxDoc/driveDoc whenever the identity names another file", () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const src = readFileSync(join(here, "main.js"), "utf8");
+    assert.match(src, /!state\.dropboxDoc \|\| state\.dropboxDoc\.path !== path/, "path 다르면 무조건 재구성");
+    assert.match(src, /!state\.driveDoc \|\| state\.driveDoc\.id !== driveId/);
+  });
+});
