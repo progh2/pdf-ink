@@ -384,32 +384,15 @@ export function paintPencil(ctx, stroke, scale, canvas) {
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
 
+  // #368: 알갱이 점은 작은 두께에서 지저분했다 — 부드러운 심 + 옅은 결 2겹.
   const layers = [
-    { alpha: 0.2, width: width * 1.35, salt: 1, jitter: 0.55 * scale },
-    { alpha: 0.36, width: width * 0.95, salt: 2, jitter: 0.32 * scale },
-    { alpha: 0.52, width: width * 0.62, salt: 3, jitter: 0.18 * scale },
+    { alpha: 0.28, width: width * 1.05, salt: 1, jitter: 0.3 * scale },
+    { alpha: 0.55, width: width * 0.75, salt: 2, jitter: 0.12 * scale },
   ];
   for (const layer of layers) {
     ctx.globalAlpha = layer.alpha;
     ctx.lineWidth = layer.width;
     tracePath(ctx, points, canvas, scale, layer.jitter, layer.salt);
-  }
-
-  ctx.globalAlpha = 0.26;
-  for (const point of points) {
-    for (let grain = 0; grain < 3; grain += 1) {
-      const ox = (hashUnit(point.x, point.y, 20 + grain) - 0.5) * width * 1.5;
-      const oy = (hashUnit(point.y, point.x, 40 + grain) - 0.5) * width * 1.5;
-      ctx.beginPath();
-      ctx.arc(
-        point.x * canvas.width + ox,
-        point.y * canvas.height + oy,
-        Math.max(0.35 * scale, width * 0.16),
-        0,
-        Math.PI * 2,
-      );
-      ctx.fill();
-    }
   }
   ctx.restore();
 }

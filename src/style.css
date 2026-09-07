@@ -256,8 +256,8 @@ body {
   font-weight: 600;
   letter-spacing: -0.03em;
   line-height: 1;
-  /* #366: line-height 1 텍스트는 광학 중심이 위로 치우쳐 자물쇠와 엇나가 보였다. */
-  transform: translateY(1px);
+  /* #366→#368: 1px로는 부족했다 — 2px. */
+  transform: translateY(2px);
   color: #5c574e;
   white-space: nowrap;
 }

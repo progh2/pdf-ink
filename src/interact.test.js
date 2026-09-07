@@ -602,3 +602,11 @@ describe("#366 첫 편집 진입은 선택 도구", () => {
     assert.match(main, /state\.editEntered = true; \/\/ #366: 영역 도구/);
   });
 });
+
+describe("#368 호버 점 크기 연동", () => {
+  it("sizes the ink hover dot by the document width rule, not the css page width", () => {
+    assert.match(main, /screenW \/ STROKE_WIDTH_REF_CSS/);
+    assert.match(main, /HIGHLIGHTER_NIB_SCALE : 1/);
+    assert.match(main, /tool === "eraser" \? screenW \/ cssWidth/, "지우개만 CSS 기준");
+  });
+});

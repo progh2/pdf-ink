@@ -81,7 +81,7 @@ import {
   scaleFromPinch,
   sharpOverlayJobs,
 } from "./viewport.js";
-import { applyEraserToInk, isPixelErase, isStrokeErase, paintGhost, paintItem, paintPen, paintStamp, removeHitItems, removeHitStamps, stampInkItem, stampTilt } from "./ink.js";
+import { HIGHLIGHTER_NIB_SCALE, STROKE_WIDTH_REF_CSS, applyEraserToInk, isPixelErase, isStrokeErase, paintGhost, paintItem, paintPen, paintStamp, removeHitItems, removeHitStamps, stampInkItem, stampTilt } from "./ink.js";
 import { followStampGhost, stampGhostItem, stampPlaceFromGhost } from "./stampGhost.js";
 import {
   DOUBLE_TAP_MS,
@@ -10655,7 +10655,14 @@ function trackPenHover(event) {
   const view = state.pageViews.find((item) => item.stage === event.target.closest(".page-stage"));
   const cssWidth = view?.cssWidth || 1;
   const box = view?.stage?.getBoundingClientRect();
-  const px = Math.max(4, (Number(slot.width) || 2) * ((box?.width || cssWidth) / cssWidth));
+  // #368: 잉크 도구 두께는 문서 기준(#288: width × 화면px/REF)이다 — 점도 같은
+  // 공식을 써야 실제 획과 크기가 맞는다. 형광펜은 팁 배율(#312)까지. 지우개는
+  // CSS 기준 히트테스트와 짝이라 옛 공식이 맞다.
+  const tool = state.tool;
+  const screenW = box?.width || cssWidth;
+  const perUnit = tool === "eraser" ? screenW / cssWidth : screenW / STROKE_WIDTH_REF_CSS;
+  const nib = tool === "highlighter" ? HIGHLIGHTER_NIB_SCALE : 1;
+  const px = Math.max(4, (Number(slot.width) || 2) * perUnit * nib);
   dot.style.width = `${px}px`;
   dot.style.height = `${px}px`;
   dot.style.transform = `translate(${event.clientX - px / 2}px, ${event.clientY - px / 2}px)`;
