@@ -83,7 +83,8 @@ describe("#147 배선", () => {
     const save = main.slice(main.indexOf("async function saveDocumentNow"), main.indexOf("async function bakeIntoPdf"));
     assert.match(save, /await \(state\.driveDoc \? saveDriveSidecar\(\) : saveInkSidecar\(\)\)/);
     assert.doesNotMatch(save, /withAnnotatedPdf|buildAnnotatedPdf/, "저장 must stay cheap");
-    assert.match(main, /uploadArg\(sidecarPath\(doc\.path\), ""\)/);
+    // #378: 이제 아는 rev로 조건부 저장한다 — 핀을 새 사실로.
+    assert.match(main, /uploadArg\(sidecarPath\(doc\.path\), rev\)/);
   });
 
   it("keeps baking as its own action, where the ink hardens", () => {
@@ -194,7 +195,7 @@ describe("#277 새로고침·재열기 후 클라우드 문서 복원", () => {
   const main = readFileSync(join(root, "src/main.js"), "utf8");
 
   it("rebuilds the dropbox doc from the identity when it is not in memory", () => {
-    const open = main.slice(main.indexOf("async function openPdfBuffer"), main.indexOf("async function openPdfBuffer") + 900);
+    const open = main.slice(main.indexOf("async function openPdfBuffer"), main.indexOf("async function openPdfBuffer") + 1200);
     assert.match(open, /const path = dbxId\.slice\("dbx::"\.length\)/);
     assert.match(open, /state\.dropboxDoc = \{ path, name:/);
     // #362: 다른 문서로 바꾸면 반드시 재구성 — 잔존 doc이 사이드카를 공유시켰다.

@@ -183,3 +183,16 @@ describe("#376 복원 문서 덮어쓰기 방지", () => {
     assert.match(drv, /state\.driveDoc\?\.id === doc\.id/);
   });
 });
+
+describe("#378 사이드카 조건부 업로드", () => {
+  it("uploads with the known rev, merges on conflict, retries once", () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const src = readFileSync(join(here, "main.js"), "utf8");
+    const save = src.slice(src.indexOf("async function saveInkSidecar"), src.indexOf("/** Reads the sidecar"));
+    assert.match(save, /uploadArg\(sidecarPath\(doc\.path\), rev\)/, "overwrite가 아니라 update");
+    assert.match(save, /isConflict\(payload\) && !retried/);
+    assert.match(save, /await loadInkSidecar\(doc\);\s*return saveInkSidecar\(true\)/, "당겨 병합 후 1회 재시도");
+    assert.match(src, /state\.inkSidecarRev = ""/, "문서 전환 시 리셋");
+    assert.match(src, /sidecarMeta\?\.rev/, "다운로드 헤더에서 rev 추적");
+  });
+});
