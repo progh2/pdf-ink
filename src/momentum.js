@@ -6,12 +6,13 @@
 
 /** 이 시간(ms) 안의 표본만으로 속도를 잰다 — 획 초반의 느린 구간은 무시. */
 export const MOMENTUM_WINDOW_MS = 90;
-/** 속도가 반으로 줄기까지의 시간. 시간 기반이라 프레임률과 무관하다. */
-export const MOMENTUM_HALF_LIFE_MS = 130;
+/** 속도가 반으로 줄기까지의 시간. 시간 기반이라 프레임률과 무관하다.
+ *  #304: 130→300 — 더 오래 굴러가 「퍽퍽」 지나가게(이동거리 ≈ v0×반감기/ln2). */
+export const MOMENTUM_HALF_LIFE_MS = 300;
 /** 이 속도(px/ms) 아래면 멈춘다 (약 1.2px/프레임). */
 export const MOMENTUM_MIN_SPEED = 0.02;
-/** 말도 안 되는 플링을 막는 상한(px/ms). */
-export const MOMENTUM_MAX_SPEED = 6;
+/** 말도 안 되는 플링을 막는 상한(px/ms). #304: 6→12 — 센 플링 허용. */
+export const MOMENTUM_MAX_SPEED = 12;
 
 /** 최근 표본(≤window ms)의 위치차 ÷ 시간. {vx, vy} px/ms. */
 export function velocityFromSamples(samples, windowMs = MOMENTUM_WINDOW_MS) {
