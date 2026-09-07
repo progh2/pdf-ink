@@ -719,6 +719,9 @@ const state = {
 const pointers = new Map();
 let gesture = null;
 let ignoreAfterPinch = false;
+// #306: 이번 접촉에서 두 손가락이 닿은 적 있으면(핀치/확대·축소) 링크 탭을 막는다.
+// 핀치 인식이 어긋나 한 손가락이 거의 안 움직여 「탭」으로 잡혀도 링크로 안 튄다.
+let multiTouchSeen = false;
 let ignoreAfterPanel = false;
 let lastInkUpClient = null;
 const shapeHold = createShapeHold({ holdMs: SHAPE_HOLD_MS });
@@ -10100,6 +10103,7 @@ function onWorkspacePointerDown(event) {
   pointers.set(event.pointerId, { x: event.clientX, y: event.clientY, type: event.pointerType });
 
   if (pointers.size >= 2) {
+    multiTouchSeen = true;
     event.preventDefault();
     startPinch();
     return;
@@ -10214,6 +10218,7 @@ function onWorkspacePointerMove(event) {
     pointers.set(event.pointerId, { x: event.clientX, y: event.clientY, type: event.pointerType });
   }
   if (pointers.size >= 2 || gesture?.type === "pinch") {
+    multiTouchSeen = true;
     event.preventDefault();
     if (pointers.size >= 2 && gesture?.type !== "pinch") {
       startPinch();
@@ -10253,6 +10258,10 @@ function onWorkspacePointerUp(event) {
     if (pointers.size < 2) {
       gesture = null;
       ignoreAfterPinch = pointers.size > 0;
+      // #306: 두 손가락이 다 떨어져야 멀티터치 표시를 푼다(남은 손가락 릴리스도 링크 아님).
+      if (pointers.size === 0) {
+        multiTouchSeen = false;
+      }
       applyViewport();
       // #302: 핀치 동안 미룬 윈도 재구성을 한 번에 채우고 현재 쪽을 갱신한다.
       updateCurrentPageFromScroll();
@@ -10263,7 +10272,9 @@ function onWorkspacePointerUp(event) {
   }
   if (gesture?.type === "pan") {
     cancelLinkFixHold();
-    const tapped = !gesture.held && (gesture.moved || 0) <= PAN_TAP_SLOP_PX && event.type !== "pointercancel";
+    // #306: 확대·축소(두 손가락)가 섞인 접촉은 탭이 아니다 — 링크로 튀지 않는다.
+    const tapped =
+      !gesture.held && !multiTouchSeen && (gesture.moved || 0) <= PAN_TAP_SLOP_PX && event.type !== "pointercancel";
     // #296: 놓기 직전 속도로 관성 스크롤을 굴린다 — 스크롤 모드에서 탭이 아닐 때만.
     const fling =
       !tapped && state.viewMode === "scroll" && event.type !== "pointercancel"
@@ -10282,6 +10293,9 @@ function onWorkspacePointerUp(event) {
     } else if (fling) {
       startMomentum(fling.vx, fling.vy);
     }
+    if (pointers.size === 0) {
+      multiTouchSeen = false;
+    }
     return;
   }
   if (state.selectDrag) {
@@ -10289,6 +10303,7 @@ function onWorkspacePointerUp(event) {
     if (pointers.size === 0) {
       ignoreAfterPinch = false;
       ignoreAfterPanel = false;
+      multiTouchSeen = false;
     }
     return;
   }
@@ -10297,6 +10312,7 @@ function onWorkspacePointerUp(event) {
     if (pointers.size === 0) {
       ignoreAfterPinch = false;
       ignoreAfterPanel = false;
+      multiTouchSeen = false;
     }
     return;
   }
@@ -10304,6 +10320,7 @@ function onWorkspacePointerUp(event) {
   if (pointers.size === 0) {
     ignoreAfterPinch = false;
     ignoreAfterPanel = false;
+    multiTouchSeen = false;
   }
 }
 

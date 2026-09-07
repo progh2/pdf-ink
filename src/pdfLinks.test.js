@@ -160,7 +160,7 @@ describe("#178 배선", () => {
   it("follows a tap only while the page is locked, so writing is never a click", () => {
     const spot = main.slice(main.indexOf("function pdfLinkSpotAtClient(client)"), main.indexOf("function linkKeysFor"));
     assert.match(spot, /state\.interactMode !== "view"/);
-    assert.match(main, /const tapped = !gesture\.held && \(gesture\.moved \|\| 0\) <= PAN_TAP_SLOP_PX/, "a drag is not a tap, and neither is a hold");
+    assert.match(main, /const tapped =[\s\S]*?!gesture\.held && !multiTouchSeen && \(gesture\.moved \|\| 0\) <= PAN_TAP_SLOP_PX/, "a drag, a hold, or a pinch is not a tap (#306)");
   });
 
   it("opens an outside address in its own tab, never in ours", () => {
@@ -346,7 +346,7 @@ describe("#188 배선", () => {
 
   it("leaves a failed link on screen long enough to read", () => {
     assert.match(main, /flashBanner\(said, at \? 1800 : 7000\)/);
-    assert.match(main, /const tapped = !gesture\.held/);
+    assert.match(main, /const tapped =[\s\S]*?!gesture\.held && !multiTouchSeen/);
   });
 
   it("asks the pages themselves when pdf.js will not resolve a reference", () => {
