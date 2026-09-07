@@ -22,6 +22,7 @@ import {
   pageStackOffset,
   previewListHeight,
   previewPaintsForPlan,
+  previewRowBody,
   previewRowStride,
   previewThumbSize,
   previewUpdateOnPageChange,
