@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   MAX_PAGE_PIXELS,
   MAX_SCALE,
@@ -11,6 +14,7 @@ import {
   inkCanvasScale,
   renderZoomFactor,
   scaleFromPinch,
+  sharpOverlayJobs,
   slotLineWidth,
 } from "./viewport.js";
 
@@ -130,5 +134,44 @@ describe("#157 줄여 보기", () => {
 
   it("does not ask for a sharper render when shrinking", () => {
     assert.equal(renderZoomFactor(0.7, 1080, 1560), 1);
+  });
+});
+
+describe("#354 선명 오버레이 계획", () => {
+  const workRect = { left: 100, top: 50, width: 800, height: 600 };
+
+  it("clips each page to the visible slice, in device pixels and page fractions", () => {
+    const plan = sharpOverlayJobs({
+      workRect,
+      pages: [{ pageNum: 3, rect: { left: 300, top: -350, width: 400, height: 800 } }],
+      dpr: 2,
+    });
+    assert.equal(plan.width, 1600);
+    const [job] = plan.jobs;
+    assert.equal(job.dx, 400, "(300-100)*2");
+    assert.equal(job.dy, 0);
+    assert.equal(job.sy, 0.5, "페이지 위 절반은 화면 밖");
+    assert.equal(job.sh, 0.5);
+    assert.equal(job.pagePxH, 1600);
+  });
+
+  it("drops pages fully outside and scales down past the pixel budget", () => {
+    const plan = sharpOverlayJobs({
+      workRect,
+      pages: [{ pageNum: 9, rect: { left: 2000, top: 0, width: 100, height: 100 } }],
+      dpr: 4,
+      maxPixels: 1_000_000,
+    });
+    assert.equal(plan.jobs.length, 0);
+    assert.ok(plan.width * plan.height <= 1_000_001, "예산을 넘지 않는다");
+  });
+
+  it("wires hide-on-touch and draw-on-idle into main", () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const src = readFileSync(join(here, "main.js"), "utf8");
+    assert.match(src, /hideSharpOverlay\(\);\s*\n\s*scheduleSharpOverlay\(400\)/, "스크롤: 숨기고 다시");
+    assert.match(src, /cancelMomentum\(\);[\s\S]{0,120}hideSharpOverlay\(\)/, "터치: 즉시 숨김");
+    assert.match(src, /some\(\(item\) => item\?\.type === "mosaic"\)/, "모자이크 쪽은 오버레이 금지");
+    assert.match(src, /state\.userScale <= state\.renderFactor \+ 0\.01/, "이미 선명하면 안 덮는다");
   });
 });

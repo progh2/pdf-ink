@@ -79,6 +79,7 @@ import {
   pointerDistance,
   pointerMidpoint,
   scaleFromPinch,
+  sharpOverlayJobs,
 } from "./viewport.js";
 import { applyEraserToInk, isPixelErase, isStrokeErase, paintGhost, paintItem, paintPen, paintStamp, removeHitItems, removeHitStamps, stampInkItem, stampTilt } from "./ink.js";
 import { followStampGhost, stampGhostItem, stampPlaceFromGhost } from "./stampGhost.js";
@@ -1897,6 +1898,152 @@ function wantedRenderFactor() {
 let zoomRenderTimer = 0;
 
 /** Repaints after the pinch settles, so a live pinch stays cheap. */
+/**
+ * #354: 뷰포트 선명 오버레이. 렌더 단계·픽셀 예산 때문에 확대가 factor를
+ * 넘으면 CSS 보간으로 전체가 뿌옇다 — 멈췄을 때 보이는 영역만 화면 해상도로
+ * 다시 그려 덮는다. 움직이면 즉시 숨긴다. 메모리는 화면 한 장(고정).
+ * 모자이크가 있는 페이지는 건너뛴다 — 가린 원문이 오버레이로 새면 안 된다.
+ */
+let sharpOverlayEl = null;
+let sharpOverlayTimer = 0;
+let sharpOverlayGen = 0;
+
+function hideSharpOverlay() {
+  sharpOverlayGen += 1;
+  window.clearTimeout(sharpOverlayTimer);
+  sharpOverlayTimer = 0;
+  if (sharpOverlayEl) {
+    sharpOverlayEl.hidden = true;
+  }
+}
+
+function scheduleSharpOverlay(delay = 350) {
+  window.clearTimeout(sharpOverlayTimer);
+  sharpOverlayTimer = window.setTimeout(() => {
+    sharpOverlayTimer = 0;
+    renderSharpOverlay();
+  }, delay);
+}
+
+function sharpOverlayCanvas() {
+  if (!sharpOverlayEl) {
+    sharpOverlayEl = document.createElement("canvas");
+    sharpOverlayEl.id = "sharp-overlay";
+    sharpOverlayEl.hidden = true;
+    sharpOverlayEl.style.cssText = "position:fixed;z-index:3;pointer-events:none;";
+    els.writeScreen.append(sharpOverlayEl);
+  }
+  return sharpOverlayEl;
+}
+
+async function renderSharpOverlay() {
+  // factor로 이미 충분히 선명하면 덮을 이유가 없다.
+  if (!state.pdf || state.drawing || els.writeScreen.hidden || state.userScale <= state.renderFactor + 0.01) {
+    return;
+  }
+  const gen = ++sharpOverlayGen;
+  const workRect = els.workspace.getBoundingClientRect();
+  const pages = [];
+  for (const view of state.pageViews) {
+    if (!view.rendered) {
+      continue;
+    }
+    const items = pageStrokes(view.pageNum);
+    if (items.some((item) => item?.type === "mosaic")) {
+      continue;
+    }
+    pages.push({ pageNum: view.pageNum, rect: view.stage.getBoundingClientRect(), view, items });
+  }
+  const plan = sharpOverlayJobs({ workRect, pages, dpr: window.devicePixelRatio || 1 });
+  if (!plan.jobs.length) {
+    return;
+  }
+  const canvas = sharpOverlayCanvas();
+  canvas.width = plan.width;
+  canvas.height = plan.height;
+  canvas.style.left = `${workRect.left}px`;
+  canvas.style.top = `${workRect.top}px`;
+  canvas.style.width = `${workRect.width}px`;
+  canvas.style.height = `${workRect.height}px`;
+  const ctx = canvas.getContext("2d");
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  for (const job of plan.jobs) {
+    if (gen !== sharpOverlayGen) {
+      return;
+    }
+    const page = pages.find((item) => item.pageNum === job.pageNum);
+    const leaf = leafAt(state.leaves, job.pageNum);
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(job.dx, job.dy, job.dw, job.dh);
+    ctx.clip();
+    ctx.fillStyle = "#FFFFFF";
+    ctx.fillRect(job.dx, job.dy, job.dw, job.dh);
+    const offX = job.dx - job.sx * job.pagePxW;
+    const offY = job.dy - job.sy * job.pagePxH;
+    if (leaf && leaf.kind !== "outline") {
+      try {
+        const pdfPage = await state.pdf.getPage(leaf.pdfPage);
+        if (gen !== sharpOverlayGen) {
+          ctx.restore();
+          return;
+        }
+        const rotation = ((pdfPage.rotate || 0) + (leaf.rotate || 0)) % 360;
+        const base = pdfPage.getViewport({ scale: 1, rotation });
+        const viewport = pdfPage.getViewport({
+          scale: job.pagePxW / base.width,
+          rotation,
+          offsetX: offX,
+          offsetY: offY,
+        });
+        await pdfPage.render({ canvasContext: ctx, viewport }).promise;
+      } catch {
+        // 유령 리프·취소는 흰 종이 위에 잉크만.
+      }
+    }
+    if (gen !== sharpOverlayGen) {
+      ctx.restore();
+      return;
+    }
+    // 잉크·이미지: 페인터에 가상 치수를 줘 좌표·두께(#288)가 본문과 같게.
+    const dims = { width: job.pagePxW, height: job.pagePxH };
+    ctx.save();
+    ctx.translate(offX, offY);
+    for (const item of page.items) {
+      if (item.type === "image" && item.src) {
+        const entry = cachedImage(item.src, null);
+        if (entry?.ready && entry.img.width) {
+          const crop = item.crop || { x: 0, y: 0, w: 1, h: 1 };
+          const dest = imagePaintDest(item, dims.width, dims.height);
+          const sx2 = crop.x * entry.img.width;
+          const sy2 = crop.y * entry.img.height;
+          const sw2 = Math.max(1, entry.img.width * crop.w);
+          const sh2 = Math.max(1, entry.img.height * crop.h);
+          if (!dest.rotate) {
+            ctx.drawImage(entry.img, sx2, sy2, sw2, sh2, item.x * dims.width, item.y * dims.height, dest.destW, dest.destH);
+          } else {
+            ctx.save();
+            ctx.translate((item.x + item.w / 2) * dims.width, (item.y + item.h / 2) * dims.height);
+            ctx.rotate((dest.rotate * Math.PI) / 180);
+            ctx.drawImage(entry.img, sx2, sy2, sw2, sh2, -dest.destW / 2, -dest.destH / 2, dest.destW, dest.destH);
+            ctx.restore();
+          }
+        }
+      }
+    }
+    for (const item of page.items) {
+      paintItem(ctx, item, inkCanvasScale(dims.width, page.view.cssWidth || 400), dims);
+    }
+    ctx.restore();
+    ctx.restore();
+  }
+  if (gen === sharpOverlayGen) {
+    canvas.hidden = false;
+  }
+}
+
 function scheduleZoomRender() {
   window.clearTimeout(zoomRenderTimer);
   zoomRenderTimer = window.setTimeout(() => {
@@ -1914,6 +2061,8 @@ function scheduleZoomRender() {
     }
     renderVisiblePages();
   }, 180);
+  // #354: 멈춘 뒤 보이는 영역을 화면 해상도로 덮는다.
+  scheduleSharpOverlay();
 }
 
 async function rebuildPages() {
@@ -10332,6 +10481,8 @@ function movePan(event) {
 function onWorkspacePointerDown(event) {
   // #296: 굴러가는 관성 스크롤은 새 터치로 즉시 멈춘다(탭으로 멈추기).
   cancelMomentum();
+  // #354: 만지는 동안 선명 오버레이는 치운다.
+  hideSharpOverlay();
   if (event.target.closest("#other-pdf")) {
     return;
   }
@@ -11492,6 +11643,9 @@ els.workspace.addEventListener("scroll", () => {
   if (restoreHeldPaperScroll()) {
     return;
   }
+  // #354: 움직이면 숨기고, 멈추면 다시 덮는다.
+  hideSharpOverlay();
+  scheduleSharpOverlay(400);
   updateAreaHits();
   if (state.pendingCapture || state.currentRect) {
     updateMarquee();
