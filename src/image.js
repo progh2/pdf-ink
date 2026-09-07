@@ -1,4 +1,7 @@
 export const IMAGE_MAX_BYTES = 8 * 1024 * 1024;
+/** #323: 이미지 최소 크기(페이지 비율). 4%는 넓은 페이지에서 50px+라 작은
+ *  캡처를 뻥튀기했다 — 1%면 400px 페이지에서 4px, 2000px에서 20px. */
+export const IMAGE_MIN_FRAC = 0.01;
 export const IMAGE_MAX_EDGE = 1600;
 export const IMAGE_HANDLE_CSS = 8;
 export const RESIZE_HANDLES = ["nw", "ne", "se", "sw"];
@@ -33,8 +36,8 @@ export function imageItem({
     id: id || `img-${Math.round(Date.now() % 1e9)}`,
     x: clamp01(x),
     y: clamp01(y),
-    w: Math.max(0.04, Number(w) || 0.4),
-    h: Math.max(0.04, Number(h) || 0.3),
+    w: Math.max(IMAGE_MIN_FRAC, Number(w) || 0.4),
+    h: Math.max(IMAGE_MIN_FRAC, Number(h) || 0.3),
     src: typeof src === "string" ? src : "",
     locked: Boolean(locked),
     rotate: Number.isFinite(Number(rotate)) ? Number(rotate) : 0,
@@ -91,8 +94,8 @@ export function keepAspect(box, origin, handle, cssWidth = 400, cssHeight = 600)
   const byHeight = box.h * pageH * ratio;
   const width = Math.max(byWidth, byHeight) / pageW;
   const height = (width * pageW) / ratio / pageH;
-  const w = Math.max(0.04, width);
-  const h = Math.max(0.04, height);
+  const w = Math.max(IMAGE_MIN_FRAC, width);
+  const h = Math.max(IMAGE_MIN_FRAC, height);
   // 고정점은 잡은 모서리의 대각선 반대편.
   const anchorRight = handle === "nw" || handle === "sw";
   const anchorBottom = handle === "nw" || handle === "ne";
@@ -119,16 +122,16 @@ export function resizeImage(item, handle, point, { freeRatio = false, cssWidth =
   let right = x2;
   let bottom = y2;
   if (handle === "nw" || handle === "sw") {
-    left = Math.min(px, right - 0.04);
+    left = Math.min(px, right - IMAGE_MIN_FRAC);
   }
   if (handle === "ne" || handle === "se") {
-    right = Math.max(px, left + 0.04);
+    right = Math.max(px, left + IMAGE_MIN_FRAC);
   }
   if (handle === "nw" || handle === "ne") {
-    top = Math.min(py, bottom - 0.04);
+    top = Math.min(py, bottom - IMAGE_MIN_FRAC);
   }
   if (handle === "sw" || handle === "se") {
-    bottom = Math.max(py, top + 0.04);
+    bottom = Math.max(py, top + IMAGE_MIN_FRAC);
   }
   const box = { ...item, x: left, y: top, w: right - left, h: bottom - top };
   return freeRatio ? box : keepAspect(box, item, handle, cssWidth, cssHeight);
@@ -188,7 +191,7 @@ export function trueSizeOnPage({
   const over = Math.max(w / maxShare, h / maxShare, 1);
   w /= over;
   h /= over;
-  return { w: Math.max(0.04, w), h: Math.max(0.04, h), shrunk: over > 1 };
+  return { w: Math.max(IMAGE_MIN_FRAC, w), h: Math.max(IMAGE_MIN_FRAC, h), shrunk: over > 1 };
 }
 
 export function acceptImageSrc(src) {

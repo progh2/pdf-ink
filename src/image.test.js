@@ -95,7 +95,8 @@ describe("#224 비율 유지 크기 조절", () => {
   it("never shrinks below the floor, whichever mode", () => {
     for (const opts of [page, { ...page, freeRatio: true }]) {
       const tiny = resizeImage(item, "se", { x: 0, y: 0 }, opts);
-      assert.ok(tiny.w >= 0.04 && tiny.h >= 0.04);
+      // #323: 하한을 1%로 — 작은 이미지를 뻥튀기하지 않는다.
+      assert.ok(tiny.w >= 0.01 && tiny.h >= 0.01);
     }
   });
 });
@@ -135,7 +136,7 @@ describe("#238 붙여넣기는 보던 크기 그대로", () => {
 
   it("never lands so small it cannot be grabbed", () => {
     const size = trueSizeOnPage({ imgWidth: 2, imgHeight: 2, ...page });
-    assert.ok(size.w >= 0.04 && size.h >= 0.04);
+    assert.ok(size.w >= 0.01 && size.h >= 0.01, "#323: 20px급 캡처도 그대로");
   });
 
   it("survives nonsense instead of producing NaN", () => {
