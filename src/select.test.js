@@ -10,6 +10,7 @@ import {
   ROTATE_HANDLE_SIZE_CSS,
   ROTATE_HANDLE_STROKE_CSS,
   copyItems,
+  fitItemsIntoBox,
   remapItemsBetweenRects,
   deleteSelectedItems,
   isSelectable,
@@ -380,5 +381,26 @@ describe("#320 걸친 항목 상대편 미리보기 배선", () => {
     assert.match(ghost, /selectedBounds\(pageStrokes\(drag\.page\), drag\.indices/);
     assert.match(ghost, /for \(const target of state\.pageViews\)/);
     assert.doesNotMatch(ghost, /stageViewAtClient\(event\.clientX/, "포인터가 아니라 겹침으로 판정");
+  });
+});
+
+describe("#346 담긴 필기도 상자 안으로", () => {
+  it("maps strokes and boxes with the snapshot, stamps keep their CSS size", () => {
+    const box = { x: 0, y: 0.25, w: 1, h: 0.5 };
+    const [pen, img, stamp] = fitItemsIntoBox(
+      [
+        { type: "pen", id: "s:1", width: 2, points: [{ x: 0.5, y: 0.5 }] },
+        { type: "image", id: "i:1", x: 0.1, y: 0.2, w: 0.4, h: 0.4 },
+        { type: "stamp", id: "st:1", x: 0.5, y: 1, w: 108, h: 64 },
+      ],
+      box,
+      () => "new",
+    );
+    assert.deepEqual(pen.points[0], { x: 0.5, y: 0.5 }, "중앙은 중앙으로");
+    assert.ok(Math.abs(img.y - (0.25 + 0.2 * 0.5)) < 1e-9);
+    assert.ok(Math.abs(img.h - 0.2) < 1e-9);
+    assert.equal(stamp.w, 108, "도장 크기는 CSS px 유지");
+    assert.ok(Math.abs(stamp.y - 0.75) < 1e-9);
+    assert.equal(pen.id, "new", "병합 안전: 새 id");
   });
 });

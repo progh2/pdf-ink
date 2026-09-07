@@ -351,6 +351,7 @@ import {
   duplicateItemsInRect,
   itemBounds,
   offsetItems,
+  fitItemsIntoBox,
   pickItemsAt,
   pickItemsInRect,
   remapItemsBetweenRects,
@@ -363,6 +364,7 @@ import {
 import {
   IMAGE_MAX_EDGE,
   acceptImageFile,
+  containBoxOnPage,
   acceptImageSrc,
   cropImage,
   cropRectOnImage,
@@ -7236,10 +7238,16 @@ async function pasteFromShelf(entry) {
   const index = state.page - 1;
   const leaf = leafAt(state.leaves, state.page);
   const id = `o:shelf-${Date.now().toString(36)}`;
-  const image = imageItem({ x: 0, y: 0, w: 1, h: 1, src: entry.src, locked: true });
+  // #346: 이웃 크기에 맞춰 늘리면 찌그러진다 — 빈 쪽 안에 비율 유지(contain)로
+  // 중앙 배치하고, 함께 담긴 필기도 같은 변환을 받는다.
+  const view = state.pageViews.find((item) => item.pageNum === state.page);
+  const pageW = view?.cssWidth || state.pageCssWidth || 400;
+  const pageH = view?.cssHeight || state.pageCssHeight || 600;
+  const box = containBoxOnPage(entry.w, entry.h, pageW, pageH);
+  const image = imageItem({ ...box, src: entry.src, locked: true });
   commitLeafChange(inkKey(leaf) || id, () => {
     state.leaves = insertOutlineAfter(state.leaves, index, id);
-    state.pages[id] = [image, ...cloneItems(entry.items || [])];
+    state.pages[id] = [image, ...fitItemsIntoBox(entry.items || [], box)];
   });
   afterPageOp(state.page + 1);
   flashBanner(`${state.page + 1}쪽에 붙여넣었습니다.`);

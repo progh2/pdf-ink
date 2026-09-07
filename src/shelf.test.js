@@ -68,7 +68,9 @@ describe("#267 배선", () => {
     const paste = main.slice(main.indexOf("async function pasteFromShelf"), main.indexOf("function movePageByDrag"));
     assert.match(paste, /entry\.kind === "image"[\s\S]{0,120}pasteImageAt\(state\.page, null, entry\.src\)/);
     assert.match(paste, /insertOutlineAfter\(state\.leaves, index, id\)/, "쪽은 새 쪽으로");
-    assert.match(paste, /state\.pages\[id\] = \[image, \.\.\.cloneItems\(entry\.items \|\| \[\]\)\]/);
+    // #346: 스냅샷은 contain 상자에, 담긴 필기도 같은 변환 — 핀을 새 사실로.
+    assert.match(paste, /const box = containBoxOnPage\(entry\.w, entry\.h, pageW, pageH\)/);
+    assert.match(paste, /state\.pages\[id\] = \[image, \.\.\.fitItemsIntoBox\(entry\.items \|\| \[\], box\)\]/);
   });
 
   it("prunes the shelf on startup", () => {

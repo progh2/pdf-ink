@@ -169,6 +169,21 @@ export function handleAt(bounds, point, hit = 0.038) {
  * 그림의 픽셀을 **화면의 CSS 점**으로 바꾸고(캡처는 기기 배율만큼 크다),
  * 다시 **지금 쪽 배율**로 나눠 종이 위 비율을 얻는다.
  */
+/**
+ * #346: 스냅샷을 쪽 안에 비율 유지(contain)로 중앙 배치하는 정규 좌표 상자.
+ * 가로/세로는 비율 비교로 저절로 인식된다 — 늘려 찌그러뜨리지 않는다.
+ */
+export function containBoxOnPage(imgWidth, imgHeight, pageWidth, pageHeight) {
+  const iw = Math.max(1, Number(imgWidth) || 1);
+  const ih = Math.max(1, Number(imgHeight) || 1);
+  const pw = Math.max(1, Number(pageWidth) || 1);
+  const ph = Math.max(1, Number(pageHeight) || 1);
+  const scale = Math.min(pw / iw, ph / ih);
+  const w = (iw * scale) / pw;
+  const h = (ih * scale) / ph;
+  return { x: (1 - w) / 2, y: (1 - h) / 2, w, h };
+}
+
 export function trueSizeOnPage({
   imgWidth,
   imgHeight,
