@@ -128,8 +128,9 @@ describe("#85 preview / page navigation speed", () => {
     }
     assert.ok(cache.size <= PAGE_BITMAP_LIMIT);
 
-    assert.match(main, /createPaintCache\(PAGE_BITMAP_LIMIT\)/);
-    assert.match(main, /createPaintCache\(THUMB_BITMAP_LIMIT\)/);
+    // #308: 밀려난 캔버스 백킹을 해제하는 콜백이 붙었다.
+    assert.match(main, /createPaintCache\(PAGE_BITMAP_LIMIT, freeBitmapEntry\)/);
+    assert.match(main, /createPaintCache\(THUMB_BITMAP_LIMIT, freeBitmapEntry\)/);
     assert.match(main, /function showPageInPlace/);
     assert.match(main, /function cachePageView/);
     assert.match(main, /function restorePageBitmap/);
@@ -495,5 +496,28 @@ describe("#151 이어서·바뀐 쪽만", () => {
   it("keeps the pen ahead of the drawing queue", () => {
     const warm = src5.slice(src5.indexOf("async function warmThumbs"), src5.indexOf("/* ---- PWA"));
     assert.match(warm, /if \(state\.drawing\) \{[\s\S]{0,140}index -= 1;/, "retries that page later, never skips it");
+  });
+});
+
+describe("#308 캐시 축출 콜백", () => {
+  it("frees a value whenever it leaves the cache", () => {
+    const freed = [];
+    const cache = createPaintCache(2, (value) => freed.push(value));
+    cache.set("a", 1);
+    cache.set("b", 2);
+    cache.set("a", 10); // 교체: 옛 값 1 해제
+    cache.set("c", 3); // 넘침: 가장 오래된 b 해제
+    cache.delete("c"); // 삭제: 3 해제
+    cache.clear(); // 남은 10 해제
+    assert.deepEqual(freed, [1, 2, 3, 10]);
+  });
+
+  it("does not free a value that was re-set unchanged", () => {
+    const freed = [];
+    const cache = createPaintCache(2, (value) => freed.push(value));
+    const same = { bitmap: true };
+    cache.set("a", same);
+    cache.set("a", same);
+    assert.deepEqual(freed, []);
   });
 });
