@@ -2,7 +2,9 @@ export const IMAGE_MAX_BYTES = 8 * 1024 * 1024;
 /** #323: 이미지 최소 크기(페이지 비율). 4%는 넓은 페이지에서 50px+라 작은
  *  캡처를 뻥튀기했다 — 1%면 400px 페이지에서 4px, 2000px에서 20px. */
 export const IMAGE_MIN_FRAC = 0.01;
-export const IMAGE_MAX_EDGE = 1600;
+/** #333: 1600은 확대하면 흐렸다. 이미지가 IndexedDB로 간 뒤(#273)라 여유가
+ *  있어 3200으로 — 면적 4배. 원본 무제한은 iOS 디코드 메모리 때문에 안 둔다. */
+export const IMAGE_MAX_EDGE = 3200;
 export const IMAGE_HANDLE_CSS = 8;
 export const RESIZE_HANDLES = ["nw", "ne", "se", "sw"];
 export const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp"];
