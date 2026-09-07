@@ -1540,8 +1540,22 @@ async function renderPageView(view) {
     drawStrokesOn(view, state.drawing && state.drawPage === view.pageNum ? state.currentStroke : null);
     return;
   }
-  const page = await state.pdf.getPage(leaf.pdfPage);
+  let page;
+  try {
+    page = await state.pdf.getPage(leaf.pdfPage);
+  } catch {
+    // #338: 유령 리프(pdfPage가 문서 밖)면 빈 종이로 — 오류 폭풍을 막는다.
+    page = null;
+  }
   if (token !== view.token || !state.pdf) {
+    return;
+  }
+  if (!page) {
+    const ctx = canvas2d(view.pdfCanvas);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = "#FFFFFF";
+    ctx.fillRect(0, 0, view.pdfCanvas.width, view.pdfCanvas.height);
+    view.rendered = true;
     return;
   }
   const rotation = ((page.rotate || 0) + (leaf.rotate || 0)) % 360;
@@ -8824,7 +8838,7 @@ async function loadDriveSidecar(doc) {
   const added = countNewFrom(remote.pages, state.pages, state.inkGone);
   state.pages = mergePages(state.pages, remote.pages, state.inkGone);
   if (takeStructure) {
-    state.leaves = normalizeLeaves(remote.leaves, state.pageCount || remote.leaves.length);
+    state.leaves = normalizeLeaves(remote.leaves, state.pdf?.numPages || state.pageCount || remote.leaves.length);
     state.pageCount = state.leaves.length;
     state.outline = normalizeOutline(remote.outline, state.leaves);
     state.inkSavedAt = remote.savedAt;
@@ -9094,7 +9108,7 @@ async function loadInkSidecar(doc) {
   const added = countNewFrom(remote.pages, state.pages, state.inkGone);
   state.pages = mergePages(state.pages, remote.pages, state.inkGone);
   if (takeStructure) {
-    state.leaves = normalizeLeaves(remote.leaves, state.pageCount || remote.leaves.length);
+    state.leaves = normalizeLeaves(remote.leaves, state.pdf?.numPages || state.pageCount || remote.leaves.length);
     state.pageCount = state.leaves.length;
     state.outline = normalizeOutline(remote.outline, state.leaves);
     state.inkSavedAt = remote.savedAt;

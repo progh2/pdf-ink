@@ -77,3 +77,17 @@ describe("#118 빈 쪽 크기", () => {
     assert.equal(nearestPdfLeaf([], 0), null);
   });
 });
+
+describe("#338 유령 리프 차단 배선", () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const src = readFileSync(join(here, "main.js"), "utf8");
+
+  it("merges remote leaves against the real PDF page count, not the leaf count", () => {
+    const uses = src.match(/normalizeLeaves\(remote\.leaves, state\.pdf\?\.numPages \|\| state\.pageCount \|\| remote\.leaves\.length\)/g) || [];
+    assert.equal(uses.length, 2, "채택부 두 곳 모두");
+  });
+
+  it("renders a ghost leaf as blank paper instead of erroring forever", () => {
+    assert.match(src, /page = await state\.pdf\.getPage\(leaf\.pdfPage\);\s*\} catch/);
+  });
+});

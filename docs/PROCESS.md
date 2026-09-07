@@ -257,3 +257,7 @@ PC에는 핀치가 없어 확대/축소 수단이 없었다. 페이저 옆에 �
 ## #335 미리보기 행 비율을 문서에 맞춤
 
 PC 미리보기에서 행 사이 공백이 크고 별표가 이미지 밖 빈 공간에 떴다. #284가 행 높이를 세로 문서 비율(117/88) 고정 레터박스로 만들었는데, 가로로 긴 문서(플래너)는 썸네일이 납작해 상자 위아래가 텅 비고 상자 우상단의 별이 이미지 밖에 뜬 것. 행 비율을 문서 첫 페이지 비율(state.baseCss, 0.45~1.6 클램프)로 계산하는 `previewRatio()`를 두고, pageWindow 메트릭 함수들에 ratio 파라미터(기본값은 기존 비율)를 더해 `--thumb-h`·spacer·stride·translate가 같은 비율을 쓰게 했다. stride는 여전히 균일해 #284의 어긋남은 재발하지 않는다.
+
+## #338 사이드카 병합의 유령 페이지
+
+마지막 페이지 근처에서 「앱 오류: Invalid page request」가 반복되고 미리보기까지 이상해졌다. 로컬 사본 확인 결과 PDF는 277쪽인데 앱은 333쪽. 사이드카 병합 채택부 두 곳이 normalizeLeaves의 기준을 pdf.numPages(277)가 아니라 leaves 길이(개요 포함 pageCount, 333)로 넘겨, 범위 밖 pdfPage 리프가 안 걸러지고 「빠진 페이지 채우기」가 존재하지 않는 278~333 pdf 리프를 생성·저장까지 했다. 기준을 `state.pdf?.numPages`로 바꾸고, renderPageView의 getPage를 try로 감싸 남은 유령 리프는 빈 종이로 그려 오류 폭풍을 막았다. 이미 저장된 유령은 로드 경로의 normalizeLeaves(stored.leaves, pdf.numPages)가 걸러 새로고침으로 회복된다.
