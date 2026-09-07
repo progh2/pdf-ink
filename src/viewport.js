@@ -86,6 +86,49 @@ export function renderZoomFactor(userScale, pixelWidth, pixelHeight, maxPixels =
   return best;
 }
 
+/**
+ * #354: 뷰포트 선명 오버레이 계획. 화면(workRect)과 각 페이지의 화면 사각형이
+ * 겹치는 부분만 골라, 오버레이 기기픽셀 좌표(d*)와 페이지 정규 소스(s*)를 낸다.
+ * 오버레이 픽셀이 예산을 넘으면 배율을 균일하게 낮춘다 — 메모리는 화면 한 장.
+ */
+export function sharpOverlayJobs({ workRect, pages, dpr = 1, maxPixels = 9_000_000 } = {}) {
+  const w = Math.max(1, Number(workRect?.width) || 1);
+  const h = Math.max(1, Number(workRect?.height) || 1);
+  let scale = Math.max(0.1, Number(dpr) || 1);
+  if (w * h * scale * scale > maxPixels) {
+    scale = Math.sqrt(maxPixels / (w * h));
+  }
+  const jobs = [];
+  for (const page of pages || []) {
+    const r = page?.rect;
+    if (!r || !(r.width > 0) || !(r.height > 0)) {
+      continue;
+    }
+    const left = Math.max(r.left, workRect.left);
+    const top = Math.max(r.top, workRect.top);
+    const right = Math.min(r.left + r.width, workRect.left + w);
+    const bottom = Math.min(r.top + r.height, workRect.top + h);
+    if (right <= left || bottom <= top) {
+      continue;
+    }
+    jobs.push({
+      pageNum: page.pageNum,
+      dx: (left - workRect.left) * scale,
+      dy: (top - workRect.top) * scale,
+      dw: (right - left) * scale,
+      dh: (bottom - top) * scale,
+      sx: (left - r.left) / r.width,
+      sy: (top - r.top) / r.height,
+      sw: (right - left) / r.width,
+      sh: (bottom - top) / r.height,
+      pagePxW: r.width * scale,
+      pagePxH: r.height * scale,
+    });
+  }
+  // 반올림이 예산을 넘길 수 있어 내림 — 오버레이는 절대 예산 초과 금지.
+  return { width: Math.max(1, Math.floor(w * scale)), height: Math.max(1, Math.floor(h * scale)), scale, jobs };
+}
+
 export function constrainPan(panX, panY, scale, pageW, pageH, viewW, viewH, margin = PAN_MARGIN_PX) {
   const room = Math.max(0, Number(margin) || 0);
   const extraX = Math.max(0, (pageW * scale - viewW) / 2) + room;
