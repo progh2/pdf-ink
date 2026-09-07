@@ -277,3 +277,7 @@ PC 미리보기에서 행 사이 공백이 크고 별표가 이미지 밖 빈 �
 ## #348 이미지 저장 무손실화
 
 붙여넣은 굿노트 필기 스크린샷이 흐려지는 문제의 1단계(제안서 M2). `downscaleImage`가 긴 변 3200 초과를 축소 후 JPEG 0.86으로 재인코딩해 선화가 번지고 투명 PNG의 알파가 소실됐다(과거 1600px 시절 저장분은 영구 손실). 저장은 항상 원본 그대로(재샘플·재인코딩 없음 — IndexedDB #273이라 용량 여유)로 바꾸고, iOS 디코드 메모리(#308/#310)는 표시 단계에서만 대응한다: `cachedImage`가 IOS_CANVAS_DIET일 때 `createImageBitmap(resizeWidth, high)`로 축소 디코드해 바꿔 끼우고, 실패 시 원본 `<img>` 폴백. `IMAGE_MAX_EDGE`(3200)는 iOS 표시 디코드 상한으로 용도 변경. waitForImage는 비트맵 교체가 load 뒤 비동기라 ready 폴링을 더했다. (덧: import 중복 주입으로 image.test가 잠깐 죽었다 — 가드 조건이 헛짚었고, 게이트가 머지 전에 잡았다.)
+
+## #350 이미지 다운샘플 품질
+
+제안서 M3. 이미지 페인트가 브라우저 기본 스무딩(low)이라 큰 원본을 작은 박스로 줄일 때 뭉개짐이 가중됐다. `paintImageLayer`에 `imageSmoothingQuality: "high"`를 지정했다. 근본 해결은 M1(뷰포트 선명 오버레이) — 이것은 보조 수정.

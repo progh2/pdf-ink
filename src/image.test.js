@@ -198,3 +198,12 @@ describe("#348 저장 무손실 배선", () => {
     assert.match(fn, /createImageBitmap\(img, \{ resizeWidth/);
   });
 });
+
+describe("#350 다운샘플 품질", () => {
+  it("paints images with high-quality smoothing", () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const src = readFileSync(join(here, "main.js"), "utf8");
+    const fn = src.slice(src.indexOf("function paintImageLayer"), src.indexOf("function paintMosaicOverlay"));
+    assert.match(fn, /imageSmoothingQuality = "high"/);
+  });
+});
