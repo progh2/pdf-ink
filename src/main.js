@@ -739,10 +739,20 @@ let chipMenuBox = null;
 let frozenEndClient = null;
 let renderGen = 0;
 let paperScrollHold = null;
-const pageCache = createPaintCache(PAGE_BITMAP_LIMIT);
-const thumbCache = createPaintCache(THUMB_BITMAP_LIMIT);
+// #308: 캐시에서 밀려난 캔버스는 즉시 백킹을 해제한다. iOS 웹킷은 참조만
+// 끊긴 캔버스 메모리를 한참 쥐고 있어, 핀치 반복 시 한도를 넘겨 탭이 죽었다.
+function freeBitmapEntry(entry) {
+  const bitmap = entry?.bitmap;
+  if (bitmap && typeof bitmap.width === "number") {
+    bitmap.width = 0;
+    bitmap.height = 0;
+  }
+}
+
+const pageCache = createPaintCache(PAGE_BITMAP_LIMIT, freeBitmapEntry);
+const thumbCache = createPaintCache(THUMB_BITMAP_LIMIT, freeBitmapEntry);
 /** Page pictures without ink: one per page, worth keeping on disk (#143). */
-const pageThumbCache = createPaintCache(THUMB_BITMAP_LIMIT);
+const pageThumbCache = createPaintCache(THUMB_BITMAP_LIMIT, freeBitmapEntry);
 const stagePool = [];
 
 const WRITE_CHROME =
@@ -1631,6 +1641,16 @@ function acquireStage(pageNum) {
   return pooled;
 }
 
+// #308: 버려지는 스테이지의 캔버스 6장 백킹을 즉시 해제한다.
+function freeStageCanvases(view) {
+  for (const canvas of [view?.pdfCanvas, view?.underCanvas, view?.inkCanvas, view?.liveCanvas, view?.overCanvas, view?.maskCanvas]) {
+    if (canvas && !(canvas === view.liveCanvas && view.liveId != null)) {
+      canvas.width = 0;
+      canvas.height = 0;
+    }
+  }
+}
+
 function releaseStage(view) {
   if (!view) {
     return;
@@ -1639,6 +1659,8 @@ function releaseStage(view) {
   view.stage.remove();
   if (stagePool.length < 8) {
     stagePool.push(view);
+  } else {
+    freeStageCanvases(view);
   }
 }
 
@@ -1854,6 +1876,8 @@ async function rebuildPages() {
   const gen = ++renderGen;
   for (const view of [...state.pageViews, ...stagePool]) {
     dropLiveCanvas(view);
+    // #308: 다시 만들 스테이지들의 캔버스 백킹을 즉시 해제 — 핀치 반복 크래시 방지.
+    freeStageCanvases(view);
   }
   stagePool.length = 0;
   state.pageViews = [];

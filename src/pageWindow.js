@@ -162,9 +162,20 @@ export function pageAtScrollMid({ scrollTop, viewportHeight, scale = 1, metrics,
   return best;
 }
 
-export function createPaintCache(limit = 8) {
+/**
+ * #308: `onEvict`는 값이 캐시에서 밀려날 때(교체·넘침·delete·clear) 불린다.
+ * iOS 웹킷은 캔버스 백킹 메모리를 참조가 끊겨도 한참 쥐고 있어, 핀치를 반복하면
+ * 버린 스냅샷이 쌓여 캔버스 메모리 한도를 넘겨 탭이 죽었다 — 버릴 때 즉시
+ * width=0으로 해제하려고 콜백을 받는다.
+ */
+export function createPaintCache(limit = 8, onEvict = null) {
   const max = Math.max(1, Math.round(Number(limit) || 8));
   const map = new Map();
+  const drop = (value) => {
+    if (typeof onEvict === "function") {
+      onEvict(value);
+    }
+  };
   return {
     limit: max,
     get(key) {
@@ -178,11 +189,16 @@ export function createPaintCache(limit = 8) {
     },
     set(key, value) {
       if (map.has(key)) {
+        const old = map.get(key);
         map.delete(key);
+        if (old !== value) {
+          drop(old);
+        }
       }
       map.set(key, value);
       while (map.size > max) {
         const oldest = map.keys().next().value;
+        drop(map.get(oldest));
         map.delete(oldest);
       }
       return value;
@@ -191,9 +207,15 @@ export function createPaintCache(limit = 8) {
       return map.has(key);
     },
     delete(key) {
+      if (map.has(key)) {
+        drop(map.get(key));
+      }
       return map.delete(key);
     },
     clear() {
+      for (const value of map.values()) {
+        drop(value);
+      }
       map.clear();
     },
     get size() {
