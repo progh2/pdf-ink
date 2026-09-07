@@ -317,3 +317,23 @@ describe("#240 제자리에 붙여넣기", () => {
     assert.match(ink, /target\.x - \(bounds\.x \+ bounds\.w \/ 2\)/);
   });
 });
+
+describe("#351 최소 크기 일관·종횡비", () => {
+  it("keeps a 200x20-like capture unstretched", () => {
+    const at = pastePlacement({ x: 0.5, y: 0.5 }, { w: 0.2, h: 0.02 });
+    assert.equal(at.w, 0.2);
+    assert.equal(at.h, 0.02, "세로만 늘리던 옛 4% 하한이 없다");
+  });
+
+  it("grows a microscopic capture in proportion, to the shared 1% floor", () => {
+    const at = pastePlacement(null, { w: 0.004, h: 0.002 });
+    assert.ok(Math.abs(at.w - 0.01) < 1e-9);
+    assert.ok(Math.abs(at.h - 0.005) < 1e-9, "비율 유지");
+  });
+
+  it("leaves a normal size untouched", () => {
+    const at = pastePlacement({ x: 0.5, y: 0.5 }, { w: 0.4, h: 0.2 });
+    assert.equal(at.w, 0.4);
+    assert.equal(at.h, 0.2);
+  });
+});

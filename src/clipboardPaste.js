@@ -1,3 +1,5 @@
+import { IMAGE_MIN_FRAC } from "./image.js";
+
 /**
  * 바깥에서 복사해 온 것 붙여넣기 (#219).
  *
@@ -109,10 +111,18 @@ export async function readClipboardImage(clipboard, toDataUrl, toText = null) {
   }
 }
 
-/** 붙여넣은 그림이 놓일 자리: 누른 곳이 가운데, 종이 밖으로는 안 나가게. */
+/** 붙여넣은 그림이 놓일 자리: 누른 곳이 가운데, 종이 밖으로는 안 나가게.
+ *  #351: 축별 최소 4%는 200×20 캡처의 세로만 늘려 왜곡했다 — 긴 변이
+ *  IMAGE_MIN_FRAC(1%) 미만인 극소만 비율 유지로 키우고, 그 외엔 그대로. */
 export function pastePlacement(at, size) {
-  const w = Math.min(1, Math.max(0.04, Number(size?.w) || 0.4));
-  const h = Math.min(1, Math.max(0.04, Number(size?.h) || 0.3));
+  let w = Math.min(1, Number(size?.w) || 0.4);
+  let h = Math.min(1, Number(size?.h) || 0.3);
+  const long = Math.max(w, h);
+  if (long < IMAGE_MIN_FRAC && long > 0) {
+    const grow = IMAGE_MIN_FRAC / long;
+    w = Math.min(1, w * grow);
+    h = Math.min(1, h * grow);
+  }
   const x = Number.isFinite(Number(at?.x)) ? Number(at.x) - w / 2 : 0.25;
   const y = Number.isFinite(Number(at?.y)) ? Number(at.y) - h / 2 : 0.22;
   return {
