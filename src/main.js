@@ -2554,6 +2554,9 @@ async function importPdfOutline(pdf) {
 async function openPdfBuffer(buffer, { identity, name, page = 1, handle = null }) {
   // #208: 아직 안 쓴 필기는 지금 문서 것이다 — 정체가 바뀌기 전에 쓴다.
   writeStrokesNow();
+  // #356: 옛 문서를 향해 걸려 있던 자동저장은 여기서 끊는다.
+  window.clearTimeout(autosaveTimer);
+  autosaveTimer = 0;
   // Always replace: a handle from the previous file must never write this one.
   state.fileHandle = handle;
   // #277: 새로고침·재열기 땐 클라우드 문서를 identity에서 되살린다 — 안 그러면
@@ -8997,6 +9000,7 @@ async function loadDriveSidecar(doc) {
   if (!doc) {
     return;
   }
+  const openedFor = state.identity; // #356
   let remote = null;
   try {
     const id = await findDriveSidecar(doc);
@@ -9013,6 +9017,9 @@ async function loadDriveSidecar(doc) {
   }
   if (!remote) {
     return;
+  }
+  if (state.identity !== openedFor || state.driveDoc?.id !== doc.id) {
+    return 0; // #356: 그 사이 다른 문서가 열렸다.
   }
   // #83: 더 최근 쪽이 문서 구조(잎·목차)를 정하고, **필기는 합집합**이다.
   // 두 기기가 서로 다른 쪽에 쓴 것이 어느 쪽도 지워지지 않는다.
@@ -9255,7 +9262,10 @@ async function saveInkSidecar() {
   if (!reply.ok) {
     throw new Error("sidecar");
   }
-  state.inkSavedAt = Date.now();
+  // #356: 업로드가 끝나기 전에 다른 문서가 열렸으면 그 문서의 savedAt을 건드리지 않는다.
+  if (state.dropboxDoc?.path === doc.path) {
+    state.inkSavedAt = Date.now();
+  }
   return true;
 }
 
@@ -9264,6 +9274,9 @@ async function loadInkSidecar(doc) {
   if (!doc || !dropboxConnected()) {
     return;
   }
+  // #356: 다운로드가 끝났을 때 다른 문서가 열려 있으면 버린다 — A의 사이드카가
+  // B에 병합돼 필기가 교차 오염되던 레이스.
+  const openedFor = state.identity;
   let remote = null;
   try {
     const token = await dropboxToken();
@@ -9283,6 +9296,9 @@ async function loadInkSidecar(doc) {
   }
   if (!remote) {
     return;
+  }
+  if (state.identity !== openedFor || state.dropboxDoc?.path !== doc.path) {
+    return 0; // #356: 그 사이 다른 문서가 열렸다.
   }
   // #83: 더 최근 쪽이 문서 구조(잎·목차)를 정하고, **필기는 합집합**이다.
   // 두 기기가 서로 다른 쪽에 쓴 것이 어느 쪽도 지워지지 않는다.
