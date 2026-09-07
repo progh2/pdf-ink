@@ -4250,6 +4250,9 @@ async function renderSplitStage() {
   }
   if (tab.kind === "url") {
     const frame = document.createElement("iframe");
+    // #373: 외부 페이지는 최소 권한으로 격리 — same-origin은 주지 않는다.
+    // 로그인이 필요한 사이트는 sandbox 탓에 안 될 수 있다: 그 경우 새 탭으로.
+    frame.setAttribute("sandbox", "allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox");
     frame.src = tab.href;
     frame.title = tab.title;
     frame.referrerPolicy = "no-referrer";

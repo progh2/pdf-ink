@@ -63,3 +63,16 @@ describe("#130 빌드 경고", () => {
     assert.doesNotMatch(config, /chunkSizeWarningLimit/, "the warning is fixed, not hidden");
   });
 });
+
+describe("#373 보안 헤더·iframe sandbox", () => {
+  it("ships the safe header set and sandboxes the split iframe", () => {
+    const here373 = dirname(fileURLToPath(import.meta.url));
+    const vercel = readFileSync(join(here373, "../vercel.json"), "utf8");
+    assert.match(vercel, /X-Content-Type-Options/);
+    assert.match(vercel, /strict-origin-when-cross-origin/);
+    assert.match(vercel, /X-Frame-Options/);
+    assert.match(vercel, /Permissions-Policy/);
+    const src373 = readFileSync(join(here373, "main.js"), "utf8");
+    assert.match(src373, /setAttribute\("sandbox", "allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox"\)/);
+  });
+});

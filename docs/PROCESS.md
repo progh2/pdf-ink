@@ -325,3 +325,7 @@ B에 그은 필기·형광펜·이미지가 A에 나타나는 심각 버그. 필
 ## #372 저장 정직화·다운로드 상한·사이드카 src 검증 (보안 P4/P5)
 
 보안 감사 소형 묶음. (1) writeStrokesNow가 이미지 IDB 저장 실패를 .catch(()=>null)로 삼켜 재시작 때 그림이 사라질 수 있었다 — 실패 시 배너 + dirty 유지로 다음 저장에서 재시도. (2) 드롭박스 사본 저장이 부속 .ink 업로드 응답을 안 보고 성공 안내를 띄웠다 — 검사 추가. (3) 클라우드 PDF 다운로드 4곳(드롭박스 열기·재불러오기, 드라이브 열기·재불러오기)에 로컬과 같은 20MB 상한. (4) 사이드카의 이미지 src가 무검증으로 img.src에 실려 원격 URL이면 열람 추적·캔버스 오염이 가능했다 — parseInkFile에서 scrubImageSrc로 data:image(png/jpeg/webp)만 통과.
+
+## #373 보안 헤더 1단계·iframe sandbox (보안 P6)
+
+배포 응답에 보안 헤더가 없고 분할 화면의 외부 iframe에 sandbox가 없었다. 기능 영향 없는 안전셋만 1단계로: vercel.json에 nosniff·Referrer-Policy(strict-origin-when-cross-origin)·X-Frame-Options DENY·Permissions-Policy(카메라/마이크/위치 차단), iframe엔 same-origin 없는 최소 권한 sandbox(allow-scripts/forms/popups). 풀 CSP는 pdf.js worker(blob:)·Google 인증/Picker·Dropbox·PWA 경로를 배포 환경에서 실검증해야 해서 별도 회차로 보류 — 로컬에선 못 깨지는지 확인할 길이 없다.
