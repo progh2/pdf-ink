@@ -2551,7 +2551,12 @@ async function importPdfOutline(pdf) {
   }
 }
 
+// #358: 빠르게 연달아 열면 두 실행이 인터리브되어 identity=B에 pages=A 같은
+// 상태가 되고, 그대로 A 잉크가 B 키로 저장됐다. 마지막으로 연 문서만 이긴다.
+let openGen = 0;
+
 async function openPdfBuffer(buffer, { identity, name, page = 1, handle = null }) {
+  const gen = ++openGen;
   // #208: 아직 안 쓴 필기는 지금 문서 것이다 — 정체가 바뀌기 전에 쓴다.
   writeStrokesNow();
   // #356: 옛 문서를 향해 걸려 있던 자동저장은 여기서 끊는다.
@@ -2589,6 +2594,10 @@ async function openPdfBuffer(buffer, { identity, name, page = 1, handle = null }
 
   const loading = pdfjsLib.getDocument({ data: buffer.slice(0) });
   const pdf = await loading.promise;
+  if (gen !== openGen) {
+    pdf.destroy(); // #358: 그 사이 다른 문서가 열렸다 — 늦은 로드는 버린다.
+    return;
+  }
   state.pdf = pdf;
   state.identity = identity;
   state.fileName = name;
@@ -2604,6 +2613,9 @@ async function openPdfBuffer(buffer, { identity, name, page = 1, handle = null }
   } catch {
     // 못 붙여도 사이드카가 채울 수 있다.
   }
+  if (gen !== openGen) {
+    return; // #358
+  }
   // #190: the corrections this browser knows; a sidecar may add more.
   state.linkFixes = sanitizeLinkFixes(loadLinkFixes(identity));
   state.leaves = normalizeLeaves(stored.leaves, pdf.numPages);
@@ -2613,6 +2625,9 @@ async function openPdfBuffer(buffer, { identity, name, page = 1, handle = null }
   state.outline = normalizeOutline(stored.outline, state.leaves);
   anchorLinkFixesNow();
   await importPdfOutline(pdf);
+  if (gen !== openGen) {
+    return; // #358
+  }
   state.baseCss = { width: 0, height: 0 };
   resetEditorExtras();
   state.renderFactor = 1;
@@ -2628,6 +2643,9 @@ async function openPdfBuffer(buffer, { identity, name, page = 1, handle = null }
   showDocumentUi();
   showBanner("");
   await rebuildPages();
+  if (gen !== openGen) {
+    return; // #358: 세션·동기화 감시는 마지막 문서만.
+  }
   await persistSession();
   startSyncWatch();
   askPersistentStorage();

@@ -148,3 +148,16 @@ describe("#356 문서 전환 레이스 가드 배선", () => {
     assert.match(open, /clearTimeout\(autosaveTimer\)/);
   });
 });
+
+describe("#358 빠른 연속 열기 가드 배선", () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const src = readFileSync(join(here, "main.js"), "utf8");
+
+  it("only the last open wins — every await is followed by a generation check", () => {
+    const fn = src.slice(src.indexOf("let openGen = 0"), src.indexOf("async function openSelectedFile"));
+    assert.match(fn, /const gen = \+\+openGen/);
+    const checks = fn.match(/gen !== openGen/g) || [];
+    assert.ok(checks.length >= 4, `await 뒤 가드가 ${checks.length}개뿐`);
+    assert.match(fn, /pdf\.destroy\(\); \/\/ #358/);
+  });
+});
