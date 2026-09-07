@@ -1228,6 +1228,21 @@ function cachedImage(src, onReady) {
     const img = new Image();
     entry = { img, ready: false };
     img.onload = () => {
+      // #348: 저장본은 원본이지만 iOS는 디코드 메모리가 빠듯하다(#308/#310).
+      // 긴 변이 상한을 넘으면 표시용으로만 축소 디코드해 바꿔 끼운다.
+      const long = Math.max(img.naturalWidth || 0, img.naturalHeight || 0);
+      if (IOS_CANVAS_DIET && long > IMAGE_MAX_EDGE && typeof createImageBitmap === "function") {
+        createImageBitmap(img, { resizeWidth: Math.round((img.naturalWidth * IMAGE_MAX_EDGE) / long), resizeQuality: "high" })
+          .then((bitmap) => {
+            entry.img = bitmap;
+          })
+          .catch(() => {})
+          .finally(() => {
+            entry.ready = true;
+            onReady?.();
+          });
+        return;
+      }
       entry.ready = true;
       onReady?.();
     };
@@ -6318,17 +6333,13 @@ function loadHtmlImage(src) {
   });
 }
 
+/**
+ * #348: 저장은 항상 원본 그대로 — 재샘플·재인코딩 없음. JPEG 0.86 변환은
+ * 선화(필기)를 번지게 하고 투명 PNG의 알파를 지웠다. 용량은 IndexedDB(#273)라
+ * 여유가 있고, iOS 디코드 메모리는 표시 단계(cachedImage)에서만 줄인다.
+ */
 async function downscaleImage(img) {
-  const max = Math.max(img.width, img.height);
-  if (max <= IMAGE_MAX_EDGE) {
-    return { src: img.src, width: img.width, height: img.height };
-  }
-  const scale = IMAGE_MAX_EDGE / max;
-  const canvas = document.createElement("canvas");
-  canvas.width = Math.max(1, Math.round(img.width * scale));
-  canvas.height = Math.max(1, Math.round(img.height * scale));
-  canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
-  return { src: canvas.toDataURL("image/jpeg", 0.86), width: canvas.width, height: canvas.height };
+  return { src: img.src, width: img.width, height: img.height };
 }
 
 async function addImageFile(file) {
@@ -7929,8 +7940,21 @@ function waitForImage(src) {
       resolve();
       return;
     }
-    entry.img.addEventListener("load", () => resolve(), { once: true });
-    entry.img.addEventListener("error", () => resolve(), { once: true });
+    // #348: iOS 축소 디코드는 load 뒤 비동기로 ready가 된다 — 짧게 되물어본다.
+    if (typeof entry.img.addEventListener === "function") {
+      entry.img.addEventListener("load", () => resolve(), { once: true });
+      entry.img.addEventListener("error", () => resolve(), { once: true });
+    }
+    const poll = window.setInterval(() => {
+      if (entry.ready) {
+        window.clearInterval(poll);
+        resolve();
+      }
+    }, 50);
+    window.setTimeout(() => {
+      window.clearInterval(poll);
+      resolve();
+    }, 5000);
   });
 }
 

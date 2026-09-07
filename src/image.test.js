@@ -181,3 +181,20 @@ describe("#346 선반 쪽 contain 상자", () => {
     assert.ok(Math.abs(box.x - (1 - box.w) / 2) < 1e-9, "가로 중앙");
   });
 });
+
+describe("#348 저장 무손실 배선", () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const src = readFileSync(join(here, "main.js"), "utf8");
+
+  it("never re-encodes a pasted image — the source stays byte-identical", () => {
+    const fn = src.slice(src.indexOf("async function downscaleImage"), src.indexOf("async function addImageFile"));
+    assert.match(fn, /return \{ src: img\.src, width: img\.width, height: img\.height \}/);
+    assert.doesNotMatch(fn, /toDataURL/, "재인코딩 없음 — JPEG 번짐·알파 소실 금지");
+  });
+
+  it("shrinks only the iOS display decode, never the stored bytes", () => {
+    const fn = src.slice(src.indexOf("function cachedImage"), src.indexOf("function paintImageLayer"));
+    assert.match(fn, /IOS_CANVAS_DIET && long > IMAGE_MAX_EDGE/);
+    assert.match(fn, /createImageBitmap\(img, \{ resizeWidth/);
+  });
+});
