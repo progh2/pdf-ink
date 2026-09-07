@@ -86,6 +86,34 @@ export function viewSize(rotation, widthPt, heightPt) {
  * broken after 굽기 while web links were fine. So: drop what was copied, and
  * write our own, pointing at the page that is really there now.
  */
+/**
+ * #370: copyPages는 Link의 목적지 페이지를 **트리 밖 고아 객체로 따라 복사**한다.
+ * 모자이크로 가린 페이지가 목적지면 가린 원문 스트림이 출력에 잔존한다 — 복사
+ * 전에 소스의 Link 주석을 전부 지운다. 링크는 relinkPage가 어차피 새로 쓴다.
+ */
+function stripLinkAnnots(doc) {
+  const context = doc.context;
+  for (const page of doc.getPages()) {
+    const annots = page.node.Annots();
+    if (!annots) {
+      continue;
+    }
+    const kept = [];
+    for (const entry of annots.asArray()) {
+      const dict = context.lookup(entry);
+      const subtype = dict?.get?.(PDFName.of("Subtype"));
+      if (String(subtype) !== "/Link") {
+        kept.push(entry);
+      }
+    }
+    if (kept.length) {
+      page.node.set(PDFName.of("Annots"), context.obj(kept));
+    } else {
+      page.node.delete(PDFName.of("Annots"));
+    }
+  }
+}
+
 function relinkPage(out, page, links, pageRefAt) {
   const context = out.context;
   const annots = page.node.Annots();
@@ -146,6 +174,8 @@ export async function buildAnnotatedPdf({
   blankSize = { width: 595, height: 842 },
 }) {
   const source = await PDFDocument.load(buffer, { ignoreEncryption: true });
+  // #370: 가린 원문이 링크를 타고 고아로 복사되지 않게, 복사 전에 끊는다.
+  stripLinkAnnots(source);
   const out = await PDFDocument.create();
   const list = (leaves || []).filter((leaf) => leaf);
   const plans = list.map((leaf) => {

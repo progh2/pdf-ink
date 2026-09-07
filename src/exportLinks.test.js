@@ -112,11 +112,14 @@ describe("#184 구운 PDF의 페이지 간 참조", () => {
     assert.ok(after.links.every((link) => !link.to), "가리킬 데 없는 링크는 남지 않는다");
   });
 
-  it("leaves the file alone when nobody asked for relinking", async () => {
+  it("strips source links even when nobody asked for relinking (#370)", async () => {
+    // 옛 사실: relink 요청이 없으면 원본 링크를 그대로 통과시켰다. 그 통과가
+    // copyPages를 통해 가린 페이지 원문을 고아로 끌고 오는 유출 통로였다 —
+    // 앱은 linksOf를 항상 넘기므로, 이 경로에선 안전하게 링크가 사라진다.
     const buffer = await sourcePdf();
     const leaves = [{ id: "a", kind: "pdf", pdfPage: 1, rotate: 0 }];
     const after = await readLinks(await bake(buffer, leaves, undefined));
-    assert.equal(after.links.length, 2, "예전 동작 그대로");
+    assert.equal(after.links.length, 0, "소스 링크는 복사 전에 끊는다");
   });
 });
 
