@@ -293,3 +293,7 @@ PC 미리보기에서 행 사이 공백이 크고 별표가 이미지 밖 빈 �
 ## #356 문서 전환 레이스 — 필기 교차 오염
 
 B에 그은 필기·형광펜·이미지가 A에 나타나는 심각 버그. 필기는 문서별 identity로 분리 저장되지만, `loadInkSidecar`/`loadDriveSidecar`가 사이드카를 다운로드(await)한 뒤 어느 문서를 위해 시작했는지 확인 없이 현재 state.pages에 병합했다. A의 20초 폴이 진행되는 사이 B를 열면 A 사이드카가 B에 병합되고 persistStrokes+자동저장으로 B의 로컬·사이드카에 영구 저장됐다(반대도 동일). 수정: 두 load가 시작 시 identity를 캡처하고 병합 직전 identity·doc(path/id)이 그대로인지 검사해 다르면 버린다. 업로드 완료 후 savedAt 갱신도 같은 가드. openPdfBuffer는 옛 문서를 향한 autosave 타이머를 끊는다. (덧: 순서 기반 치환이 두 가드를 맞바꿔 넣었는데 배선 핀이 머지 전에 잡았다 — 함수별 슬라이스 검증으로 교정.) 이미 섞인 항목의 자동 청소는 정당한 항목과 구분 불가라 하지 않는다 — 그 문서에서 선택·삭제하면 무덤(#83)에 들어가 사이드카에서도 되살아나지 않는다.
+
+## #358 빠른 연속 문서 열기 레이스
+
+마스터의 "다른 PDF로 빠르게 열면 안 섞이나" 질문이 구멍을 찾았다. openPdfBuffer는 await가 많은데 재진입 가드가 없어, A 로딩 중 B를 열면 두 실행이 인터리브되어 identity=B에 pages=A 같은 상태가 되고 persistStrokes가 A 잉크를 B 키로 저장했다 — 사이드카 없이 로컬 문서끼리도 교차 오염되는, #356과 별개 경로. 세대 토큰(openGen)을 진입 시 캡처하고 주요 await(getDocument·loadInkImages·importPdfOutline·rebuildPages) 뒤마다 최신이 아니면 즉시 중단한다. 늦게 로드된 pdf는 destroy. 마지막으로 연 문서만 이긴다.
