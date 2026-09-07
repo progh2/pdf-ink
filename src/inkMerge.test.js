@@ -170,3 +170,16 @@ describe("#362 문서 전환 시 클라우드 doc 재구성", () => {
     assert.match(src, /!state\.driveDoc \|\| state\.driveDoc\.id !== driveId/);
   });
 });
+
+describe("#376 복원 문서 덮어쓰기 방지", () => {
+  it("fills a missing rev/version before writing, and guards the state update", () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const src = readFileSync(join(here, "main.js"), "utf8");
+    const dbx = src.slice(src.indexOf("async function saveToDropbox"), src.indexOf("async function saveToDrive"));
+    assert.match(dbx, /if \(!doc\.rev\)/, "빈 rev는 메타로 채워 update 모드");
+    assert.match(dbx, /state\.dropboxDoc\?\.path === doc\.path/);
+    const drv = src.slice(src.indexOf("async function saveToDrive"), src.indexOf("async function saveToDrive") + 1400);
+    assert.match(drv, /if \(!doc\.version && meta\?\.version\)/);
+    assert.match(drv, /state\.driveDoc\?\.id === doc\.id/);
+  });
+});

@@ -329,3 +329,7 @@ B에 그은 필기·형광펜·이미지가 A에 나타나는 심각 버그. 필
 ## #373 보안 헤더 1단계·iframe sandbox (보안 P6)
 
 배포 응답에 보안 헤더가 없고 분할 화면의 외부 iframe에 sandbox가 없었다. 기능 영향 없는 안전셋만 1단계로: vercel.json에 nosniff·Referrer-Policy(strict-origin-when-cross-origin)·X-Frame-Options DENY·Permissions-Policy(카메라/마이크/위치 차단), iframe엔 same-origin 없는 최소 권한 sandbox(allow-scripts/forms/popups). 풀 CSP는 pdf.js worker(blob:)·Google 인증/Picker·Dropbox·PWA 경로를 배포 환경에서 실검증해야 해서 별도 회차로 보류 — 로컬에선 못 깨지는지 확인할 길이 없다.
+
+## #376 복원 문서 덮어쓰기 방지 (보안 P2a)
+
+새로고침·재열기로 복원된 클라우드 문서는 rev/version이 빈 값이라 remoteChanged가 변경을 감지하지 못해 다른 기기의 PDF를 확인 없이 덮었다(Dropbox 충돌 후 재저장도 동일). Dropbox는 저장 직전 메타로 rev를 채워 update 모드로 — 그 사이 바뀌었으면 Dropbox가 원자적으로 충돌을 준다. Drive는 If-Match가 없어 방금 조회한 version을 기준으로 채우는 것이 최선. 저장 성공 후 state 갱신엔 문서 일치 가드(#356 계열).

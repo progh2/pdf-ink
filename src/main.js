@@ -8506,7 +8506,17 @@ async function openDropboxFile(entry) {
 
 /** Writes the annotated PDF back to the same Dropbox file (#82). */
 async function saveToDropbox(blob) {
-  const doc = state.dropboxDoc;
+  let doc = state.dropboxDoc;
+  // #376: 복원 문서는 rev가 비어 remoteChanged가 눈을 감는다 — 저장 직전
+  // 메타로 rev를 채워 update 모드로. 그 사이 바뀌었으면 Dropbox가 충돌을 준다.
+  if (!doc.rev) {
+    try {
+      const meta = await dropboxRpc(META_URL, { path: doc.path });
+      doc = { ...doc, rev: meta?.rev || "" };
+    } catch {
+      // 메타를 못 읽으면 아래 업로드가 어차피 실패한다.
+    }
+  }
   const token = await dropboxToken();
   const reply = await fetch(UPLOAD_URL, {
     method: "POST",
@@ -8519,7 +8529,10 @@ async function saveToDropbox(blob) {
   });
   if (reply.ok) {
     const meta = await reply.json();
-    state.dropboxDoc = { ...doc, rev: meta.rev || doc.rev };
+    if (state.dropboxDoc?.path === doc.path) {
+      // #376: 그 사이 다른 문서가 열렸으면 새 문서의 rev를 건드리지 않는다.
+      state.dropboxDoc = { ...doc, rev: meta.rev || doc.rev };
+    }
     return "saved";
   }
   let payload = null;
@@ -8836,11 +8849,16 @@ async function openDriveFile(picked) {
  * Not atomic like Dropbox's rev, but it will not bury someone else's work.
  */
 async function saveToDrive(blob) {
-  const doc = state.driveDoc;
+  let doc = state.driveDoc;
   const meta = await (await driveFetch(driveMetadataUrl(doc.id))).json();
   if (driveRemoteChanged(doc, meta)) {
     state.driveDoc = { ...doc, version: "" };
     return "conflict";
+  }
+  if (!doc.version && meta?.version) {
+    // #376: 복원 문서는 version이 비어 비교가 눈을 감는다 — 방금 본 버전을
+    // 기준으로 삼는다(Drive엔 If-Match가 없어 이것이 최선).
+    doc = { ...doc, version: String(meta.version) };
   }
   const reply = await driveFetch(driveUpdateUrl(doc.id, FILE_FIELDS), {
     method: "PATCH",
@@ -8851,7 +8869,9 @@ async function saveToDrive(blob) {
     throw new Error("upload");
   }
   const saved = await reply.json();
-  state.driveDoc = { ...doc, version: saved.version ? String(saved.version) : "" };
+  if (state.driveDoc?.id === doc.id) {
+    state.driveDoc = { ...doc, version: saved.version ? String(saved.version) : "" };
+  }
   return "saved";
 }
 
