@@ -74,6 +74,7 @@ import {
   constrainPan,
   inkCanvasScale,
   MAX_PAGE_PIXELS,
+  clampScale,
   renderZoomFactor,
   pointerDistance,
   pointerMidpoint,
@@ -511,6 +512,9 @@ const els = {
   prevBtn: document.querySelector("#prev-btn"),
   nextBtn: document.querySelector("#next-btn"),
   pageLabel: document.querySelector("#page-label"),
+  zoomIn: document.querySelector("#zoom-in"),
+  zoomOut: document.querySelector("#zoom-out"),
+  zoomLabel: document.querySelector("#zoom-label"),
   zoomLockBtn: document.querySelector("#zoom-lock-btn"),
   linkHintsBtn: document.querySelector("#link-hints-btn"),
   interactBtn: document.querySelector("#interact-btn"),
@@ -2008,6 +2012,37 @@ function updatePager() {
   els.pageLabel.textContent = `${state.page} / ${state.pageCount || 1}`;
   els.prevBtn.disabled = state.page <= 1;
   els.nextBtn.disabled = state.page >= state.pageCount;
+  if (els.zoomLabel) {
+    els.zoomLabel.textContent = `${Math.round((state.userScale || 1) * 100)}%`;
+  }
+}
+
+/** #327: 버튼·Ctrl+휠 줌. #302처럼 뷰포트 중앙 앵커 — 보던 가운데가 고정된다. */
+const ZOOM_BTN_STEP = 1.25;
+
+function zoomTo(next) {
+  const scale = clampScale(next);
+  if (scale === state.userScale) {
+    return;
+  }
+  if (state.viewMode === "scroll") {
+    const anchorX = els.workspace.clientWidth / 2;
+    const anchorY = els.workspace.clientHeight / 2;
+    const prev = Math.max(state.userScale, 0.001);
+    const contentX = (els.workspace.scrollLeft + anchorX) / prev;
+    const contentY = (els.workspace.scrollTop + anchorY) / prev;
+    state.userScale = scale;
+    applyViewport();
+    els.workspace.scrollLeft = contentX * scale - anchorX;
+    els.workspace.scrollTop = contentY * scale - anchorY;
+    updateCurrentPageFromScroll();
+    renderVisiblePages();
+  } else {
+    state.userScale = scale;
+    applyViewport();
+  }
+  updatePager();
+  scheduleZoomRender();
 }
 
 function showDocumentUi() {
@@ -11312,6 +11347,20 @@ els.fileInput.addEventListener("change", () => {
 });
 els.prevBtn.addEventListener("click", () => goToPage(state.page - 1));
 els.nextBtn.addEventListener("click", () => goToPage(state.page + 1));
+els.zoomIn?.addEventListener("click", () => zoomTo(state.userScale * ZOOM_BTN_STEP));
+els.zoomOut?.addEventListener("click", () => zoomTo(state.userScale / ZOOM_BTN_STEP));
+// #327: Ctrl+휠 줌 — 비수동으로 브라우저 기본 페이지 확대를 막고 우리가 줌한다.
+els.workspace.addEventListener(
+  "wheel",
+  (event) => {
+    if (!event.ctrlKey) {
+      return;
+    }
+    event.preventDefault();
+    zoomTo(state.userScale * (event.deltaY < 0 ? 1.1 : 1 / 1.1));
+  },
+  { passive: false },
+);
 
 // #137: the pen barrel often fires a context menu; the paper never wants one.
 // #268: 뒤로/앞으로 버튼(3·4)이 편집 중 페이지를 벗어나게 하지 않는다.

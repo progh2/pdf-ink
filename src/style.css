@@ -275,6 +275,26 @@ body {
   gap: 0;
 }
 
+.zoom-pager {
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+
+/* #327: 좁은 화면(폰)엔 핀치가 있다 — 줌 버튼은 넓은 화면 전용. */
+@media (max-width: 700px) {
+  .zoom-pager {
+    display: none;
+  }
+}
+
+.zoom-label {
+  min-width: 44px;
+  color: #8a8478;
+  font-size: 12px;
+  text-align: center;
+}
+
 .page-step {
   width: 32px;
   height: 32px;
