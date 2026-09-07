@@ -583,3 +583,14 @@ describe("#316 빠른 삐침 끝점", () => {
     assert.match(main, /event\.type !== "pointercancel" && state\.drawCanvas \? eventToNorm/);
   });
 });
+
+describe("#327 PC 확대/축소", () => {
+  it("wires the zoom buttons and the Ctrl+wheel zoom", () => {
+    assert.match(html, /id="zoom-in"/);
+    assert.match(html, /id="zoom-out"/);
+    assert.match(html, /id="zoom-label"/);
+    assert.match(main, /function zoomTo/);
+    assert.match(main, /if \(!event\.ctrlKey\)/);
+    assert.match(main, /"wheel",[\s\S]{0,400}\{ passive: false \}/);
+  });
+});
