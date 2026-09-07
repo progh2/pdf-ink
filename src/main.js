@@ -148,7 +148,9 @@ import {
   goneAfterChange,
   mergeGone,
   mergePages,
+  crossDocKeys,
   newItemId,
+  removeKeysFromPages,
   sanitizeGone,
 } from "./inkMerge.js";
 import {
@@ -606,6 +608,7 @@ const els = {
   settingsBackdrop: document.querySelector("#settings-backdrop"),
   settingsDone: document.querySelector("#settings-done"),
   buildTag: document.querySelector("#build-tag"),
+  crossCleanBtn: document.querySelector("#cross-clean-btn"),
   slotPanel: document.querySelector("#slot-panel"),
   slotPalette: document.querySelector("#slot-palette"),
   colorPick: document.querySelector("#color-pick"),
@@ -3391,6 +3394,53 @@ function applyChrome() {
 
 function closeSettings() {
   els.settingsSheet.hidden = true;
+  resetCrossClean();
+}
+
+/** #360: 겹침 청소 — 1차 클릭은 개수만 세고, 2차 클릭이 실제로 지운다. */
+let crossCleanPending = null;
+
+function resetCrossClean() {
+  crossCleanPending = null;
+  if (els.crossCleanBtn) {
+    els.crossCleanBtn.textContent = "다른 문서와 겹친 필기 제거";
+  }
+}
+
+async function runCrossClean() {
+  if (!state.identity) {
+    return;
+  }
+  if (crossCleanPending) {
+    const keys = crossCleanPending;
+    crossCleanPending = null;
+    const now = Date.now();
+    const next = removeKeysFromPages(state.pages, keys);
+    state.pages = next.pages;
+    // 무덤에 적어 사이드카·다른 기기에서도 함께 죽는다(#83).
+    for (const key of keys) {
+      state.inkGone[key] = now;
+    }
+    persistStrokes();
+    for (const view of state.pageViews || []) {
+      drawStrokesOn(view);
+    }
+    renderPreview();
+    resetCrossClean();
+    flashBanner(`겹친 항목 ${next.removed}개를 지웠습니다. 되돌릴 수 없습니다.`, 5000);
+    return;
+  }
+  const docs = await listDocuments();
+  const others = docs
+    .filter((row) => row.identity !== state.identity)
+    .map((row) => loadStrokes(row.identity).pages);
+  const keys = crossDocKeys(state.pages, others);
+  if (!keys.size) {
+    flashBanner("다른 문서와 겹친 항목이 없습니다.", 3000);
+    return;
+  }
+  crossCleanPending = keys;
+  els.crossCleanBtn.textContent = `${keys.size}개 제거 — 다시 누르면 실행`;
 }
 
 function openSettings() {
@@ -11954,6 +12004,7 @@ syncRectTool();
 // #248: 새로고침한 화면이 새 버전인지 알 수 있게, 설정 시트에 빌드 표식을 찍는다.
 // typeof 가드는 이 파일을 텍스트로만 읽는 계약 테스트·정적 분석에서 정의되지
 // 않은 전역이라도 안전하게 지나가도록 하기 위함이다.
+els.crossCleanBtn?.addEventListener("click", () => runCrossClean());
 els.buildTag.textContent = typeof __BUILD_TAG__ === "string" ? __BUILD_TAG__ : "dev";
 
 migrateLastIntoFiles()
