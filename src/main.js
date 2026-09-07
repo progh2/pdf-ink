@@ -2568,6 +2568,8 @@ async function openPdfBuffer(buffer, { identity, name, page = 1, handle = null }
   // #356: 옛 문서를 향해 걸려 있던 자동저장은 여기서 끊는다.
   window.clearTimeout(autosaveTimer);
   autosaveTimer = 0;
+  // #378: 사이드카 rev는 문서마다 다르다 — 전환하며 리셋.
+  state.inkSidecarRev = "";
   // Always replace: a handle from the previous file must never write this one.
   state.fileHandle = handle;
   // #277: 새로고침·재열기 땐 클라우드 문서를 identity에서 되살린다 — 안 그러면
@@ -9311,11 +9313,14 @@ async function downloadThumbPack(doc) {
 /* ---- 필기 사이드카 (#147) ---- */
 
 /** Uploads just the ink: kilobytes, and the PDF is left untouched. */
-async function saveInkSidecar() {
+async function saveInkSidecar(retried = false) {
   const doc = state.dropboxDoc;
   if (!doc || !dropboxConnected()) {
     return false;
   }
+  // #378: 아는 rev로 조건부 저장 — 그 사이 다른 기기가 썼으면 덮지 않고
+  // 당겨 병합(#83)한 뒤 한 번 다시 쓴다. last-write-wins 창을 없앤다.
+  const rev = state.inkSidecarRev || "";
   const text = serializeInkFile({
     pages: state.pages,
     leaves: state.leaves,
@@ -9332,17 +9337,36 @@ async function saveInkSidecar() {
     headers: {
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/octet-stream",
-      // The sidecar is ours alone, so last write wins is fine here.
-      "Dropbox-API-Arg": asciiHeader(uploadArg(sidecarPath(doc.path), "")),
+      // #378: last write wins였다가, 이제 아는 rev로 조건부 저장한다.
+      "Dropbox-API-Arg": asciiHeader(uploadArg(sidecarPath(doc.path), rev)),
     },
     body: new Blob([text], { type: "application/json" }),
   });
   if (!reply.ok) {
+    let payload = null;
+    try {
+      payload = await reply.json();
+    } catch {
+      payload = null;
+    }
+    if (isConflict(payload) && !retried && state.dropboxDoc?.path === doc.path) {
+      // #378: 다른 기기가 먼저 썼다 — 당겨 병합하고 한 번만 다시 쓴다.
+      await loadInkSidecar(doc);
+      return saveInkSidecar(true);
+    }
     throw new Error("sidecar");
   }
   // #356: 업로드가 끝나기 전에 다른 문서가 열렸으면 그 문서의 savedAt을 건드리지 않는다.
   if (state.dropboxDoc?.path === doc.path) {
     state.inkSavedAt = Date.now();
+    try {
+      const meta = await reply.json();
+      if (meta?.rev) {
+        state.inkSidecarRev = meta.rev; // #378
+      }
+    } catch {
+      // 본문 없는 응답이어도 저장은 됐다.
+    }
   }
   return true;
 }
@@ -9355,6 +9379,7 @@ async function loadInkSidecar(doc) {
   // #356: 다운로드가 끝났을 때 다른 문서가 열려 있으면 버린다 — A의 사이드카가
   // B에 병합돼 필기가 교차 오염되던 레이스.
   const openedFor = state.identity;
+  let sidecarMeta = null;
   let remote = null;
   try {
     const token = await dropboxToken();
@@ -9368,6 +9393,7 @@ async function loadInkSidecar(doc) {
     if (!reply.ok) {
       return;
     }
+    sidecarMeta = JSON.parse(reply.headers.get("Dropbox-API-Result") || "{}");
     remote = parseInkFile(await reply.text());
   } catch {
     return;
@@ -9377,6 +9403,9 @@ async function loadInkSidecar(doc) {
   }
   if (state.identity !== openedFor || state.dropboxDoc?.path !== doc.path) {
     return 0; // #356: 그 사이 다른 문서가 열렸다.
+  }
+  if (sidecarMeta?.rev) {
+    state.inkSidecarRev = sidecarMeta.rev; // #378
   }
   // #83: 더 최근 쪽이 문서 구조(잎·목차)를 정하고, **필기는 합집합**이다.
   // 두 기기가 서로 다른 쪽에 쓴 것이 어느 쪽도 지워지지 않는다.

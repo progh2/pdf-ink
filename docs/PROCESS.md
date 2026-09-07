@@ -333,3 +333,7 @@ B에 그은 필기·형광펜·이미지가 A에 나타나는 심각 버그. 필
 ## #376 복원 문서 덮어쓰기 방지 (보안 P2a)
 
 새로고침·재열기로 복원된 클라우드 문서는 rev/version이 빈 값이라 remoteChanged가 변경을 감지하지 못해 다른 기기의 PDF를 확인 없이 덮었다(Dropbox 충돌 후 재저장도 동일). Dropbox는 저장 직전 메타로 rev를 채워 update 모드로 — 그 사이 바뀌었으면 Dropbox가 원자적으로 충돌을 준다. Drive는 If-Match가 없어 방금 조회한 version을 기준으로 채우는 것이 최선. 저장 성공 후 state 갱신엔 문서 일치 가드(#356 계열).
+
+## #378 사이드카 조건부 업로드 (보안 P3)
+
+Dropbox .ink 업로드가 리비전 없는 overwrite라 두 기기가 같은 판에서 동시에 저장하면 먼저 쓴 쪽이 원격에서 지워졌다(20초 pull 합집합으로 결국 복원되지만 창이 있었다). 사이드카 rev를 추적(state.inkSidecarRev — 다운로드의 Dropbox-API-Result 헤더와 업로드 응답에서 갱신, 문서 전환 시 리셋)하고 saveInkSidecar를 update(rev) 모드로 바꿨다. 충돌이면 loadInkSidecar로 당겨 병합(#83 합집합+무덤)한 뒤 한 번만 재직렬화·재시도한다. Drive는 바이너리 업데이트에 If-Match가 없어 조건부 쓰기가 불가 — 현행(메타 비교+pull 병합) 유지, 사유 기록. #147의 「overwrite」 핀과 #277의 슬라이스 창은 새 사실로 갱신.
