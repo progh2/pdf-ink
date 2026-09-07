@@ -2903,7 +2903,9 @@ function endStroke(event) {
     restoreFrozenStroke();
   }
   const chipUp = Boolean(ignoreChipMountMoves) || eventHitsShapeChips(event);
-  const upNorm = !chipUp && state.drawCanvas ? eventToNorm(event, state.drawCanvas) : null;
+  // #316: 취소된 획은 끝점을 남기지 않는다 — 좌표가 엉뚱할 수 있다.
+  const upNorm =
+    !chipUp && event.type !== "pointercancel" && state.drawCanvas ? eventToNorm(event, state.drawCanvas) : null;
   const freehand = finishInkPoints(state.currentStroke.points, upNorm, client, lastInkUpClient);
   const held = shapeHold.finish(freehand);
   lastInkUpClient = client;
