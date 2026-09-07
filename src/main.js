@@ -9940,15 +9940,17 @@ function movePinch() {
   const dx = mid.x - gesture.startMid.x;
   const dy = mid.y - gesture.startMid.y;
   if (state.viewMode === "scroll") {
-    const ws = els.workspace.getBoundingClientRect();
-    const startLocal = { x: gesture.startMid.x - ws.left, y: gesture.startMid.y - ws.top };
-    const now = { x: mid.x - ws.left, y: mid.y - ws.top };
+    // #302: 앵커를 손가락 중점이 아니라 뷰포트 중앙(상수)으로 잡는다. iOS에서
+    // 핀치 중 client 좌표가 흔들리면 손가락 기준 앵커가 scrollTop을 수십 페이지
+    // 튀게 했다 — 중앙 기준은 좌표 흔들림과 무관해 보던 가운데가 고정된다.
+    const anchorX = els.workspace.clientWidth / 2;
+    const anchorY = els.workspace.clientHeight / 2;
     const startScale = Math.max(gesture.startScale, 0.001);
-    const contentX = (gesture.startScrollLeft + startLocal.x) / startScale;
-    const contentY = (gesture.startScrollTop + startLocal.y) / startScale;
+    const contentX = (gesture.startScrollLeft + anchorX) / startScale;
+    const contentY = (gesture.startScrollTop + anchorY) / startScale;
     applyViewport();
-    els.workspace.scrollLeft = contentX * state.userScale - now.x;
-    els.workspace.scrollTop = contentY * state.userScale - now.y;
+    els.workspace.scrollLeft = contentX * state.userScale - anchorX;
+    els.workspace.scrollTop = contentY * state.userScale - anchorY;
   } else {
     state.panX = gesture.startPanX + dx;
     state.panY = gesture.startPanY + dy;
@@ -10252,6 +10254,9 @@ function onWorkspacePointerUp(event) {
       gesture = null;
       ignoreAfterPinch = pointers.size > 0;
       applyViewport();
+      // #302: 핀치 동안 미룬 윈도 재구성을 한 번에 채우고 현재 쪽을 갱신한다.
+      updateCurrentPageFromScroll();
+      renderVisiblePages();
       scheduleZoomRender();
     }
     return;
@@ -11202,6 +11207,11 @@ els.workspace.addEventListener("scroll", () => {
     updateMarquee();
   }
   if (state.viewMode !== "scroll") {
+    return;
+  }
+  // #302: 핀치가 진행 중이면 매 프레임 윈도 재렌더로 「리로드처럼 깜빡」이므로
+  // CSS 변환만 두고 재렌더는 건너뛴다. 손을 뗄 때 한 번 채운다.
+  if (gesture?.type === "pinch") {
     return;
   }
   updateCurrentPageFromScroll();
