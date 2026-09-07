@@ -126,3 +126,25 @@ describe("#290 도장 이동 증식", () => {
     assert.equal(mergePageItems([moved], [oldSpot], {}).length, 2);
   });
 });
+
+describe("#356 문서 전환 레이스 가드 배선", () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const src = readFileSync(join(here, "main.js"), "utf8");
+
+  it("drops a sidecar that arrives for a document no longer open", () => {
+    const dbx = src.slice(src.indexOf("async function loadInkSidecar"), src.indexOf("/* ---- 다른 기기의 변경"));
+    assert.match(dbx, /const openedFor = state\.identity/);
+    assert.match(dbx, /state\.identity !== openedFor \|\| state\.dropboxDoc\?\.path !== doc\.path/);
+    const drv = src.slice(src.indexOf("async function loadDriveSidecar"), src.indexOf("/* ---- 자동 저장"));
+    assert.match(drv, /state\.identity !== openedFor \|\| state\.driveDoc\?\.id !== doc\.id/);
+  });
+
+  it("never lets a late upload stamp the next document's savedAt", () => {
+    assert.match(src, /if \(state\.dropboxDoc\?\.path === doc\.path\) \{\s*state\.inkSavedAt = Date\.now\(\)/);
+  });
+
+  it("clears the pending autosave when another document opens", () => {
+    const open = src.slice(src.indexOf("async function openPdfBuffer"), src.indexOf("async function openPdfBuffer") + 800);
+    assert.match(open, /clearTimeout\(autosaveTimer\)/);
+  });
+});
