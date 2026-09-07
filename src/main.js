@@ -8383,6 +8383,23 @@ async function registerServiceWorker() {
     const { registerSW } = await import("virtual:pwa-register");
     const updateSW = registerSW({
       immediate: true,
+      // #331: 점검이 로드 때 한 번뿐이면 오래 켜둔 탭은 새 배포를 영영 모른다.
+      // 15분마다 + 탭이 다시 보일 때 + 네트워크 복귀 때 물어봐서, 새 버전
+      // 알림(#update-note)이 저절로 뜨게 한다. 리로드는 여전히 사용자 버튼 —
+      // 필기 중 자동 리로드는 위험하다.
+      onRegisteredSW(url, registration) {
+        if (!registration) {
+          return;
+        }
+        const check = () => registration.update().catch(() => {});
+        window.setInterval(check, 15 * 60 * 1000);
+        document.addEventListener("visibilitychange", () => {
+          if (document.visibilityState === "visible") {
+            check();
+          }
+        });
+        window.addEventListener("online", check);
+      },
       onNeedRefresh() {
         if (!els.updateNote) {
           return;
