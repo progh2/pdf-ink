@@ -147,6 +147,13 @@ export function appendInkPoints(points, samples, prevUpClient) {
 export function finishInkPoints(points, upNorm, upClient, prevUpClient) {
   const list = points ? points.slice() : [];
   if (list.length) {
+    // #316: 펜을 뗀 위치도 획의 일부다. 빠른 삐침(ㅕ·ㅏ의 꺾임, ㅇ 닫힘)은
+    // 마지막 move와 up 사이에 있어, 버리면 끝이 잘려 「견비헌횡」이 된다.
+    // 마지막 점과 같으면 덧붙이지 않는다(제자리 탭 중복 방지).
+    const last = list[list.length - 1];
+    if (upNorm && (upNorm.x !== last.x || upNorm.y !== last.y)) {
+      list.push(upNorm);
+    }
     return list;
   }
   if (upNorm && !isReusedInkStart(prevUpClient, upClient)) {

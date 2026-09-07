@@ -566,3 +566,20 @@ describe("#276 도장 찍은 뒤 크기 조정", () => {
     assert.match(place, /syncSelectHud\(\)/);
   });
 });
+
+describe("#316 빠른 삐침 끝점", () => {
+  it("keeps the pen-up position, so a fast flick keeps its tail", () => {
+    const pts = finishInkPoints([{ x: 0.1, y: 0.1 }, { x: 0.2, y: 0.2 }], { x: 0.22, y: 0.28 }, { x: 220, y: 280 }, null);
+    assert.deepEqual(pts.at(-1), { x: 0.22, y: 0.28 });
+    assert.equal(pts.length, 3);
+  });
+
+  it("does not duplicate a lift at the very last point", () => {
+    const pts = finishInkPoints([{ x: 0.1, y: 0.1 }, { x: 0.2, y: 0.2 }], { x: 0.2, y: 0.2 }, { x: 200, y: 200 }, null);
+    assert.equal(pts.length, 2);
+  });
+
+  it("a cancelled stroke adds no up point (wiring)", () => {
+    assert.match(main, /event\.type !== "pointercancel" && state\.drawCanvas \? eventToNorm/);
+  });
+});
