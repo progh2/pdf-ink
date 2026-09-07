@@ -309,6 +309,41 @@ export function paintPen(ctx, stroke, scale, canvas, startAt = 0) {
   ctx.restore();
 }
 
+/**
+ * #312: 형광펜은 납작한 사선 팁(chisel)이다. stroke() 대신 경로를 팁 벡터만큼
+ * 위/아래로 평행이동한 두 곡선을 닫아 한 번에 fill한다.
+ * - 캡이 없어 시작·끝의 흰 초승달 구멍(butt 캡이 갈고리에서 비스듬히 잘리던 것)이
+ *   원천적으로 사라지고, 끝이 실제 형광펜처럼 납작해진다.
+ * - 팁이 살짝 기울어(가로 성분 12%) 세로획도 최소 두께를 가진다.
+ * - 한 번의 fill이라 자기겹침(스크리블)도 균일한 반투명이다.
+ */
+export const HIGHLIGHTER_NIB_TILT = 0.12;
+/** #313: 기준 두께 하향(430→540) 후에도 형광 띠 높이는 예전과 비슷하게. */
+export const HIGHLIGHTER_NIB_SCALE = 1.25;
+
+export function highlighterNib(stroke, canvas) {
+  const h = strokeLineWidth(stroke, canvas) * HIGHLIGHTER_NIB_SCALE;
+  return { x: h * HIGHLIGHTER_NIB_TILT, y: h / 2 };
+}
+
+/** 현재 점에서 시작해 pts를 따라 곡선으로 잇는다(리본의 한쪽 변). */
+function curveAlong(ctx, pts) {
+  if (pts.length < 3) {
+    for (let i = 1; i < pts.length; i += 1) {
+      ctx.lineTo(pts[i].x, pts[i].y);
+    }
+    return;
+  }
+  for (let index = 0; index < pts.length - 1; index += 1) {
+    const p0 = pts[index - 1] || pts[index];
+    const p1 = pts[index];
+    const p2 = pts[index + 1];
+    const p3 = pts[index + 2] || pts[index + 1];
+    const { c1, c2 } = catmullRomControls(p0, p1, p2, p3);
+    ctx.bezierCurveTo(c1.x, c1.y, c2.x, c2.y, p2.x, p2.y);
+  }
+}
+
 export function paintHighlighter(ctx, stroke, scale, canvas) {
   const points = stroke.points || [];
   if (!points.length) {
@@ -316,11 +351,22 @@ export function paintHighlighter(ctx, stroke, scale, canvas) {
   }
   ctx.save();
   ctx.globalCompositeOperation = "source-over";
-  ctx.strokeStyle = highlighterStrokeStyle(stroke.color || "#FFE566", stroke.opacity ?? HIGHLIGHTER_OPACITY_DEFAULT);
-  ctx.lineCap = "butt";
-  ctx.lineJoin = "round";
-  ctx.lineWidth = strokeLineWidth(stroke, canvas);
-  tracePath(ctx, points, canvas, scale);
+  ctx.fillStyle = highlighterStrokeStyle(stroke.color || "#FFE566", stroke.opacity ?? HIGHLIGHTER_OPACITY_DEFAULT);
+  const nib = highlighterNib(stroke, canvas);
+  const pts = points.map((point) => ({ x: point.x * canvas.width, y: point.y * canvas.height }));
+  if (pts.length === 1) {
+    // 콕 찍으면 팁 자국 하나: 아주 짧은 가로 긋기로 취급한다.
+    pts.push({ x: pts[0].x + Math.max(1, 0.15 * scale), y: pts[0].y });
+  }
+  const top = pts.map((point) => ({ x: point.x + nib.x, y: point.y - nib.y }));
+  const bottom = pts.map((point) => ({ x: point.x - nib.x, y: point.y + nib.y }));
+  ctx.beginPath();
+  ctx.moveTo(top[0].x, top[0].y);
+  curveAlong(ctx, top);
+  ctx.lineTo(bottom[bottom.length - 1].x, bottom[bottom.length - 1].y);
+  curveAlong(ctx, bottom.slice().reverse());
+  ctx.closePath();
+  ctx.fill();
   ctx.restore();
 }
 

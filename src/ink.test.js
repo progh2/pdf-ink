@@ -15,7 +15,7 @@ import {
   stampItemSize,
   stampPaintLayout,
 } from "./tools.js";
-import { STROKE_WIDTH_REF_CSS, applyEraserToInk, catmullRomControls, itemHitsEraser, paintPen, removeHitItems, removeHitStamps, stampInkItem, stampTilt, strokeLineWidth } from "./ink.js";
+import { HIGHLIGHTER_NIB_TILT, STROKE_WIDTH_REF_CSS, applyEraserToInk, catmullRomControls, highlighterNib, itemHitsEraser, paintHighlighter, paintPen, removeHitItems, removeHitStamps, stampInkItem, stampTilt, strokeLineWidth } from "./ink.js";
 
 const inkSrc = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "ink.js"), "utf8");
 const paintStampSrc = inkSrc.slice(inkSrc.indexOf("export function paintStamp"), inkSrc.indexOf("export function paintErase"));
@@ -333,5 +333,46 @@ describe("#294 증분 펜 렌더", () => {
     // From index 3: one segment (3→4), and the path begins at point 3.
     assert.equal(ctx.calls.bezierCurveTo, 1);
     assert.deepEqual(ctx.calls.moveTo[0], [0.4 * 1000, 0.3 * 1000]);
+  });
+});
+
+describe("#312 형광펜 납작팁", () => {
+  const canvas = { width: STROKE_WIDTH_REF_CSS, height: 1000 };
+
+  it("keeps a horizontal minimum so a vertical stroke is still visible", () => {
+    const nib = highlighterNib({ width: 10 }, canvas);
+    assert.ok(nib.x > 0, "가로 성분이 있다");
+    assert.ok(Math.abs(nib.x - nib.y * 2 * HIGHLIGHTER_NIB_TILT) < 1e-9);
+    assert.ok(nib.y > nib.x, "세로가 주 방향");
+  });
+
+  it("fills one closed ribbon — no caps, so no start/end holes", () => {
+    const calls = { fill: 0, stroke: 0, closePath: 0 };
+    const ctx = {
+      save() {},
+      restore() {},
+      beginPath() {},
+      moveTo() {},
+      lineTo() {},
+      bezierCurveTo() {},
+      closePath() {
+        calls.closePath += 1;
+      },
+      fill() {
+        calls.fill += 1;
+      },
+      stroke() {
+        calls.stroke += 1;
+      },
+    };
+    paintHighlighter(
+      ctx,
+      { type: "highlighter", width: 8, points: [{ x: 0.1, y: 0.5 }, { x: 0.4, y: 0.5 }, { x: 0.7, y: 0.52 }] },
+      1,
+      canvas,
+    );
+    assert.equal(calls.fill, 1, "한 번의 fill — 자기겹침도 균일한 반투명");
+    assert.equal(calls.stroke, 0, "stroke가 없으니 butt 캡 구멍도 없다");
+    assert.equal(calls.closePath, 1);
   });
 });
