@@ -1,6 +1,6 @@
 import * as pdfjsLib from "pdfjs-dist";
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
-import { validatePdfContents, validatePdfFile } from "./validate.js";
+import { MAX_PDF_BYTES, validatePdfContents, validatePdfFile } from "./validate.js";
 import {
   fileIdentity,
   listDocuments,
@@ -941,7 +941,11 @@ function writeStrokesNow() {
   } catch {
     showBanner("필기를 저장하지 못했습니다. 브라우저 저장 공간이 부족할 수 있습니다.");
   }
-  saveInkImages(state.identity, images, liveImageIds(state.pages)).catch(() => null);
+  saveInkImages(state.identity, images, liveImageIds(state.pages)).catch(() => {
+    // #372: 이미지 원본 저장 실패를 조용히 삼키면 재시작 때 그림이 사라진다.
+    strokesDirty = true;
+    showBanner("이미지를 저장하지 못했습니다. 다음 저장에서 다시 시도합니다.");
+  });
 }
 
 function scheduleStrokeSave() {
@@ -8477,6 +8481,9 @@ async function openDropboxFile(entry) {
       throw new Error("download");
     }
     const buffer = await reply.arrayBuffer();
+    if (pdfTooBigBanner(buffer)) {
+      return;
+    }
     const check = await validatePdfContents(new Blob([buffer]));
     if (!check.ok) {
       flashBanner(check.message);
@@ -8800,6 +8807,9 @@ async function openDriveFile(picked) {
       throw new Error(String(reply.status));
     }
     const buffer = await reply.arrayBuffer();
+    if (pdfTooBigBanner(buffer)) {
+      return;
+    }
     const check = await validatePdfContents(new Blob([buffer]));
     if (!check.ok) {
       flashBanner(check.message);
@@ -8857,6 +8867,9 @@ async function reloadFromDrive() {
       throw new Error("download");
     }
     const buffer = await reply.arrayBuffer();
+    if (pdfTooBigBanner(buffer)) {
+      return;
+    }
     state.driveDoc = { ...doc, version: meta.version ? String(meta.version) : doc.version };
     showBanner("");
     await openPdfBuffer(buffer, { identity: driveIdentity(doc), name: doc.name, page: state.page });
@@ -8917,6 +8930,15 @@ async function bytesForCopy() {
 }
 
 /** Uploads a copy, never over someone else's file (#149). */
+/** #372: 클라우드 PDF도 로컬과 같은 20MB 상한 — 다운로드 후 즉시 검사. */
+function pdfTooBigBanner(buffer) {
+  if ((buffer?.byteLength || 0) > MAX_PDF_BYTES) {
+    flashBanner("파일이 너무 큽니다. 20MB 이하만 열 수 있습니다.");
+    return true;
+  }
+  return false;
+}
+
 async function saveCopyToDropbox() {
   const folder = state.dropboxPath || "";
   const name = ensurePdfName(els.dropboxName?.value);
@@ -8939,7 +8961,8 @@ async function saveCopyToDropbox() {
     }
     const meta = await reply.json();
     if (state.inkCopy === "sidecar") {
-      await fetch(UPLOAD_URL, {
+      // #372: 부속 .ink가 실패했는데 성공 안내를 띄우면 안 된다.
+      const inkReply = await fetch(UPLOAD_URL, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${token}`,
@@ -8958,6 +8981,9 @@ async function saveCopyToDropbox() {
           }),
         ]),
       });
+      if (!inkReply.ok) {
+        throw new Error("sidecar");
+      }
     }
     closeDropboxSheet();
     // The reader stays on the document they were reading (#149 lock).
@@ -9456,6 +9482,9 @@ async function reloadFromDropbox() {
     }
     const meta = JSON.parse(reply.headers.get("Dropbox-API-Result") || "{}");
     const buffer = await reply.arrayBuffer();
+    if (pdfTooBigBanner(buffer)) {
+      return;
+    }
     state.dropboxDoc = { ...doc, rev: meta.rev || doc.rev };
     showBanner("");
     await openPdfBuffer(buffer, { identity: dropboxIdentity(doc), name: doc.name, page: state.page });
