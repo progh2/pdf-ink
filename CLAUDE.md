@@ -23,7 +23,9 @@ GoodNotes처럼 PDF 위에 필기하는 웹앱. 서버·로그인 없음. 배포
 - `git add -A` 전에 폴더의 PDF 확인 — 상용 PDF가 커밋된 적 있다 (`.gitignore`에 `*.pdf`).
 - 파이썬으로 main.js를 고칠 때 `import \{[\s\S]*?\}` 식 정규식은 **앞 블록까지 삼킨다**. 마지막 `import {`를 rindex로 잡을 것.
 - `history.undo`(past 아님), `pageStrokes(page)`, `inkKey(leaf)` — 짐작 말고 grep.
-- 셸 heredoc에 백틱·괄호 든 한국어 본문을 넣으면 먹힌다. PR 본문은 파일로.
+- 셸 heredoc에 백틱·괄호 든 한국어 본문을 넣으면 먹힌다. PR 본문은 파일로. **명령 줄당 heredoc 하나만** — 두 개 섞으면 몸이 뒤바뀐다.
+- 머지 게이트는 `npm test 2>&1 | tee /tmp/t.txt` 후 **`grep -q "^# fail 0$" /tmp/t.txt`** — 파이프 끝 head/grep이 실패 exit를 삼켜 빨간 채 머지된 적 두 번(#336·#339). 기대 테스트 수(`^# tests N$`)도 함께 확인.
+- 테스트 파일에 파일 핀(readFileSync 등)을 덧붙일 땐 **그 파일 상단 import부터 확인** — 누락으로 스위트가 죽은 채 통과한 척한 게 세 번(capture·interact·preview).
 
 ## 자주 쓰는 것
 
