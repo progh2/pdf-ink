@@ -10,6 +10,7 @@ import {
   inkFileImageStats,
   inkFileIsEmpty,
   parseInkFile,
+  scrubImageSrc,
   pickNewer,
   serializeInkFile,
   sidecarName,
@@ -210,5 +211,27 @@ describe("#277 새로고침·재열기 후 클라우드 문서 복원", () => {
   it("still starts the sync watch, which shows the save button", () => {
     assert.match(main, /startSyncWatch\(\)/);
     assert.match(main, /function startSyncWatch[\s\S]{0,120}syncHeaderSave\(\)/);
+  });
+});
+
+describe("#372 저장 정직화·입력 상한 배선", () => {
+  it("drops a foreign image url from a sidecar, keeps data urls", () => {
+    const pages = scrubImageSrc({
+      1: [
+        { type: "image", id: "a", src: "https://evil.example/track.png" },
+        { type: "image", id: "b", src: "data:image/png;base64,AAAA" },
+        { type: "pen", id: "c", points: [] },
+      ],
+    });
+    assert.equal(pages[1][0].src, "", "원격 URL은 비운다");
+    assert.equal(pages[1][1].src, "data:image/png;base64,AAAA");
+    assert.equal(pages[1][2].id, "c");
+  });
+
+  it("wires the honesty fixes: image-save failure, .ink upload check, 20MB cap", () => {
+    const src = readFileSync(join(root, "src/main.js"), "utf8");
+    assert.match(src, /이미지를 저장하지 못했습니다/, "실패를 삼키지 않는다");
+    assert.match(src, /if \(!inkReply\.ok\)/, "사본 .ink 업로드 검사");
+    assert.equal((src.match(/if \(pdfTooBigBanner\(buffer\)\)/g) || []).length, 4, "다운로드 4곳 상한");
   });
 });

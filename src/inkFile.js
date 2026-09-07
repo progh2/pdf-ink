@@ -1,3 +1,4 @@
+import { acceptImageSrc } from "./image.js";
 import { sanitizeGone } from "./inkMerge.js";
 import { sanitizeLinkFixes } from "./linkFix.js";
 
@@ -53,6 +54,16 @@ export function serializeInkFile(data) {
   return JSON.stringify(buildInkFile(data));
 }
 
+export function scrubImageSrc(pages) {
+  const out = {};
+  for (const [page, items] of Object.entries(pages || {})) {
+    out[page] = (items || []).map((item) =>
+      item?.type === "image" && item.src && !acceptImageSrc(item.src) ? { ...item, src: "" } : item,
+    );
+  }
+  return out;
+}
+
 export function parseInkFile(text) {
   try {
     const data = JSON.parse(text);
@@ -63,7 +74,8 @@ export function parseInkFile(text) {
       version: Number(data.version) || 1,
       savedAt: Math.round(Number(data.savedAt) || 0),
       shareThumbs: Boolean(data.shareThumbs),
-      pages: data.pages,
+      // #372: 사이드카의 원격 URL 이미지는 추적 요청·캔버스 오염 통로 — data:image만.
+      pages: scrubImageSrc(data.pages),
       leaves: Array.isArray(data.leaves) ? data.leaves : [],
       outline: Array.isArray(data.outline) ? data.outline : [],
       linkFixes: sanitizeLinkFixes(data.linkFixes),
