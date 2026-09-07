@@ -466,8 +466,9 @@ describe("#217 미리보기 별은 썸 위, 목차는 쪽번호 옆", () => {
     assert.match(css, /\.preview-thumb-wrap \{[\s\S]*position: relative/);
     const starOnThumb = css.slice(css.indexOf(".preview-thumb-wrap .preview-bookmark {"), css.indexOf(".preview-meta {"));
     assert.match(starOnThumb, /position: absolute/);
-    assert.match(starOnThumb, /top: 6px/);
-    assert.match(starOnThumb, /right: 6px/);
+    // #343: 별은 상자 모서리에 걸치듯 위로 — 핀을 새 사실로.
+    assert.match(starOnThumb, /top: -6px/);
+    assert.match(starOnThumb, /right: 0/);
     assert.match(starOnThumb, /width: 44px/);
     assert.match(starOnThumb, /height: 44px/);
     assert.match(starOnThumb, /line-height: 28px/);
