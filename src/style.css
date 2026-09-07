@@ -1530,8 +1530,19 @@ body {
   box-shadow: 0 0 0 3px #2c2a26;
 }
 
+/* #343: 얇은 2px론 지금 보는 쪽이 안 보였다 — 이중 테두리 + 행 배경 + 진한 쪽번호. */
+.preview-row.is-current {
+  background: rgba(196, 165, 116, 0.14);
+  border-radius: 10px;
+}
+
 .preview-row.is-current .preview-thumb {
-  box-shadow: 0 0 0 2px #c4a574;
+  box-shadow: 0 0 0 3px #c4a574, 0 0 0 6px rgba(196, 165, 116, 0.35);
+}
+
+.preview-row.is-current .preview-page-label {
+  color: #2c2a26;
+  font-weight: 700;
 }
 
 .preview-thumb-wrap {
@@ -1549,8 +1560,9 @@ body {
 
 .preview-thumb-wrap .preview-bookmark {
   position: absolute;
-  top: 6px;
-  right: 6px;
+  /* #343: 별은 상자 모서리에 걸치듯 더 위로. */
+  top: -6px;
+  right: 0;
   z-index: 1;
   width: 44px;
   height: 44px;
