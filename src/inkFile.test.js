@@ -196,12 +196,15 @@ describe("#277 새로고침·재열기 후 클라우드 문서 복원", () => {
     const open = main.slice(main.indexOf("async function openPdfBuffer"), main.indexOf("async function openPdfBuffer") + 900);
     assert.match(open, /const path = dbxId\.slice\("dbx::"\.length\)/);
     assert.match(open, /state\.dropboxDoc = \{ path, name:/);
-    assert.match(open, /if \(!state\.dropboxDoc\)/, "이미 열려 있으면 덮지 않는다");
+    // #362: 다른 문서로 바꾸면 반드시 재구성 — 잔존 doc이 사이드카를 공유시켰다.
+    assert.match(open, /!state\.dropboxDoc \|\| state\.dropboxDoc\.path !== path/, "path 다르면 무조건 재구성");
   });
 
   it("rebuilds the drive doc too", () => {
-    const open = main.slice(main.indexOf("async function openPdfBuffer"), main.indexOf("async function openPdfBuffer") + 1100);
-    assert.match(open, /state\.driveDoc = \{ id: dbxId\.slice\("gdrive::"\.length\)/);
+    const open = main.slice(main.indexOf("async function openPdfBuffer"), main.indexOf("async function openPdfBuffer") + 1600);
+    // #362: id가 다르면 재구성.
+    assert.match(open, /!state\.driveDoc \|\| state\.driveDoc\.id !== driveId/);
+    assert.match(open, /state\.driveDoc = \{ id: driveId,/);
   });
 
   it("still starts the sync watch, which shows the save button", () => {
