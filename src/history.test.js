@@ -126,3 +126,24 @@ describe("#236 이어지는 변화는 한 벌", () => {
     assert.equal(history.redo.length, 0);
   });
 });
+
+describe("#318 두 페이지 동시 되돌리기", () => {
+  it("undo/redo restore both pages of a cross-page move at once", () => {
+    const history = createHistory();
+    const pages = { a: [], b: [{ id: "x" }] };
+    recordChange(history, {
+      page: "a",
+      before: [{ id: "x" }],
+      after: [],
+      partner: { page: "b", before: [], after: [{ id: "x2" }] },
+    });
+    pages.a = [];
+    pages.b = [{ id: "x2" }];
+    undoChange(history, pages);
+    assert.deepEqual(pages.a, [{ id: "x" }]);
+    assert.deepEqual(pages.b, []);
+    redoChange(history, pages);
+    assert.deepEqual(pages.a, []);
+    assert.deepEqual(pages.b, [{ id: "x2" }]);
+  });
+});

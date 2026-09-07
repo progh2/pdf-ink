@@ -274,6 +274,43 @@ export function selectedBounds(items, indices, cssWidth, cssHeight) {
   return boundsUnion((indices || []).map((index) => itemBounds(items[index], cssWidth, cssHeight)));
 }
 
+/**
+ * #318: 항목을 다른 페이지의 정규 좌표로 옮겨 적는다. 두 스테이지의 화면
+ * 사각형을 지나 client 좌표로 갔다 오므로, 놓는 순간 화면 위 위치·크기가
+ * 그대로 유지된다. w/h가 정규값인 항목(image/mosaic/area)만 비율을 다시
+ * 계산하고, 도장(w/h가 CSS px)과 획 두께(#288 문서 기준)는 건드리지 않는다.
+ * 병합 안전을 위해 새 id를 받는다(#290) — 원본 id는 호출부가 무덤에 적는다.
+ */
+export function remapItemsBetweenRects(items, srcRect, dstRect, makeId = newItemId) {
+  const sw = Math.max(1, srcRect?.width || 1);
+  const sh = Math.max(1, srcRect?.height || 1);
+  const dw = Math.max(1, dstRect?.width || 1);
+  const dh = Math.max(1, dstRect?.height || 1);
+  const mapX = (x) => (srcRect.left + x * sw - dstRect.left) / dw;
+  const mapY = (y) => (srcRect.top + y * sh - dstRect.top) / dh;
+  return (items || []).map((item) => {
+    const next = JSON.parse(JSON.stringify(item));
+    if (Array.isArray(next.points)) {
+      next.points = next.points.map((point) => ({ ...point, x: mapX(point.x), y: mapY(point.y) }));
+    }
+    if (Number.isFinite(next.x)) {
+      next.x = mapX(next.x);
+    }
+    if (Number.isFinite(next.y)) {
+      next.y = mapY(next.y);
+    }
+    if (next.type === "image" || next.type === "mosaic" || next.type === "area") {
+      if (Number.isFinite(next.w)) {
+        next.w = (next.w * sw) / dw;
+      }
+      if (Number.isFinite(next.h)) {
+        next.h = (next.h * sh) / dh;
+      }
+    }
+    return reIdItem(next, makeId);
+  });
+}
+
 export function translateItem(item, dx, dy) {
   const next = { ...item };
   if (Array.isArray(item.points)) {

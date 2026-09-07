@@ -352,6 +352,7 @@ import {
   offsetItems,
   pickItemsAt,
   pickItemsInRect,
+  remapItemsBetweenRects,
   lockedImageAt,
   rotateHandleAt,
   selectedBounds,
@@ -5462,7 +5463,54 @@ function moveSelect(event) {
   if (view) {
     drawStrokesOn(view);
   }
+  if (drag.mode === "move") {
+    paintCrossPageGhost(drag, event, view);
+  }
   syncSelectHud();
+}
+
+// #318: 이동 중 경계를 넘은 항목을 이웃 페이지 liveCanvas에 미리 보여준다 —
+// 넘기다 「사라지는」 문제를 없앤다. 놓거나 되돌아오면 지운다.
+let crossGhostView = null;
+
+function clearCrossPageGhost() {
+  if (crossGhostView) {
+    clearLiveLayer(crossGhostView);
+    crossGhostView = null;
+  }
+}
+
+function stageViewAtClient(x, y, exceptPage) {
+  const stage = document.elementFromPoint(x, y)?.closest?.(".page-stage");
+  const pageNum = Number(stage?.dataset.page) || 0;
+  if (!pageNum || pageNum === exceptPage) {
+    return null;
+  }
+  return state.pageViews.find((item) => item.pageNum === pageNum) || null;
+}
+
+function paintCrossPageGhost(drag, event, srcView) {
+  const target = stageViewAtClient(event.clientX, event.clientY, drag.page);
+  if (crossGhostView && crossGhostView !== target) {
+    clearCrossPageGhost();
+  }
+  if (!target || !srcView) {
+    return;
+  }
+  const moved = pageStrokes(drag.page).filter((_, index) => drag.indices.includes(index));
+  const ghosts = remapItemsBetweenRects(
+    moved,
+    srcView.stage.getBoundingClientRect(),
+    target.stage.getBoundingClientRect(),
+    () => null,
+  );
+  crossGhostView = target;
+  const canvas = target.liveCanvas;
+  const ctx = liveCanvas2d(canvas);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  for (const item of ghosts) {
+    paintItem(ctx, item, strokeScale(target), canvas);
+  }
 }
 
 function endSelect(event) {
@@ -5518,6 +5566,17 @@ function endSelect(event) {
     return;
   }
   const key = inkKey(leafAt(state.leaves, drag.page));
+  // #318: 다른 페이지 위에서 놓으면 항목을 그 페이지로 옮겨 적는다.
+  if (drag.mode === "move" && event.type !== "pointercancel") {
+    const target = stageViewAtClient(event.clientX, event.clientY, drag.page);
+    if (target && view && crossPageMove(drag, view, target, key)) {
+      clearCrossPageGhost();
+      state.selectDrag = null;
+      syncSelectHud();
+      return;
+    }
+  }
+  clearCrossPageGhost();
   const after = pageStrokes(drag.page);
   if (JSON.stringify(drag.origin) !== JSON.stringify(after)) {
     recordChange(state.history, {
@@ -5531,6 +5590,46 @@ function endSelect(event) {
   }
   state.selectDrag = null;
   syncSelectHud();
+}
+
+/**
+ * #318: 선택 이동을 이웃 페이지로 넘긴다. 화면 사각형으로 리매핑해 놓은 자리
+ * 그대로 옮기고, 병합 안전을 위해 새 id + 원본 id 무덤(#290 계열). 한 번의
+ * 되돌리기로 두 페이지가 같이 돌아온다(history partner).
+ */
+function crossPageMove(drag, srcView, targetView, srcKey) {
+  const moved = pageStrokes(drag.page).filter((_, index) => drag.indices.includes(index));
+  if (!moved.length) {
+    return false;
+  }
+  const dstKey = inkKey(leafAt(state.leaves, targetView.pageNum));
+  const remapped = remapItemsBetweenRects(
+    moved,
+    srcView.stage.getBoundingClientRect(),
+    targetView.stage.getBoundingClientRect(),
+  );
+  const srcAfter = pageStrokes(drag.page).filter((_, index) => !drag.indices.includes(index));
+  const dstBefore = cloneItems(pageStrokes(targetView.pageNum));
+  state.pages[srcKey] = srcAfter;
+  state.pages[dstKey] = dstBefore.concat(remapped);
+  // 원본 id는 무덤에 — 다른 기기 병합이 원본 자리에 부활시키지 않도록.
+  state.inkGone = goneAfterChange(drag.origin, srcAfter, state.inkGone);
+  recordChange(state.history, {
+    page: srcKey,
+    before: drag.origin,
+    after: cloneItems(srcAfter),
+    extra: { leavesBefore: cloneItems(state.leaves), leavesAfter: cloneItems(state.leaves) },
+    partner: { page: dstKey, before: dstBefore, after: cloneItems(state.pages[dstKey]) },
+  });
+  state.selectPage = targetView.pageNum;
+  state.selectIndices = remapped.map((_, index) => dstBefore.length + index);
+  drawStrokesOn(srcView);
+  drawStrokesOn(targetView);
+  persistStrokes();
+  syncHistoryButtons();
+  refreshPageThumb(drag.page);
+  refreshPageThumb(targetView.pageNum);
+  return true;
 }
 
 function copySelection() {

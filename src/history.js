@@ -6,12 +6,14 @@ export function cloneItems(items) {
   return JSON.parse(JSON.stringify(items || []));
 }
 
-export function recordChange(history, { page, before, after, extra = null }) {
+export function recordChange(history, { page, before, after, extra = null, partner = null }) {
   history.undo.push({
     page: String(page),
     before: cloneItems(before),
     after: cloneItems(after),
     extra: extra == null ? null : cloneItems(extra),
+    // #318: 페이지 사이 이동은 두 쪽을 한 번에 되돌려야 한다.
+    partner: partner == null ? null : cloneItems(partner),
   });
   if (history.undo.length > history.limit) {
     history.undo.shift();
@@ -27,6 +29,9 @@ export function undoChange(history, pages) {
   }
   history.redo.push(entry);
   pages[entry.page] = cloneItems(entry.before);
+  if (entry.partner) {
+    pages[String(entry.partner.page)] = cloneItems(entry.partner.before);
+  }
   return entry;
 }
 
@@ -37,6 +42,9 @@ export function redoChange(history, pages) {
   }
   history.undo.push(entry);
   pages[entry.page] = cloneItems(entry.after);
+  if (entry.partner) {
+    pages[String(entry.partner.page)] = cloneItems(entry.partner.after);
+  }
   return entry;
 }
 

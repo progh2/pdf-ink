@@ -10,6 +10,7 @@ import {
   ROTATE_HANDLE_SIZE_CSS,
   ROTATE_HANDLE_STROKE_CSS,
   copyItems,
+  remapItemsBetweenRects,
   deleteSelectedItems,
   isSelectable,
   isStrokeItem,
@@ -324,5 +325,48 @@ describe("#290 클론 새 이름표", () => {
   it("leaves a legacy id-less item untouched", () => {
     const src = [{ type: "pen", points: [{ x: 0, y: 0 }] }];
     assert.equal("id" in offsetItems(src, 0, 0)[0], false);
+  });
+});
+
+describe("#318 페이지 사이 리매핑", () => {
+  // 위 페이지(0..600px)와 아래 페이지(616..1216px), 같은 폭 400px.
+  const src = { left: 0, top: 616, width: 400, height: 600 };
+  const dst = { left: 0, top: 0, width: 400, height: 600 };
+
+  it("keeps the on-screen spot when an item crosses to the page above", () => {
+    // 아래 페이지 y=-0.1 (경계 위로 끌려 나감) → 화면 y=616-60=556 → 위 페이지 y=556/600.
+    const [out] = remapItemsBetweenRects(
+      [{ type: "image", id: "i:1", x: 0.25, y: -0.1, w: 0.5, h: 0.2 }],
+      src,
+      dst,
+      () => "i:new",
+    );
+    assert.ok(Math.abs(out.y - 556 / 600) < 1e-9);
+    assert.equal(out.x, 0.25);
+    assert.equal(out.w, 0.5);
+    assert.equal(out.id, "i:new", "병합 안전: 새 id (#290)");
+  });
+
+  it("remaps stroke points but never the doc-relative width", () => {
+    const [out] = remapItemsBetweenRects(
+      [{ type: "pen", id: "s:1", width: 2, points: [{ x: 0.5, y: -0.05 }] }],
+      src,
+      dst,
+      () => "s:new",
+    );
+    assert.equal(out.width, 2);
+    assert.ok(Math.abs(out.points[0].y - 586 / 600) < 1e-9);
+  });
+
+  it("keeps a stamp box in CSS px (no w/h rescale)", () => {
+    const wide = { left: 0, top: 0, width: 800, height: 600 };
+    const [out] = remapItemsBetweenRects(
+      [{ type: "stamp", id: "st:1", x: 0.5, y: 0.5, w: 108, h: 64 }],
+      src,
+      wide,
+      () => "st:new",
+    );
+    assert.equal(out.w, 108);
+    assert.equal(out.h, 64);
   });
 });
