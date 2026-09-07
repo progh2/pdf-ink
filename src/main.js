@@ -73,6 +73,7 @@ import {
   PAN_MARGIN_PX,
   constrainPan,
   inkCanvasScale,
+  MAX_PAGE_PIXELS,
   renderZoomFactor,
   pointerDistance,
   pointerMidpoint,
@@ -739,6 +740,12 @@ let chipMenuBox = null;
 let frozenEndClient = null;
 let renderGen = 0;
 let paperScrollHold = null;
+// #310: 아이폰·아이패드(웹킷)는 캔버스 총 메모리 한도가 타이트하다 — 렌더
+// 예산과 스냅샷 수를 절반으로 줄인다. (아이패드 데스크톱 UA는 Mac+터치로 잡는다)
+const IOS_CANVAS_DIET =
+  /iP(hone|ad|od)/.test(navigator.userAgent) ||
+  (navigator.maxTouchPoints > 1 && /Mac/.test(navigator.userAgent));
+
 // #308: 캐시에서 밀려난 캔버스는 즉시 백킹을 해제한다. iOS 웹킷은 참조만
 // 끊긴 캔버스 메모리를 한참 쥐고 있어, 핀치 반복 시 한도를 넘겨 탭이 죽었다.
 function freeBitmapEntry(entry) {
@@ -749,7 +756,7 @@ function freeBitmapEntry(entry) {
   }
 }
 
-const pageCache = createPaintCache(PAGE_BITMAP_LIMIT, freeBitmapEntry);
+const pageCache = createPaintCache(IOS_CANVAS_DIET ? 3 : PAGE_BITMAP_LIMIT, freeBitmapEntry);
 const thumbCache = createPaintCache(THUMB_BITMAP_LIMIT, freeBitmapEntry);
 /** Page pictures without ink: one per page, worth keeping on disk (#143). */
 const pageThumbCache = createPaintCache(THUMB_BITMAP_LIMIT, freeBitmapEntry);
@@ -1626,14 +1633,8 @@ function acquireStage(pageNum) {
   pooled.stage.dataset.page = String(pageNum);
   pooled.rendered = false;
   pooled.token += 1;
-  // #300: 재활용한 스테이지엔 이전 페이지의 그림이 남아 있다. 다시 그리기 전까지
-  // 그게 (스크롤 슬롯 크기와 어긋나) 작게·엉뚱하게 비쳐 「다른 페이지가 끼어든」
-  // 것처럼 보였다. 픽셀을 지우고 cssWidth를 비워 균일 슬롯 크기로 되돌린다.
-  for (const canvas of [pooled.pdfCanvas, pooled.underCanvas, pooled.inkCanvas, pooled.overCanvas, pooled.maskCanvas]) {
-    if (canvas?.width) {
-      canvas.getContext("2d")?.clearRect(0, 0, canvas.width, canvas.height);
-    }
-  }
+  // #300→#310: 풀에 넣을 때 캔버스 백킹을 해제하므로(0×0) 재활용 잔상은
+  // 애초에 없다. cssWidth만 비워 균일 슬롯 크기로 되돌린다.
   clearLiveLayer(pooled);
   pooled.cssWidth = 0;
   pooled.cssHeight = 0;
@@ -1657,10 +1658,12 @@ function releaseStage(view) {
   }
   cachePageView(view);
   view.stage.remove();
+  // #310: 풀은 DOM 노드 재사용용 — 캔버스 백킹은 항상 해제한다. 확대 상태의
+  // 고해상도 캔버스 6장×8개가 풀에서 대기하며 iOS 한도를 갉아먹었다.
+  // acquire 후 applyPageSize가 어차피 다시 사이즈한다.
+  freeStageCanvases(view);
   if (stagePool.length < 8) {
     stagePool.push(view);
-  } else {
-    freeStageCanvases(view);
   }
 }
 
@@ -1847,7 +1850,8 @@ function wantedRenderFactor() {
   const view = state.pageViews.find((item) => item.pageNum === state.page) || state.pageViews[0];
   const cssW = view?.cssWidth || state.pageCssWidth || 360;
   const cssH = view?.cssHeight || state.pageCssHeight || 520;
-  return renderZoomFactor(state.userScale, cssW * dpr, cssH * dpr);
+  // #310: iOS 웹킷은 예산 절반(3MP) — 선명도보다 탭이 살아 있는 게 먼저다.
+  return renderZoomFactor(state.userScale, cssW * dpr, cssH * dpr, IOS_CANVAS_DIET ? 3_000_000 : MAX_PAGE_PIXELS);
 }
 
 let zoomRenderTimer = 0;

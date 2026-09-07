@@ -129,7 +129,8 @@ describe("#85 preview / page navigation speed", () => {
     assert.ok(cache.size <= PAGE_BITMAP_LIMIT);
 
     // #308: 밀려난 캔버스 백킹을 해제하는 콜백이 붙었다.
-    assert.match(main, /createPaintCache\(PAGE_BITMAP_LIMIT, freeBitmapEntry\)/);
+    // #310: iOS는 스냅샷 3개로 다이어트.
+    assert.match(main, /createPaintCache\(IOS_CANVAS_DIET \? 3 : PAGE_BITMAP_LIMIT, freeBitmapEntry\)/);
     assert.match(main, /createPaintCache\(THUMB_BITMAP_LIMIT, freeBitmapEntry\)/);
     assert.match(main, /function showPageInPlace/);
     assert.match(main, /function cachePageView/);
