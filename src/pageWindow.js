@@ -26,25 +26,26 @@ export function clampPreviewWidth(width) {
   return Math.min(PREVIEW_WIDTH_MAX, Math.max(PREVIEW_WIDTH_MIN, value));
 }
 
-export function previewThumbSize(drawerWidth = PREVIEW_WIDTH_DEFAULT) {
+/** #335: 행 비율은 문서를 따라간다 — 가로 문서에서 위아래 공백이 사라진다. */
+export function previewThumbSize(drawerWidth = PREVIEW_WIDTH_DEFAULT, ratio = PREVIEW_THUMB_RATIO) {
   const width = Math.max(24, clampPreviewWidth(drawerWidth) - PREVIEW_SIDE_PAD);
-  return { width, height: Math.round(width * PREVIEW_THUMB_RATIO) };
+  return { width, height: Math.round(width * (Number(ratio) > 0 ? ratio : PREVIEW_THUMB_RATIO)) };
 }
 
-export function previewRowBody(drawerWidth = PREVIEW_WIDTH_DEFAULT) {
-  return previewThumbSize(drawerWidth).height + PREVIEW_ROW_GAP + PREVIEW_META_HEIGHT;
+export function previewRowBody(drawerWidth = PREVIEW_WIDTH_DEFAULT, ratio = PREVIEW_THUMB_RATIO) {
+  return previewThumbSize(drawerWidth, ratio).height + PREVIEW_ROW_GAP + PREVIEW_META_HEIGHT;
 }
 
-export function previewRowStride(drawerWidth = PREVIEW_WIDTH_DEFAULT) {
-  return previewRowBody(drawerWidth) + PREVIEW_LIST_GAP;
+export function previewRowStride(drawerWidth = PREVIEW_WIDTH_DEFAULT, ratio = PREVIEW_THUMB_RATIO) {
+  return previewRowBody(drawerWidth, ratio) + PREVIEW_LIST_GAP;
 }
 
-export function previewListHeight(count, drawerWidth = PREVIEW_WIDTH_DEFAULT) {
+export function previewListHeight(count, drawerWidth = PREVIEW_WIDTH_DEFAULT, ratio = PREVIEW_THUMB_RATIO) {
   const n = Math.max(0, Math.round(Number(count) || 0));
   if (n <= 0) {
     return 0;
   }
-  return n * previewRowBody(drawerWidth) + Math.max(0, n - 1) * PREVIEW_LIST_GAP;
+  return n * previewRowBody(drawerWidth, ratio) + Math.max(0, n - 1) * PREVIEW_LIST_GAP;
 }
 
 export function visibleIndexRange({ scrollTop, viewportHeight, count, itemStride, overscan = 0 }) {
@@ -73,12 +74,13 @@ export function visiblePreviewRows({
   count,
   overscan = PREVIEW_OVERSCAN,
   drawerWidth = PREVIEW_WIDTH_DEFAULT,
+  ratio = PREVIEW_THUMB_RATIO,
 } = {}) {
   return visibleIndexRange({
     scrollTop,
     viewportHeight,
     count,
-    itemStride: previewRowStride(drawerWidth),
+    itemStride: previewRowStride(drawerWidth, ratio),
     overscan,
   });
 }

@@ -522,3 +522,20 @@ describe("#308 캐시 축출 콜백", () => {
     assert.deepEqual(freed, []);
   });
 });
+
+describe("#335 문서 비율 미리보기", () => {
+  it("a landscape ratio makes short rows, so no dead space", () => {
+    const portrait = previewThumbSize(120);
+    const flat = previewThumbSize(120, 0.7);
+    assert.ok(flat.height < portrait.height);
+    assert.equal(flat.width, portrait.width);
+    assert.ok(previewListHeight(10, 120, 0.7) < previewListHeight(10, 120));
+    assert.equal(previewRowStride(120, 0.7), previewRowBody(120, 0.7) + PREVIEW_LIST_GAP);
+  });
+
+  it("main wires the document ratio into every preview metric", () => {
+    assert.match(main, /function previewRatio\(\)/);
+    assert.match(main, /previewListHeight\(shown\.length, state\.previewWidth, previewRatio\(\)\)/);
+    assert.match(main, /ratio: previewRatio\(\),/);
+  });
+});
