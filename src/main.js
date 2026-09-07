@@ -1257,6 +1257,9 @@ function paintImageLayer(canvas, items, locked, onReady) {
     return;
   }
   const ctx = canvas2d(canvas);
+  // #350: 기본 스무딩(low)은 큰 원본을 작은 박스로 줄일 때 뭉갠다.
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   for (const item of items || []) {
     // locked === null 이면 모든 이미지 (#260).
