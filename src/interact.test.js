@@ -439,9 +439,9 @@ describe("#234 도구에 따른 커서", () => {
     assert.equal(cursorForTool({ interactMode: "view", tool: "pen" }), "grab");
   });
 
-  it("draws with a crosshair and picks with an arrow", () => {
-    assert.equal(cursorForTool({ interactMode: "edit", tool: "pen" }), "crosshair");
-    assert.equal(cursorForTool({ interactMode: "edit", tool: "highlighter" }), "crosshair");
+  it("hides the cursor for ink tools — the hover dot is the cursor (#366)", () => {
+    assert.equal(cursorForTool({ interactMode: "edit", tool: "pen" }), "none");
+    assert.equal(cursorForTool({ interactMode: "edit", tool: "highlighter" }), "none");
     assert.equal(cursorForTool({ interactMode: "edit", tool: "select" }), "default");
   });
 
@@ -592,5 +592,13 @@ describe("#327 PC 확대/축소", () => {
     assert.match(main, /function zoomTo/);
     assert.match(main, /if \(!event\.ctrlKey\)/);
     assert.match(main, /"wheel",[\s\S]{0,400}\{ passive: false \}/);
+  });
+});
+
+describe("#366 첫 편집 진입은 선택 도구", () => {
+  it("wires select-on-first-edit, and area entry claims the first slot", () => {
+    assert.match(main, /state\.editEntered = false/);
+    assert.match(main, /!state\.editEntered\)[\s\S]{0,160}selectSelectTool\(\)/);
+    assert.match(main, /state\.editEntered = true; \/\/ #366: 영역 도구/);
   });
 });

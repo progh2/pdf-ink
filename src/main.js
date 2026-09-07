@@ -993,6 +993,8 @@ function commitPageChange(pageNum, apply) {
 }
 
 function resetEditorExtras() {
+  // #366: 문서마다 처음 편집으로 들어갈 땐 선택 도구부터 — 이후 전환은 쓰던 도구 유지.
+  state.editEntered = false;
   state.history = createHistory();
   state.rectTool = null;
   state.currentRect = null;
@@ -3974,6 +3976,11 @@ function setZoomLock(on) {
 function setInteractMode(mode) {
   state.interactMode = mode === "view" ? "view" : "edit";
   saveInteractMode(state.interactMode);
+  if (state.interactMode === "edit" && !state.editEntered) {
+    // #366: 첫 편집 진입은 선택 도구로 — 실수로 긋기 전에 고르고 옮기는 일이 먼저다.
+    state.editEntered = true;
+    selectSelectTool();
+  }
   hideLockMenu();
   viewNoticeAt = null;
   if (state.interactMode === "edit" && els.banner.textContent === VIEW_NOTICE_TEXT) {
@@ -10327,6 +10334,7 @@ function selectMoreAction(action) {
     state.rectTool = action;
   }
   state.interactMode = "edit";
+  state.editEntered = true; // #366: 영역 도구로 들어온 첫 진입은 그 도구가 의도다.
   saveInteractMode("edit");
   hideMarquee();
   closeMorePanel();

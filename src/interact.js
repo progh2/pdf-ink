@@ -301,7 +301,8 @@ export function cursorForTool({ interactMode, tool, rectTool, eyedrop = false } 
   if (tool === "stamp") {
     return "copy";
   }
-  return "crosshair";
+  // #366: 펜·색연필·형광은 호버 점(#234/#260)이 커서다 — crosshair가 겹치면 어색하다.
+  return "none";
 }
 
 /** 펜을 띄웠을 때 그릴 표시의 모양. 도구마다 다르게 보여야 헷갈리지 않는다. */
