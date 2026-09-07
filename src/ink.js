@@ -271,7 +271,8 @@ function tracePath(ctx, points, canvas, scale, jitter = 0, salt = 0, startAt = 0
  * REF는 폰의 페이지 표시폭 근처라, 폰의 기존 느낌을 유지하고 PC가 두꺼워진다.
  * (도장·지우개는 CSS 기준 유지: 지우개는 CSS 히트테스트와 맞아야 한다.)
  */
-export const STROKE_WIDTH_REF_CSS = 430;
+// #313: 430→540 — 폰 기준이 생각보다 두꺼워(기본 펜 0.5) 전체 ~20% 얇게.
+export const STROKE_WIDTH_REF_CSS = 540;
 
 export function strokeLineWidth(stroke, canvas) {
   const w = stroke?.width || 2;
