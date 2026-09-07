@@ -392,6 +392,7 @@ import {
   PAGE_STACK_GAP,
   THUMB_REFRESH_MS,
   clampPreviewWidth,
+  PREVIEW_THUMB_RATIO,
   previewThumbSize,
   THUMB_BITMAP_LIMIT,
   createPaintCache,
@@ -6390,7 +6391,7 @@ function applyPreviewWidth() {
   els.previewDrawer.style.setProperty("--preview-w", `${width}px`);
   // The screen is pushed by the same width, so the paper re-fits (#155).
   els.writeScreen.style.setProperty("--preview-w", `${width}px`);
-  const thumb = previewThumbSize(width);
+  const thumb = previewThumbSize(width, previewRatio());
   els.previewDrawer.style.setProperty("--thumb-w", `${thumb.width}px`);
   els.previewDrawer.style.setProperty("--thumb-h", `${thumb.height}px`);
 }
@@ -7256,7 +7257,7 @@ function showDropLine(index) {
     return;
   }
   els.previewDrop.hidden = false;
-  els.previewDrop.style.top = `${dropLineTop(index, previewRowStride(state.previewWidth))}px`;
+  els.previewDrop.style.top = `${dropLineTop(index, previewRowStride(state.previewWidth, previewRatio()))}px`;
 }
 
 /**
@@ -7400,7 +7401,7 @@ function dropIndexForEvent(event) {
     pointerY: event.clientY,
     listTop: list.top,
     scrollTop: els.previewList.scrollTop,
-    stride: previewRowStride(state.previewWidth),
+    stride: previewRowStride(state.previewWidth, previewRatio()),
     count: state.leaves.length,
   });
 }
@@ -7474,9 +7475,9 @@ function syncPreviewCurrent({ paintVisible = false } = {}) {
   const shown = filterLeaves(state.leaves, state.previewFilter);
   const index = shown.findIndex((leaf) => pageOfLeaf(state.leaves, leaf.id) === state.page);
   if (index >= 0) {
-    const top = index * previewRowStride(state.previewWidth);
+    const top = index * previewRowStride(state.previewWidth, previewRatio());
     const viewH = els.previewList.clientHeight;
-    const body = previewRowBody(state.previewWidth);
+    const body = previewRowBody(state.previewWidth, previewRatio());
     if (top < els.previewList.scrollTop || top + body > els.previewList.scrollTop + viewH) {
       els.previewList.scrollTop = Math.max(0, top - 8);
     }
@@ -7487,6 +7488,14 @@ function syncPreviewCurrent({ paintVisible = false } = {}) {
   if (paintVisible) {
     paintVisiblePreviewRows();
   }
+}
+
+/** #335: 미리보기 행 비율은 문서의 첫 페이지 비율을 따른다(0.45~1.6 클램프). */
+function previewRatio() {
+  const w = Number(state.baseCss?.width) || 0;
+  const h = Number(state.baseCss?.height) || 0;
+  const raw = w > 0 && h > 0 ? h / w : PREVIEW_THUMB_RATIO;
+  return Math.min(1.6, Math.max(0.45, raw));
 }
 
 async function paintVisiblePreviewRows() {
@@ -7503,8 +7512,9 @@ async function paintVisiblePreviewRows() {
     viewportHeight: els.previewList.clientHeight || 640,
     count: shown.length,
     drawerWidth: state.previewWidth,
+    ratio: previewRatio(),
   });
-  const stride = previewRowStride(state.previewWidth);
+  const stride = previewRowStride(state.previewWidth, previewRatio());
   windowEl.style.transform = `translateY(${Math.max(0, range.from) * stride}px)`;
   const needed = shown.slice(Math.max(0, range.from), range.to + 1);
   const have = new Map([...windowEl.children].map((row) => [row.dataset.leaf, row]));
@@ -7546,7 +7556,7 @@ async function renderPreviewList() {
   const shown = filterLeaves(state.leaves, state.previewFilter);
   const spacer = document.createElement("div");
   spacer.className = "preview-list-spacer";
-  spacer.style.height = `${previewListHeight(shown.length, state.previewWidth)}px`;
+  spacer.style.height = `${previewListHeight(shown.length, state.previewWidth, previewRatio())}px`;
   const windowEl = document.createElement("div");
   windowEl.className = "preview-list-window";
   els.previewList.replaceChildren(spacer, windowEl);
@@ -7637,7 +7647,7 @@ async function renderThumbPage(canvas, leaf, size) {
 }
 
 async function paintPreviewThumb(canvas, leaf) {
-  const size = previewThumbSize(state.previewWidth);
+  const size = previewThumbSize(state.previewWidth, previewRatio());
   const items = state.pages[inkKey(leaf)] || [];
   const key = thumbCacheKey(leaf, size.width, inkSignature(items));
   if (canvas.dataset.painted === key) {
@@ -8329,7 +8339,7 @@ async function warmThumbs() {
   if (!state.pdf || !identity) {
     return;
   }
-  const size = previewThumbSize(state.previewWidth);
+  const size = previewThumbSize(state.previewWidth, previewRatio());
   const done = await listThumbKeys(identity);
   if (token !== warmToken || identity !== state.identity) {
     return;
@@ -8933,7 +8943,7 @@ function base64ToBlob(text) {
 }
 
 function wantedThumbKeys() {
-  const size = previewThumbSize(state.previewWidth);
+  const size = previewThumbSize(state.previewWidth, previewRatio());
   return state.leaves.map((leaf) => pageThumbKey(leaf, size.width));
 }
 
