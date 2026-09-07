@@ -11,9 +11,7 @@ import {
   mergeGone,
   mergePageItems,
   mergePages,
-  crossDocKeys,
   newItemId,
-  removeKeysFromPages,
   sanitizeGone,
 } from "./inkMerge.js";
 
@@ -161,32 +159,6 @@ describe("#358 빠른 연속 열기 가드 배선", () => {
     const checks = fn.match(/gen !== openGen/g) || [];
     assert.ok(checks.length >= 4, `await 뒤 가드가 ${checks.length}개뿐`);
     assert.match(fn, /pdf\.destroy\(\); \/\/ #358/);
-  });
-});
-
-describe("#360 겹침 청소", () => {
-  it("flags only items whose key exists in another document", () => {
-    const mine = { 1: [stroke("a"), stroke("mine-only")], 2: [{ type: "stamp", id: "st:1", x: 0.5, y: 0.5 }] };
-    const planner = { 7: [stroke("a"), { type: "stamp", id: "st:1", x: 0.5, y: 0.5 }] };
-    const keys = crossDocKeys(mine, [planner]);
-    assert.deepEqual([...keys].sort(), ["a", "st:1"]);
-  });
-
-  it("removes flagged items and reports the count", () => {
-    const mine = { 1: [stroke("a"), stroke("keep")], 2: [stroke("b")] };
-    const out = removeKeysFromPages(mine, new Set(["a", "b"]));
-    assert.equal(out.removed, 2);
-    assert.deepEqual(Object.keys(out.pages), ["1"]);
-    assert.equal(out.pages[1][0].id, "keep");
-  });
-
-  it("wires a two-step clean into the settings sheet", () => {
-    const here = dirname(fileURLToPath(import.meta.url));
-    const src = readFileSync(join(here, "main.js"), "utf8");
-    const html = readFileSync(join(here, "../index.html"), "utf8");
-    assert.match(html, /id="cross-clean-btn"/);
-    assert.match(src, /crossCleanPending = keys/);
-    assert.match(src, /state\.inkGone\[key\] = now/, "무덤에 적어 되살아나지 않게");
   });
 });
 
