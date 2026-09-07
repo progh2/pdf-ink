@@ -38,8 +38,17 @@ body {
 }
 
 .banner {
+  /* #322: 흐름에서 떼어 띄운다 — 나타나고 사라져도 화면이 밀리지 않는다. */
+  position: fixed;
+  top: calc(8px + env(safe-area-inset-top, 0px));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 80;
+  max-width: min(92vw, 720px);
   margin: 0;
   padding: 10px 16px;
+  border-radius: 12px;
+  box-shadow: 0 4px 16px rgba(44, 42, 38, 0.18);
   background: var(--danger-bg);
   color: var(--danger);
   text-align: center;
