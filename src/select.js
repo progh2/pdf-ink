@@ -311,6 +311,41 @@ export function remapItemsBetweenRects(items, srcRect, dstRect, makeId = newItem
   });
 }
 
+/**
+ * #346: 쪽 전체(0..1) 기준으로 저장된 항목들을 contain 상자 안으로 선형 축소.
+ * 함께 담긴 필기가 배경 스냅샷과 같은 변환을 받아 어긋나지 않는다.
+ * 도장 w/h는 CSS px라 위치만 옮기고, 병합 안전을 위해 새 id(#290).
+ */
+export function fitItemsIntoBox(items, box, makeId = newItemId) {
+  const bx = Number(box?.x) || 0;
+  const by = Number(box?.y) || 0;
+  const bw = Number(box?.w) > 0 ? Number(box.w) : 1;
+  const bh = Number(box?.h) > 0 ? Number(box.h) : 1;
+  const mapX = (x) => bx + x * bw;
+  const mapY = (y) => by + y * bh;
+  return (items || []).map((item) => {
+    const next = JSON.parse(JSON.stringify(item));
+    if (Array.isArray(next.points)) {
+      next.points = next.points.map((point) => ({ ...point, x: mapX(point.x), y: mapY(point.y) }));
+    }
+    if (Number.isFinite(next.x)) {
+      next.x = mapX(next.x);
+    }
+    if (Number.isFinite(next.y)) {
+      next.y = mapY(next.y);
+    }
+    if (next.type === "image" || next.type === "mosaic" || next.type === "area") {
+      if (Number.isFinite(next.w)) {
+        next.w *= bw;
+      }
+      if (Number.isFinite(next.h)) {
+        next.h *= bh;
+      }
+    }
+    return reIdItem(next, makeId);
+  });
+}
+
 export function translateItem(item, dx, dy) {
   const next = { ...item };
   if (Array.isArray(item.points)) {

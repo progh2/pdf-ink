@@ -15,6 +15,7 @@ import {
   lockImage,
   resizeImage,
   trueSizeOnPage,
+  containBoxOnPage,
 } from "./image.js";
 
 describe("이미지", () => {
@@ -161,5 +162,22 @@ describe("#238 배선", () => {
   it("leaves the file picker on the old rule, where half a page is handy", () => {
     const add = main4.slice(main4.indexOf("async function addImageFile"), main4.indexOf("function rotateCurrentPage"));
     assert.match(add, /imageSizeOnPage\(/);
+  });
+});
+
+describe("#346 선반 쪽 contain 상자", () => {
+  it("keeps a landscape snapshot unstretched on a portrait page", () => {
+    const box = containBoxOnPage(1000, 500, 400, 600);
+    assert.equal(box.w, 1);
+    assert.ok(Math.abs(box.h - (500 * (400 / 1000)) / 600) < 1e-9);
+    assert.ok(Math.abs(box.y - (1 - box.h) / 2) < 1e-9, "세로 중앙");
+    assert.equal(box.x, 0);
+  });
+
+  it("keeps a portrait snapshot unstretched on a landscape page", () => {
+    const box = containBoxOnPage(500, 1000, 900, 500);
+    assert.equal(box.h, 1);
+    assert.ok(box.w < 1);
+    assert.ok(Math.abs(box.x - (1 - box.w) / 2) < 1e-9, "가로 중앙");
   });
 });
