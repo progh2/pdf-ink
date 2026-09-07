@@ -324,3 +324,70 @@ describe("#145 책갈피를 PDF 안에", () => {
     assert.deepEqual(tree[0].children.map((node) => node.title), ["1쪽", "2쪽"]);
   });
 });
+
+describe("#370 모자이크 원문 잔존 차단", () => {
+  async function linkedSourcePdf() {
+    // 1쪽에 2쪽으로 가는 내부 링크가 있는 합성 문서.
+    const doc = await PDFDocument.create();
+    const p1 = doc.addPage([300, 400]);
+    const p2 = doc.addPage([300, 400]);
+    const link = doc.context.obj({
+      Type: "Annot",
+      Subtype: "Link",
+      Rect: [10, 10, 100, 40],
+      Border: [0, 0, 0],
+      Dest: [p2.ref, PDFName.of("Fit")],
+    });
+    p1.node.set(PDFName.of("Annots"), doc.context.obj([doc.context.register(link)]));
+    return doc.save();
+  }
+
+  function pageObjectCount(doc) {
+    let count = 0;
+    for (const [, obj] of doc.context.enumerateIndirectObjects()) {
+      if (obj instanceof PDFDict && String(obj.get(PDFName.of("Type"))) === "/Page") {
+        count += 1;
+      }
+    }
+    return count;
+  }
+
+  it("leaves no orphan copy of a masked page reachable through a link", async () => {
+    const bytes = await buildAnnotatedPdf({
+      buffer: await linkedSourcePdf(),
+      leaves: [
+        { kind: "pdf", pdfPage: 1 },
+        { kind: "pdf", pdfPage: 2 },
+      ],
+      strokesOf: (leaf) => (leaf.pdfPage === 2 ? [mosaic] : []),
+      linksOf: (leaf) => (leaf.pdfPage === 1 ? [{ rect: [10, 10, 100, 40], page: 2 }] : []),
+      renderOverlay: async () => null,
+      renderRaster: async (leaf, size) => redPng(size.width, size.height),
+    });
+    const out = await PDFDocument.load(bytes);
+    assert.equal(out.getPageCount(), 2);
+    // 수정 전엔 링크가 끌고 온 원본 2쪽이 고아 /Page 객체로 남아 3이었다.
+    assert.equal(pageObjectCount(out), 2, "가린 원문 페이지가 어디에도 남지 않는다");
+  });
+
+  it("still rewrites the internal link to the real exported page", async () => {
+    const bytes = await buildAnnotatedPdf({
+      buffer: await linkedSourcePdf(),
+      leaves: [
+        { kind: "pdf", pdfPage: 1 },
+        { kind: "pdf", pdfPage: 2 },
+      ],
+      strokesOf: () => [],
+      linksOf: (leaf) => (leaf.pdfPage === 1 ? [{ rect: [10, 10, 100, 40], page: 2 }] : []),
+      renderOverlay: async () => null,
+      renderRaster: async () => null,
+    });
+    const out = await PDFDocument.load(bytes);
+    const [first, second] = out.getPages();
+    const annots = first.node.Annots();
+    assert.ok(annots && annots.asArray().length === 1, "다시 쓴 링크 하나");
+    const dict = out.context.lookup(annots.asArray()[0]);
+    const dest = dict.get(PDFName.of("Dest"));
+    assert.equal(String(dest.asArray()[0]), String(second.ref), "출력의 진짜 2쪽을 가리킨다");
+  });
+});
