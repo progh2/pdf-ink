@@ -175,3 +175,14 @@ describe("#354 선명 오버레이 계획", () => {
     assert.match(src, /state\.userScale <= state\.renderFactor \+ 0\.01/, "이미 선명하면 안 덮는다");
   });
 });
+
+describe("#380 오버레이 배경 폴백", () => {
+  it("renders via transform matrix and never leaves the paper blank", () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const src = readFileSync(join(here, "main.js"), "utf8");
+    const fn = src.slice(src.indexOf("async function renderSharpOverlay"), src.indexOf("function scheduleZoomRender"));
+    assert.match(fn, /transform: \[1, 0, 0, 1, offX, offY\]/, "공식 뷰어 방식");
+    assert.match(fn, /console\.warn\("sharp overlay pdf render"/, "원인을 남긴다");
+    assert.match(fn, /if \(!painted && page\.view\?\.pdfCanvas\?\.width\)/, "실패 시 기존 캔버스 확대 복사");
+  });
+});

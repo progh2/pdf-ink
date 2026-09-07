@@ -1990,6 +1990,7 @@ async function renderSharpOverlay() {
     const offX = job.dx - job.sx * job.pagePxW;
     const offY = job.dy - job.sy * job.pagePxH;
     if (leaf && leaf.kind !== "outline") {
+      let painted = false;
       try {
         const pdfPage = await state.pdf.getPage(leaf.pdfPage);
         if (gen !== sharpOverlayGen) {
@@ -1998,15 +1999,37 @@ async function renderSharpOverlay() {
         }
         const rotation = ((pdfPage.rotate || 0) + (leaf.rotate || 0)) % 360;
         const base = pdfPage.getViewport({ scale: 1, rotation });
-        const viewport = pdfPage.getViewport({
-          scale: job.pagePxW / base.width,
-          rotation,
-          offsetX: offX,
-          offsetY: offY,
-        });
-        await pdfPage.render({ canvasContext: ctx, viewport }).promise;
-      } catch {
-        // 유령 리프·취소는 흰 종이 위에 잉크만.
+        // #380: offsetX/offsetY 대신 공식 뷰어처럼 transform 행렬로 옮긴다.
+        const viewport = pdfPage.getViewport({ scale: job.pagePxW / base.width, rotation });
+        await pdfPage.render({
+          canvasContext: ctx,
+          viewport,
+          transform: [1, 0, 0, 1, offX, offY],
+        }).promise;
+        painted = true;
+      } catch (error) {
+        // #380: 원인은 콘솔에 남긴다 — 배경은 아래 폴백이 책임진다.
+        console.warn("sharp overlay pdf render", error);
+      }
+      if (gen !== sharpOverlayGen) {
+        ctx.restore();
+        return;
+      }
+      if (!painted && page.view?.pdfCanvas?.width) {
+        // #380: 렌더가 실패해도 배경이 사라지면 안 된다 — 이미 그려 둔 페이지
+        // 캔버스에서 그 영역을 확대 복사한다(이전 수준의 흐림, 잉크는 선명).
+        const srcCanvas = page.view.pdfCanvas;
+        ctx.drawImage(
+          srcCanvas,
+          job.sx * srcCanvas.width,
+          job.sy * srcCanvas.height,
+          Math.max(1, job.sw * srcCanvas.width),
+          Math.max(1, job.sh * srcCanvas.height),
+          job.dx,
+          job.dy,
+          job.dw,
+          job.dh,
+        );
       }
     }
     if (gen !== sharpOverlayGen) {
