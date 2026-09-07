@@ -5469,15 +5469,16 @@ function moveSelect(event) {
   syncSelectHud();
 }
 
-// #318: 이동 중 경계를 넘은 항목을 이웃 페이지 liveCanvas에 미리 보여준다 —
-// 넘기다 「사라지는」 문제를 없앤다. 놓거나 되돌아오면 지운다.
-let crossGhostView = null;
+// #318→#320: 이동 중 경계에 걸친 항목을 이웃 페이지 liveCanvas에 미리 보여준다 —
+// 넘기다 「사라지는」 문제를 없앤다. 포인터가 아니라 **선택 바운드와 스테이지의
+// 겹침**으로 판정하므로, 삐져나온 부분이 걸치는 즉시 상대편에도 그려진다.
+let crossGhostViews = new Set();
 
 function clearCrossPageGhost() {
-  if (crossGhostView) {
-    clearLiveLayer(crossGhostView);
-    crossGhostView = null;
+  for (const view of crossGhostViews) {
+    clearLiveLayer(view);
   }
+  crossGhostViews = new Set();
 }
 
 function stageViewAtClient(x, y, exceptPage) {
@@ -5490,27 +5491,45 @@ function stageViewAtClient(x, y, exceptPage) {
 }
 
 function paintCrossPageGhost(drag, event, srcView) {
-  const target = stageViewAtClient(event.clientX, event.clientY, drag.page);
-  if (crossGhostView && crossGhostView !== target) {
+  if (!srcView) {
     clearCrossPageGhost();
-  }
-  if (!target || !srcView) {
     return;
   }
+  const srcRect = srcView.stage.getBoundingClientRect();
   const moved = pageStrokes(drag.page).filter((_, index) => drag.indices.includes(index));
-  const ghosts = remapItemsBetweenRects(
-    moved,
-    srcView.stage.getBoundingClientRect(),
-    target.stage.getBoundingClientRect(),
-    () => null,
-  );
-  crossGhostView = target;
-  const canvas = target.liveCanvas;
-  const ctx = liveCanvas2d(canvas);
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  for (const item of ghosts) {
-    paintItem(ctx, item, strokeScale(target), canvas);
+  const cssW = srcView.cssWidth || 400;
+  const cssH = srcView.cssHeight || 600;
+  const bounds = selectedBounds(pageStrokes(drag.page), drag.indices, cssW, cssH);
+  const next = new Set();
+  if (moved.length && bounds) {
+    const left = srcRect.left + bounds.x * srcRect.width;
+    const top = srcRect.top + bounds.y * srcRect.height;
+    const right = left + bounds.w * srcRect.width;
+    const bottom = top + bounds.h * srcRect.height;
+    for (const target of state.pageViews) {
+      if (target.pageNum === drag.page || !target.liveCanvas) {
+        continue;
+      }
+      const dstRect = target.stage.getBoundingClientRect();
+      if (right <= dstRect.left || left >= dstRect.right || bottom <= dstRect.top || top >= dstRect.bottom) {
+        continue;
+      }
+      const ghosts = remapItemsBetweenRects(moved, srcRect, dstRect, () => null);
+      const canvas = target.liveCanvas;
+      const ctx = liveCanvas2d(canvas);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      for (const item of ghosts) {
+        paintItem(ctx, item, strokeScale(target), canvas);
+      }
+      next.add(target);
+    }
   }
+  for (const old of crossGhostViews) {
+    if (!next.has(old)) {
+      clearLiveLayer(old);
+    }
+  }
+  crossGhostViews = next;
 }
 
 function endSelect(event) {

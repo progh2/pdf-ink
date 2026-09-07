@@ -370,3 +370,15 @@ describe("#318 페이지 사이 리매핑", () => {
     assert.equal(out.h, 64);
   });
 });
+
+describe("#320 걸친 항목 상대편 미리보기 배선", () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const main = readFileSync(join(here, "main.js"), "utf8");
+
+  it("ghosts by bounds overlap, not by pointer position", () => {
+    const ghost = main.slice(main.indexOf("function paintCrossPageGhost"), main.indexOf("function endSelect"));
+    assert.match(ghost, /selectedBounds\(pageStrokes\(drag\.page\), drag\.indices/);
+    assert.match(ghost, /for \(const target of state\.pageViews\)/);
+    assert.doesNotMatch(ghost, /stageViewAtClient\(event\.clientX/, "포인터가 아니라 겹침으로 판정");
+  });
+});
