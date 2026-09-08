@@ -324,3 +324,14 @@ export function loadLinkHints() {
 export function saveLinkHints(on) {
   writeRaw(LINK_HINTS_KEY, on ? "1" : "0");
 }
+
+/** #395: 스티커를 어느 클라우드에 둘지 — 사용자가 고른다. */
+const STICKER_CLOUD_KEY = "pdf-ink:sticker-cloud";
+
+export function loadStickerCloud() {
+  return readRaw(STICKER_CLOUD_KEY) || "none";
+}
+
+export function saveStickerCloud(where) {
+  writeRaw(STICKER_CLOUD_KEY, String(where || "none"));
+}

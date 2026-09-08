@@ -488,3 +488,27 @@ export async function loadInkImages(identity) {
   db.close();
   return map;
 }
+
+/** #395: 스티커 무덤과 마지막 동기 시각. 가벼워서 localStorage로 족하다. */
+const STICKER_SYNC_KEY = "pdf-ink:sticker-sync";
+
+export function loadStickerSync() {
+  try {
+    const raw = localStorage.getItem(STICKER_SYNC_KEY);
+    const data = raw ? JSON.parse(raw) : null;
+    return {
+      gone: data?.gone && typeof data.gone === "object" ? data.gone : {},
+      savedAt: Math.round(Number(data?.savedAt) || 0),
+    };
+  } catch {
+    return { gone: {}, savedAt: 0 };
+  }
+}
+
+export function saveStickerSync({ gone = {}, savedAt = 0 } = {}) {
+  try {
+    localStorage.setItem(STICKER_SYNC_KEY, JSON.stringify({ gone, savedAt }));
+  } catch {
+    // 못 적어도 다음 동기에서 합쳐진다.
+  }
+}

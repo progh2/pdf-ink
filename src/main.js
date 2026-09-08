@@ -15,6 +15,8 @@ import {
   loadLinkFixes,
   loadPenOnly,
   loadStickerFolders,
+  loadStickerSync,
+  saveStickerSync,
   listThumbKeys,
   loadThumb,
   loadThumbEntries,
@@ -42,6 +44,7 @@ import {
   loadPreviewWidth,
   loadRecentColors,
   loadToolbarFloat,
+  loadStickerCloud,
   loadToolbarPosition,
   loadViewMode,
   loadZoomLock,
@@ -54,6 +57,7 @@ import {
   savePreviewWidth,
   saveRecentColors,
   saveToolbarFloat,
+  saveStickerCloud,
   saveToolbarPosition,
   saveViewMode,
   saveZoomLock,
@@ -206,6 +210,15 @@ import {
   placeShapeChipMenu,
 } from "./shapeHold.js";
 import { MOSAIC_CELL_CSS, mosaicBoxesPx, mosaicItem } from "./mosaic.js";
+import {
+  STICKER_PACK_MAX_BYTES,
+  STICKER_PACK_NAME,
+  mergeStickerPacks,
+  normalizeStickerCloud,
+  parseStickerPack,
+  serializeStickerPack,
+  stickerRemovals,
+} from "./stickerSync.js";
 import { clampSpeed, decay, isMoving, velocityFromSamples } from "./momentum.js";
 import { recentCardEntries } from "./recent.js";
 import {
@@ -604,6 +617,7 @@ const els = {
   shapeChips: document.querySelector("#shape-chips"),
   settingsBtn: document.querySelector("#settings-btn"),
   settingsSheet: document.querySelector("#settings-sheet"),
+  stickerCloudChoices: document.querySelector("#sticker-cloud-choices"),
   settingsBackdrop: document.querySelector("#settings-backdrop"),
   settingsDone: document.querySelector("#settings-done"),
   buildTag: document.querySelector("#build-tag"),
@@ -3535,6 +3549,7 @@ function closeSettings() {
 
 function openSettings() {
   syncOverlayNote(); // #384
+  syncStickerCloudChoices();
   closeAllPanels();
   closePreview();
   applyChrome();
@@ -9803,25 +9818,213 @@ function stickerCtx(canvas) {
 }
 
 async function loadStickerLibrary() {
+  const sync = loadStickerSync(); // #395
+  state.stickerGone = sync.gone;
+  state.stickerSyncAt = sync.savedAt;
+  state.stickerCloud = normalizeStickerCloud(loadStickerCloud());
   try {
     const [folders, stickers] = await Promise.all([loadStickerFolders(), loadStickers()]);
     state.stickerFolders = normalizeFolders(folders);
     state.stickers = normalizeStickers(stickers, state.stickerFolders);
+    knownStickerIds = liveStickerIds();
   } catch {
     state.stickerFolders = normalizeFolders([]);
     state.stickers = [];
   }
 }
 
+// #395: 알던 스티커 id — 저장 한 곳에서 삭제를 알아채 무덤에 적는다.
+let knownStickerIds = new Set();
+let stickerSyncTimer = 0;
+let stickerSyncing = false;
+
+function liveStickerIds() {
+  return new Set([
+    ...(state.stickers || []).map((sticker) => sticker.id),
+    ...(state.stickerFolders || []).map((folder) => folder.id),
+  ]);
+}
+
 async function persistStickers() {
+  const live = liveStickerIds();
+  state.stickerGone = stickerRemovals(knownStickerIds, live, state.stickerGone);
+  knownStickerIds = live;
+  saveStickerSync({ gone: state.stickerGone, savedAt: state.stickerSyncAt || 0 });
   try {
     await Promise.all([saveStickerFolders(state.stickerFolders), saveStickers(state.stickers)]);
   } catch {
     flashBanner("스티커를 저장하지 못했습니다.");
   }
+  scheduleStickerSync();
+}
+
+function stickerCloudReady() {
+  const where = normalizeStickerCloud(state.stickerCloud);
+  if (where === "dropbox") {
+    return dropboxConnected() ? "dropbox" : "";
+  }
+  if (where === "drive") {
+    return state.driveToken ? "drive" : "";
+  }
+  return "";
+}
+
+function scheduleStickerSync() {
+  if (!stickerCloudReady()) {
+    return;
+  }
+  window.clearTimeout(stickerSyncTimer);
+  stickerSyncTimer = window.setTimeout(() => {
+    stickerSyncTimer = 0;
+    syncStickerPack(true).catch(() => null);
+  }, 2500);
+}
+
+/** 드롭박스: 루트의 묶음 파일. 없으면(409) 빈 것으로 친다. */
+async function readStickerPackText(where) {
+  if (where === "dropbox") {
+    const token = await dropboxToken();
+    const reply = await fetch(DOWNLOAD_URL, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Dropbox-API-Arg": asciiHeader(downloadArg(`/${STICKER_PACK_NAME}`)) },
+    });
+    return reply.ok ? reply.text() : "";
+  }
+  const id = await findStickerPackId();
+  if (!id) {
+    return "";
+  }
+  const reply = await driveFetch(driveDownloadUrl(id));
+  return reply.ok ? reply.text() : "";
+}
+
+async function findStickerPackId() {
+  if (state.stickerPackId) {
+    return state.stickerPackId;
+  }
+  const reply = await driveFetch(driveSearchUrl(sidecarQuery(STICKER_PACK_NAME, "")));
+  if (!reply.ok) {
+    return "";
+  }
+  state.stickerPackId = ((await reply.json()).files || [])[0]?.id || "";
+  return state.stickerPackId;
+}
+
+async function writeStickerPackText(where, text) {
+  if (text.length > STICKER_PACK_MAX_BYTES) {
+    flashBanner("스티커가 너무 많아 동기화하지 못했습니다.", 4000);
+    return;
+  }
+  if (where === "dropbox") {
+    const token = await dropboxToken();
+    const reply = await fetch(UPLOAD_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/octet-stream",
+        "Dropbox-API-Arg": asciiHeader(uploadArg(`/${STICKER_PACK_NAME}`, "")),
+      },
+      body: new Blob([text], { type: "application/json" }),
+    });
+    if (!reply.ok) {
+      throw new Error("sticker pack");
+    }
+    return;
+  }
+  let id = await findStickerPackId();
+  if (!id) {
+    // 우리가 만들어야 drive.file 권한으로 계속 쓸 수 있다.
+    const made = await driveFetch(`${FILES_URL}?fields=id`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(createFileBody(STICKER_PACK_NAME, "")),
+    });
+    if (!made.ok) {
+      throw new Error(String(made.status));
+    }
+    id = (await made.json()).id;
+    state.stickerPackId = id;
+  }
+  const put = await driveFetch(driveMediaUrl(id), {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: text,
+  });
+  if (!put.ok) {
+    throw new Error(String(put.status));
+  }
+}
+
+/**
+ * #395: 당겨 합치고, 바뀐 게 있으면 올린다. 합치기는 필기와 같은 규칙(합집합 +
+ * 무덤)이라 두 기기가 각자 더해도 서로 지우지 않는다.
+ */
+async function syncStickerPack(push = false) {
+  const where = stickerCloudReady();
+  if (!where || stickerSyncing) {
+    return;
+  }
+  stickerSyncing = true;
+  try {
+    const text = await readStickerPackText(where);
+    const remote = text ? parseStickerPack(text, acceptImageSrc) : null;
+    const localPack = { stickers: state.stickers, folders: state.stickerFolders, gone: state.stickerGone };
+    const merged = remote ? mergeStickerPacks(localPack, remote) : { ...localPack, added: 0 };
+    if (merged.added > 0 || (remote && merged.folders.length !== state.stickerFolders.length)) {
+      state.stickerFolders = normalizeFolders(merged.folders);
+      state.stickers = normalizeStickers(merged.stickers, state.stickerFolders);
+      state.stickerGone = merged.gone;
+      knownStickerIds = liveStickerIds();
+      await Promise.all([saveStickerFolders(state.stickerFolders), saveStickers(state.stickers)]);
+      renderStickerSheet();
+      if (merged.added > 0) {
+        flashBanner(`다른 기기의 스티커 ${merged.added}개를 받았습니다`, 2400);
+      }
+    } else {
+      state.stickerGone = merged.gone || state.stickerGone;
+    }
+    if (push) {
+      state.stickerSyncAt = Date.now();
+      await writeStickerPackText(
+        where,
+        serializeStickerPack({
+          stickers: state.stickers,
+          folders: state.stickerFolders,
+          gone: state.stickerGone,
+          savedAt: state.stickerSyncAt,
+        }),
+      );
+      saveStickerSync({ gone: state.stickerGone, savedAt: state.stickerSyncAt });
+    }
+  } catch (error) {
+    console.warn("sticker sync", error);
+  } finally {
+    stickerSyncing = false;
+  }
+}
+
+function syncStickerCloudChoices() {
+  document.querySelectorAll("#sticker-cloud-choices [data-sticker-cloud]").forEach((btn) => {
+    btn.classList.toggle("is-selected", btn.dataset.stickerCloud === normalizeStickerCloud(state.stickerCloud));
+  });
+}
+
+function chooseStickerCloud(where) {
+  state.stickerCloud = normalizeStickerCloud(where);
+  saveStickerCloud(state.stickerCloud);
+  syncStickerCloudChoices();
+  if (state.stickerCloud === "none") {
+    return;
+  }
+  if (!stickerCloudReady()) {
+    flashBanner(state.stickerCloud === "dropbox" ? "드롭박스에 먼저 연결해 주세요." : "드라이브에 먼저 연결해 주세요.", 3000);
+    return;
+  }
+  syncStickerPack(true).catch(() => null);
 }
 
 async function openStickerSheet() {
+  syncStickerPack(false).catch(() => null); // #395: 열 때 남의 새 스티커를 당긴다.
   if (!els.stickerSheet) {
     return;
   }
@@ -12183,6 +12386,12 @@ syncRectTool();
 // #248: 새로고침한 화면이 새 버전인지 알 수 있게, 설정 시트에 빌드 표식을 찍는다.
 // typeof 가드는 이 파일을 텍스트로만 읽는 계약 테스트·정적 분석에서 정의되지
 // 않은 전역이라도 안전하게 지나가도록 하기 위함이다.
+els.stickerCloudChoices?.addEventListener("click", (event) => {
+  const btn = event.target.closest("[data-sticker-cloud]");
+  if (btn) {
+    chooseStickerCloud(btn.dataset.stickerCloud);
+  }
+});
 els.buildTag.textContent = typeof __BUILD_TAG__ === "string" ? __BUILD_TAG__ : "dev";
 
 // #384: 설정을 열 때 오버레이 진단을 빌드 표식 옆에 덧붙인다.
