@@ -208,12 +208,17 @@ describe("#79 시트 배선", () => {
     assert.match(css, /\.sticker-grid \{[\s\S]*gap: 8px/);
   });
 
-  it("stays in this browser: IndexedDB only, no upload", () => {
+  it("stays in this browser unless the reader opts into a cloud (#395)", () => {
     assert.match(main, /saveStickers\(state\.stickers\)/);
     assert.match(main, /loadStickerFolders\(\), loadStickers\(\)/);
     const sticker = main.slice(main.indexOf("/* ---- 스티커 (#79)"), main.indexOf("function selectMoreAction"));
-    assert.doesNotMatch(sticker, /fetch\(|XMLHttpRequest|navigator\.clipboard\.read/);
+    // #395: 기기 사이로 나르려면 어딘가에 둬야 한다 — 다만 **고른 사람만**.
+    assert.doesNotMatch(sticker, /XMLHttpRequest|navigator\.clipboard\.read/);
     assert.doesNotMatch(sticker, /image\/svg/);
+    assert.match(main, /function stickerCloudReady/);
+    assert.match(main, /return "";\s*\}\s*\n\nfunction scheduleStickerSync/, "고르지 않았으면 아무 데도 안 올린다");
+    assert.match(main, /loadStickerCloud\(\)/, "기본값은 저장된 선택(없으면 none)");
+    assert.match(main, /parseStickerPack\(text, acceptImageSrc\)/, "받은 그림도 data:image만(#372)");
   });
 
   it("cuts one sticker per region and can take the whole picture", () => {
