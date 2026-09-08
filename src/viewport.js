@@ -91,12 +91,26 @@ export function renderZoomFactor(userScale, pixelWidth, pixelHeight, maxPixels =
  * 겹치는 부분만 골라, 오버레이 기기픽셀 좌표(d*)와 페이지 정규 소스(s*)를 낸다.
  * 오버레이 픽셀이 예산을 넘으면 배율을 균일하게 낮춘다 — 메모리는 화면 한 장.
  */
-export function sharpOverlayJobs({ workRect, pages, dpr = 1, maxPixels = 9_000_000 } = {}) {
+/**
+ * #386: 그렸다고 칠해진 것은 아니다. 오버레이 표본의 밝기 폭이 평평한데 원본
+ * 페이지 캔버스의 같은 자리엔 내용이 있으면, 모바일 GPU가 조용히 건너뛴 것이다.
+ */
+export function sliceNeedsFallback(overlaySpread, sourceSpread, threshold = 8) {
+  return Number(overlaySpread) <= threshold && Number(sourceSpread) > threshold;
+}
+
+export function sharpOverlayJobs({ workRect, pages, dpr = 1, maxPixels = 9_000_000, maxPagePx = 16_000 } = {}) {
   const w = Math.max(1, Number(workRect?.width) || 1);
   const h = Math.max(1, Number(workRect?.height) || 1);
   let scale = Math.max(0.1, Number(dpr) || 1);
   if (w * h * scale * scale > maxPixels) {
     scale = Math.sqrt(maxPixels / (w * h));
+  }
+  // #386: 확대가 깊어지면 페이지의 기기픽셀 폭이 폭주해 모바일 래스터가 조용히
+  // 빈 화면을 남긴다 — 검증된 범위로 묶는다(그래도 기본 렌더보다 훨씬 선명).
+  const widest = Math.max(0, ...(pages || []).map((item) => Number(item?.rect?.width) || 0));
+  if (widest > 0 && widest * scale > maxPagePx) {
+    scale = Math.min(scale, maxPagePx / widest);
   }
   const jobs = [];
   for (const page of pages || []) {
