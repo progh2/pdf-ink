@@ -929,6 +929,9 @@ let strokeSaveTimer = 0;
  * 필기를 stringify해서, 필기가 쌓일수록 입력이 밀렸다. 이제 더럽다고 표시만
  * 하고 한가할 때 쓴다. 떠날 때(pagehide·숨김·다른 문서)는 그 자리에서 쓴다.
  */
+// #390: 이미지 저장 실패는 문서당 한 번만 알린다(성공하면 다시 열린다).
+let inkImageWarned = false;
+
 function writeStrokesNow() {
   if (!strokesDirty || !state.identity) {
     return;
@@ -942,11 +945,20 @@ function writeStrokesNow() {
   } catch {
     showBanner("필기를 저장하지 못했습니다. 브라우저 저장 공간이 부족할 수 있습니다.");
   }
-  saveInkImages(state.identity, images, liveImageIds(state.pages)).catch(() => {
-    // #372: 이미지 원본 저장 실패를 조용히 삼키면 재시작 때 그림이 사라진다.
-    strokesDirty = true;
-    showBanner("이미지를 저장하지 못했습니다. 다음 저장에서 다시 시도합니다.");
-  });
+  saveInkImages(state.identity, images, liveImageIds(state.pages))
+    .then(() => {
+      inkImageWarned = false;
+    })
+    .catch((error) => {
+      // #372: 이미지 원본 저장 실패를 조용히 삼키면 재시작 때 그림이 사라진다.
+      // #390: 다만 showBanner는 안 사라진다 — 자동 소멸 배너로, 문서당 한 번만.
+      strokesDirty = true;
+      console.warn("saveInkImages", error);
+      if (!inkImageWarned) {
+        inkImageWarned = true;
+        flashBanner("이미지를 저장하지 못했습니다. 저장 공간이 부족할 수 있습니다.", 4000);
+      }
+    });
 }
 
 function scheduleStrokeSave() {
@@ -2678,6 +2690,7 @@ async function openPdfBuffer(buffer, { identity, name, page = 1, handle = null }
   const gen = ++openGen;
   // #208: 아직 안 쓴 필기는 지금 문서 것이다 — 정체가 바뀌기 전에 쓴다.
   writeStrokesNow();
+  inkImageWarned = false; // #390
   // #356: 옛 문서를 향해 걸려 있던 자동저장은 여기서 끊는다.
   window.clearTimeout(autosaveTimer);
   autosaveTimer = 0;
