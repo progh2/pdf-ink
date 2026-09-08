@@ -23,13 +23,14 @@ export const GRIP_DOT = "#D4CFC4";
 export const DOCK_BAND_PX = 72;
 
 /** #119: 미리보기는 헤더 아이콘으로 갔다. 바는 다시 9칸. */
+/** #399: 아홉 칸은 그대로. 도장은 ⋯로 가고 그 자리를 손바닥이 받았다. */
 export const BAR_TOOLS = [
   "pen",
   "highlighter",
   "pencil",
   "eraser",
+  "pan",
   "select",
-  "stamp",
   "undo",
   "redo",
   "more",

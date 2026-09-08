@@ -598,7 +598,7 @@ describe("#327 PC 확대/축소", () => {
 describe("#366 첫 편집 진입은 선택 도구", () => {
   it("wires select-on-first-edit, and area entry claims the first slot", () => {
     assert.match(main, /state\.editEntered = false/);
-    assert.match(main, /!state\.editEntered\)[\s\S]{0,160}selectSelectTool\(\)/);
+    assert.match(main, /!state\.editEntered\)[\s\S]{0,160}selectPanTool\(\)/); // #399
     assert.match(main, /state\.editEntered = true; \/\/ #366: 영역 도구/);
   });
 });

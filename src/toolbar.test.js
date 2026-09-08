@@ -52,8 +52,8 @@ describe("#56 GoodNotes 4 utility bar", () => {
       "highlighter",
       "pencil",
       "eraser",
+      "pan",
       "select",
-      "stamp",
       "undo",
       "redo",
       "more",
@@ -86,8 +86,10 @@ describe("#56 GoodNotes 4 utility bar", () => {
     assert.ok(toolbar.indexOf('data-tool="highlighter"') < toolbar.indexOf('data-tool="pencil"'));
     assert.ok(toolbar.indexOf('data-tool="pencil"') < toolbar.indexOf('id="eraser-btn"'));
     assert.ok(toolbar.indexOf('id="eraser-btn"') < toolbar.indexOf('id="select-btn"'));
-    assert.ok(toolbar.indexOf('id="select-btn"') < toolbar.indexOf('id="stamp-btn"'));
-    assert.ok(toolbar.indexOf('id="stamp-btn"') < toolbar.indexOf('id="undo-btn"'));
+    // #399: 도장은 ⋯로 가고 그 자리에 손바닥(pan)이 왔다.
+    assert.ok(toolbar.indexOf('id="pan-btn"') < toolbar.indexOf('id="select-btn"'));
+    assert.ok(toolbar.indexOf('id="select-btn"') < toolbar.indexOf('id="undo-btn"'));
+    assert.doesNotMatch(toolbar, /id="stamp-btn"/);
     assert.ok(toolbar.indexOf('id="undo-btn"') < toolbar.indexOf('id="redo-btn"'));
     assert.ok(toolbar.indexOf('id="redo-btn"') < toolbar.indexOf('id="more-btn"'));
     assert.match(toolbar, /id="toolbar-grip"/);

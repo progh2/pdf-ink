@@ -128,7 +128,7 @@ describe("toolbar", () => {
     assert.match(toolbar, /id="eraser-btn"/);
     assert.match(toolbar, /id="pen-btn"/);
     assert.match(toolbar, /id="select-btn"/);
-    assert.match(toolbar, /id="stamp-btn"/);
+    assert.match(html, /data-more="stamp"/); // #399: 도장은 ⋯ 메뉴로
     assert.match(toolbar, /id="redo-btn"/);
     assert.doesNotMatch(toolbar, /id="prev-btn"|id="next-btn"/);
     assert.match(html, /id="prev-btn"/);

@@ -189,7 +189,7 @@ describe("#79 시트 배선", () => {
     assert.equal((html.match(/class="toolbar"/g) || []).length, 1);
     assert.doesNotMatch(html, /data-tool="sticker"/);
     // The stamp stays the red ellipse it was (#50).
-    assert.match(html, /data-tool="stamp"/);
+    assert.match(html, /data-more="stamp"/); // #399: 도장은 아홉 칸을 손바닥에 내줬다
   });
 
   it("keeps the design numbers from the note", () => {
