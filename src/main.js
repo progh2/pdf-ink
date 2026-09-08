@@ -1913,9 +1913,24 @@ let zoomRenderTimer = 0;
 let sharpOverlayEl = null;
 let sharpOverlayTimer = 0;
 let sharpOverlayGen = 0;
+let sharpOverlayTask = null;
+
+// #382: #258과 같은 함정 — 세대 토큰은 결과만 버릴 뿐 진행 중 렌더를 멈추지
+// 않는다. 취소 없이 다음 오버레이를 시작하면 「같은 캔버스 중복 렌더」로 던진다.
+function cancelSharpOverlayTask() {
+  if (sharpOverlayTask) {
+    try {
+      sharpOverlayTask.cancel();
+    } catch {
+      // 이미 끝났을 수 있다.
+    }
+    sharpOverlayTask = null;
+  }
+}
 
 function hideSharpOverlay() {
   sharpOverlayGen += 1;
+  cancelSharpOverlayTask();
   window.clearTimeout(sharpOverlayTimer);
   sharpOverlayTimer = 0;
   if (sharpOverlayEl) {
@@ -1948,6 +1963,7 @@ async function renderSharpOverlay() {
     return;
   }
   const gen = ++sharpOverlayGen;
+  cancelSharpOverlayTask(); // #382
   const workRect = els.workspace.getBoundingClientRect();
   const pages = [];
   for (const view of state.pageViews) {
@@ -2001,13 +2017,23 @@ async function renderSharpOverlay() {
         const base = pdfPage.getViewport({ scale: 1, rotation });
         // #380: offsetX/offsetY 대신 공식 뷰어처럼 transform 행렬로 옮긴다.
         const viewport = pdfPage.getViewport({ scale: job.pagePxW / base.width, rotation });
-        await pdfPage.render({
+        const task = pdfPage.render({
           canvasContext: ctx,
           viewport,
           transform: [1, 0, 0, 1, offX, offY],
-        }).promise;
+        });
+        sharpOverlayTask = task;
+        await task.promise;
+        if (sharpOverlayTask === task) {
+          sharpOverlayTask = null;
+        }
         painted = true;
       } catch (error) {
+        if (error?.name === "RenderingCancelledException") {
+          // #382: 취소는 우리가 시킨 것 — 낡은 오버레이는 그냥 접는다.
+          ctx.restore();
+          return;
+        }
         // #380: 원인은 콘솔에 남긴다 — 배경은 아래 폴백이 책임진다.
         console.warn("sharp overlay pdf render", error);
       }
