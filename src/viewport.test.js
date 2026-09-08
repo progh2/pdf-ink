@@ -186,3 +186,14 @@ describe("#380 오버레이 배경 폴백", () => {
     assert.match(fn, /if \(!painted && page\.view\?\.pdfCanvas\?\.width\)/, "실패 시 기존 캔버스 확대 복사");
   });
 });
+
+describe("#382 오버레이 렌더 취소", () => {
+  it("cancels the in-flight overlay render before hiding or starting anew (#258류)", () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const src = readFileSync(join(here, "main.js"), "utf8");
+    assert.match(src, /function cancelSharpOverlayTask/);
+    assert.match(src, /sharpOverlayGen \+= 1;\s*cancelSharpOverlayTask\(\)/, "숨길 때 취소");
+    assert.match(src, /\+\+sharpOverlayGen;\s*cancelSharpOverlayTask\(\)/, "새로 그리기 전에도 취소");
+    assert.match(src, /RenderingCancelledException/, "취소는 조용히 접는다");
+  });
+});
