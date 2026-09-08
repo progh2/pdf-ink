@@ -1552,7 +1552,18 @@ function renderPdfToCanvas(pdfPage, ctx, options) {
   const prev = canvasRenderQueue.get(canvas) || Promise.resolve();
   const next = prev
     .catch(() => {})
-    .then(() => pdfPage.render({ canvasContext: ctx, ...options }).promise);
+    .then(async () => {
+      try {
+        await pdfPage.render({ canvasContext: ctx, ...options }).promise;
+      } catch (error) {
+        // #397: 드물게 남의 렌더가 아직 캔버스를 쥐고 있다 — 한 박자 쉬고 한 번 더.
+        if (!String(error?.message || "").includes("same canvas")) {
+          throw error;
+        }
+        await new Promise((done) => window.setTimeout(done, 120));
+        await pdfPage.render({ canvasContext: ctx, ...options }).promise;
+      }
+    });
   canvasRenderQueue.set(canvas, next);
   return next;
 }
@@ -1813,7 +1824,15 @@ async function renderVisiblePages() {
       drawStrokesOn(view, state.drawing && state.drawPage === view.pageNum ? state.currentStroke : null);
       continue;
     }
-    jobs.push(renderPageView(view).then(() => cachePageView(view)));
+    jobs.push(
+      renderPageView(view)
+        .then(() => cachePageView(view))
+        // #397: 한 쪽이 못 그려도 앱 오류로 튀지 않는다 — 그 쪽만 다음 차례에 다시.
+        .catch((error) => {
+          console.warn("renderPageView", error);
+          view.rendered = false;
+        }),
+    );
   }
   await Promise.all(jobs);
   refreshPdfLinkHints();

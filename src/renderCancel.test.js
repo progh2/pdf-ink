@@ -17,7 +17,12 @@ describe("#392 캔버스별 렌더 직렬화 (#258 후속)", () => {
   });
 
   it("sends every pdf render through the one door", () => {
-    assert.equal((main.match(/\.render\(\{ canvasContext/g) || []).length, 1, "직접 호출은 문 안의 한 번뿐");
+    // #397: 문 안에서 재시도를 하므로 두 번 — 다만 둘 다 문 안이어야 한다.
+    const all = (main.match(/\.render\(\{ canvasContext/g) || []).length;
+    const inDoor = (fn.match(/\.render\(\{ canvasContext/g) || []).length;
+    assert.equal(all, 2, "직접 호출은 문 안의 둘뿐");
+    assert.equal(inDoor, 2, "둘 다 문 안에 있다");
+    assert.match(fn, /includes\("same canvas"\)/, "그 오류만 한 번 더 시도한다");
     assert.ok((main.match(/renderPdfToCanvas\(/g) || []).length >= 8, "8곳 모두 통과");
   });
 
