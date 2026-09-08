@@ -15,6 +15,7 @@ import {
   renderZoomFactor,
   scaleFromPinch,
   sharpOverlayJobs,
+  sliceNeedsFallback,
   slotLineWidth,
 } from "./viewport.js";
 
@@ -206,5 +207,34 @@ describe("#384 오버레이 정직 표시", () => {
     assert.match(src, /sharpOverlayNote = String\(error\?\.message/);
     assert.match(src, /overlay: /, "설정 빌드표식 옆 진단");
     assert.match(src, /hideSharpOverlay\(\); \/\/ #384/, "zoomTo도 먼저 걷는다");
+  });
+});
+
+describe("#386 오버레이 백지 검증", () => {
+  it("calls a flat slice a failure only when the source really has content", () => {
+    assert.equal(sliceNeedsFallback(2, 90), true, "오버레이는 평평, 원본엔 내용");
+    assert.equal(sliceNeedsFallback(2, 3), false, "원본도 빈 여백이면 정상");
+    assert.equal(sliceNeedsFallback(70, 90), false, "칠해졌으면 그대로");
+    assert.equal(sliceNeedsFallback(255, 90), false, "판단 보류(255)는 폴백 아님");
+  });
+
+  it("caps the page device width so an extreme zoom stays in tested range", () => {
+    const plan = sharpOverlayJobs({
+      workRect: { left: 0, top: 0, width: 400, height: 800 },
+      pages: [{ pageNum: 1, rect: { left: 0, top: 0, width: 11200, height: 6500 } }],
+      dpr: 3,
+      maxPagePx: 16000,
+    });
+    assert.ok(plan.scale < 3, "dpr 그대로 쓰지 않는다");
+    assert.ok(plan.jobs[0].pagePxW <= 16000 + 1, `pagePxW=${plan.jobs[0].pagePxW}`);
+    assert.ok(plan.scale > 1, "그래도 CSS 해상도보다는 촘촘하다");
+  });
+
+  it("wires the pixel check into the overlay", () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const src = readFileSync(join(here, "main.js"), "utf8");
+    assert.match(src, /function sampleSpread/);
+    assert.match(src, /sliceNeedsFallback\(overlaySpread, sourceSpread\)/);
+    assert.match(src, /sharpOverlayNote = `blank /);
   });
 });

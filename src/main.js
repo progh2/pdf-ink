@@ -80,6 +80,7 @@ import {
   pointerMidpoint,
   scaleFromPinch,
   sharpOverlayJobs,
+  sliceNeedsFallback,
 } from "./viewport.js";
 import { HIGHLIGHTER_NIB_SCALE, STROKE_WIDTH_REF_CSS, applyEraserToInk, isPixelErase, isStrokeErase, paintGhost, paintItem, paintPen, paintStamp, removeHitItems, removeHitStamps, stampInkItem, stampTilt } from "./ink.js";
 import { followStampGhost, stampGhostItem, stampPlaceFromGhost } from "./stampGhost.js";
@@ -1948,6 +1949,35 @@ function scheduleSharpOverlay(delay = 350) {
   }, delay);
 }
 
+/** #386: 다섯 자리에서 8×8을 떠 밝기 폭(min~max)을 잰다 — 백지 판별용. */
+function sampleSpread(ctx, x, y, w, h) {
+  const spots = [
+    [0.25, 0.25],
+    [0.5, 0.5],
+    [0.75, 0.75],
+    [0.25, 0.75],
+    [0.75, 0.25],
+  ];
+  let min = 255;
+  let max = 0;
+  for (const [rx, ry] of spots) {
+    const px = Math.max(0, Math.min(Math.round(x + rx * w) - 4, Math.round(x + w) - 8));
+    const py = Math.max(0, Math.min(Math.round(y + ry * h) - 4, Math.round(y + h) - 8));
+    let data;
+    try {
+      data = ctx.getImageData(px, py, 8, 8).data;
+    } catch {
+      return 255; // 못 읽으면 판단을 보류한다(폴백을 부르지 않는다).
+    }
+    for (let i = 0; i < data.length; i += 4) {
+      const value = (data[i] + data[i + 1] + data[i + 2]) / 3;
+      min = Math.min(min, value);
+      max = Math.max(max, value);
+    }
+  }
+  return max - min;
+}
+
 function sharpOverlayCanvas() {
   if (!sharpOverlayEl) {
     sharpOverlayEl = document.createElement("canvas");
@@ -2044,6 +2074,22 @@ async function renderSharpOverlay() {
       if (gen !== sharpOverlayGen) {
         ctx.restore();
         return;
+      }
+      if (painted && page.view?.pdfCanvas?.width) {
+        // #386: 성공을 믿지 않고 픽셀로 확인한다 — 조용한 실패를 잡는다.
+        const src = page.view.pdfCanvas;
+        const overlaySpread = sampleSpread(ctx, job.dx, job.dy, job.dw, job.dh);
+        const sourceSpread = sampleSpread(
+          canvas2d(src),
+          job.sx * src.width,
+          job.sy * src.height,
+          job.sw * src.width,
+          job.sh * src.height,
+        );
+        if (sliceNeedsFallback(overlaySpread, sourceSpread)) {
+          painted = false;
+          sharpOverlayNote = `blank ${Math.round(overlaySpread)}/${Math.round(sourceSpread)}`;
+        }
       }
       if (!painted && page.view?.pdfCanvas?.width) {
         fellBack = true;
