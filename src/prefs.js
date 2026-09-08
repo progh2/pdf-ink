@@ -335,3 +335,14 @@ export function loadStickerCloud() {
 export function saveStickerCloud(where) {
   writeRaw(STICKER_CLOUD_KEY, String(where || "none"));
 }
+
+/** #401: 도장을 기본 스티커로 심었는지 — 지운 것이 되살아나지 않게 한 번만. */
+const STAMP_STICKERS_KEY = "pdf-ink:sticker-stamps";
+
+export function stampStickersSeeded() {
+  return readRaw(STAMP_STICKERS_KEY) === "1";
+}
+
+export function markStampStickersSeeded() {
+  writeRaw(STAMP_STICKERS_KEY, "1");
+}

@@ -110,7 +110,7 @@ describe("#69 stamp ghost 40% 108×64", () => {
       "more",
     ]);
     assert.equal((html.match(/class="toolbar"/g) || []).length, 1);
-    assert.match(html, /data-more="stamp"/); // #399: 도장은 ⋯ 메뉴로
+    assert.doesNotMatch(html, /data-more="stamp"|id="stamp-btn"/); // #401: 도장은 기본 스티커가 됐다
     assert.doesNotMatch(toolbar, /stamp-ghost|ghost-btn|id="stamp-preview"|#68|rotateHandle|crop-handle/);
     assert.doesNotMatch(html, /id="m4-bar"|id="m4-rail"/);
   });
