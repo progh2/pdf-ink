@@ -189,7 +189,10 @@ describe("#79 시트 배선", () => {
     assert.equal((html.match(/class="toolbar"/g) || []).length, 1);
     assert.doesNotMatch(html, /data-tool="sticker"/);
     // The stamp stays the red ellipse it was (#50).
-    assert.match(html, /data-more="stamp"/); // #399: 도장은 아홉 칸을 손바닥에 내줬다
+    // #401: 도장은 스티커 안으로 — 툴바에도 ⋯에도 없고, 처음 한 번만 심는다.
+    assert.doesNotMatch(html, /data-more="stamp"|id="stamp-btn"/);
+    assert.match(main, /function seedStampStickers/);
+    assert.match(main, /if \(stampStickersSeeded\(\)\) \{\s*return;/, "지운 도장은 되살아나지 않는다");
   });
 
   it("keeps the design numbers from the note", () => {

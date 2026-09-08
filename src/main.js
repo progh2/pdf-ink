@@ -44,6 +44,7 @@ import {
   loadPreviewWidth,
   loadRecentColors,
   loadToolbarFloat,
+  stampStickersSeeded,
   loadStickerCloud,
   loadToolbarPosition,
   loadViewMode,
@@ -57,6 +58,7 @@ import {
   savePreviewWidth,
   saveRecentColors,
   saveToolbarFloat,
+  markStampStickersSeeded,
   saveStickerCloud,
   saveToolbarPosition,
   saveViewMode,
@@ -446,7 +448,9 @@ import {
   HIGHLIGHTER_PALETTE,
   PENCIL_COLOR,
   PEN_PALETTE,
+  STAMP_HEIGHT_CSS,
   STAMP_LABELS,
+  STAMP_WIDTH_CSS,
   addRecentColor,
   clampOpacity,
   defaultColorForKind,
@@ -9854,6 +9858,38 @@ function stickerCtx(canvas) {
   return canvas.getContext("2d", { willReadFrequently: true });
 }
 
+/**
+ * #401: 도장을 스티커로. 종이에 찍던 그 그림을 그대로 구워 「도장」 폴더에
+ * 심는다 — 스티커 동기화(#395)를 타고 다른 기기까지 따라온다. 한 번만 심고
+ * 표시를 남긴다: 지운 도장이 다음에 되살아나면 그게 더 성가시다.
+ */
+function bakeStampSticker(label) {
+  const scale = 3;
+  const canvas = offscreenCanvas(Math.round(STAMP_WIDTH_CSS * scale), Math.round(STAMP_HEIGHT_CSS * scale));
+  const ctx = canvas.getContext("2d");
+  paintStamp(ctx, { ...stampInkItem(label, 0.5, 0.5, 0), ghost: false }, scale, canvas);
+  return { src: canvas.toDataURL("image/png"), width: canvas.width, height: canvas.height };
+}
+
+function seedStampStickers() {
+  if (stampStickersSeeded()) {
+    return;
+  }
+  markStampStickersSeeded();
+  try {
+    state.stickerFolders = addFolder(state.stickerFolders, "도장");
+    const folderId = state.stickerFolders.at(-1).id;
+    const made = STAMP_LABELS.map((label) => {
+      const baked = bakeStampSticker(label);
+      return makeSticker({ ...baked, folderId, name: label });
+    });
+    state.stickers = [...made, ...state.stickers];
+    persistStickers();
+  } catch (error) {
+    console.warn("seedStampStickers", error);
+  }
+}
+
 async function loadStickerLibrary() {
   const sync = loadStickerSync(); // #395
   state.stickerGone = sync.gone;
@@ -9864,6 +9900,7 @@ async function loadStickerLibrary() {
     state.stickerFolders = normalizeFolders(folders);
     state.stickers = normalizeStickers(stickers, state.stickerFolders);
     knownStickerIds = liveStickerIds();
+    seedStampStickers(); // #401
   } catch {
     state.stickerFolders = normalizeFolders([]);
     state.stickers = [];
@@ -10712,13 +10749,6 @@ function selectMoreAction(action) {
     closeMorePanel();
     ignoreAfterPanel = true;
     openStickerSheet();
-    return;
-  }
-  if (action === "stamp") {
-    // #399: 도장은 ⋯로 옮겼다 — 고르는 김에 어떤 도장인지도 바로 정한다.
-    closeMorePanel();
-    ignoreAfterPanel = true;
-    openInkEditor("stamp", els.moreBtn);
     return;
   }
   if (action === "save") {
