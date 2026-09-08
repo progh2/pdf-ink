@@ -1914,26 +1914,13 @@ let zoomRenderTimer = 0;
 let sharpOverlayEl = null;
 let sharpOverlayTimer = 0;
 let sharpOverlayGen = 0;
-let sharpOverlayTask = null;
 // #384: 마지막 실패 원인 — 설정 시트에서 보여 폰에서도 진단할 수 있다.
 let sharpOverlayNote = "";
-
-// #382: #258과 같은 함정 — 세대 토큰은 결과만 버릴 뿐 진행 중 렌더를 멈추지
-// 않는다. 취소 없이 다음 오버레이를 시작하면 「같은 캔버스 중복 렌더」로 던진다.
-function cancelSharpOverlayTask() {
-  if (sharpOverlayTask) {
-    try {
-      sharpOverlayTask.cancel();
-    } catch {
-      // 이미 끝났을 수 있다.
-    }
-    sharpOverlayTask = null;
-  }
-}
+// #388: 한 번에 하나만 그린다. 취소를 안 쓰므로 겹치면 메모리만 먹는다.
+let sharpOverlayBusy = false;
 
 function hideSharpOverlay() {
   sharpOverlayGen += 1;
-  cancelSharpOverlayTask();
   window.clearTimeout(sharpOverlayTimer);
   sharpOverlayTimer = 0;
   if (sharpOverlayEl) {
@@ -1994,8 +1981,25 @@ async function renderSharpOverlay() {
   if (!state.pdf || state.drawing || els.writeScreen.hidden || state.userScale <= state.renderFactor + 0.01) {
     return;
   }
-  const gen = ++sharpOverlayGen;
-  cancelSharpOverlayTask(); // #382
+  if (sharpOverlayBusy) {
+    return;
+  }
+  sharpOverlayBusy = true;
+  try {
+    await paintSharpOverlay(++sharpOverlayGen);
+  } finally {
+    sharpOverlayBusy = false;
+  }
+}
+
+/**
+ * #388: 매번 **새 오프스크린 캔버스**에 그린다 — 캔버스가 매번 다르니 「같은
+ * 캔버스 중복 렌더」(#258)가 원천적으로 없고, 그래서 진행 중 렌더를 취소할
+ * 필요도 없다. 취소가 문제였다: pdf.js는 같은 페이지의 동시 렌더가 오퍼레이터
+ * 목록을 공유해, 오버레이를 취소하면 배경 페이지 렌더까지 죽어 흰 종이가
+ * 남았다(필기 시작의 hide→cancel). 낡은 결과는 합성 직전에 버린다.
+ */
+async function paintSharpOverlay(gen) {
   const workRect = els.workspace.getBoundingClientRect();
   const pages = [];
   for (const view of state.pageViews) {
@@ -2012,14 +2016,11 @@ async function renderSharpOverlay() {
   if (!plan.jobs.length) {
     return;
   }
-  const canvas = sharpOverlayCanvas();
-  canvas.width = plan.width;
-  canvas.height = plan.height;
-  canvas.style.left = `${workRect.left}px`;
-  canvas.style.top = `${workRect.top}px`;
-  canvas.style.width = `${workRect.width}px`;
-  canvas.style.height = `${workRect.height}px`;
-  const ctx = canvas.getContext("2d");
+  // #388: 새 캔버스에 그린다 — 취소 없이도 서로 밟지 않는다.
+  const work = document.createElement("canvas");
+  work.width = plan.width;
+  work.height = plan.height;
+  const ctx = work.getContext("2d");
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "high";
   ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -2050,16 +2051,11 @@ async function renderSharpOverlay() {
         const base = pdfPage.getViewport({ scale: 1, rotation });
         // #380: offsetX/offsetY 대신 공식 뷰어처럼 transform 행렬로 옮긴다.
         const viewport = pdfPage.getViewport({ scale: job.pagePxW / base.width, rotation });
-        const task = pdfPage.render({
+        await pdfPage.render({
           canvasContext: ctx,
           viewport,
           transform: [1, 0, 0, 1, offX, offY],
-        });
-        sharpOverlayTask = task;
-        await task.promise;
-        if (sharpOverlayTask === task) {
-          sharpOverlayTask = null;
-        }
+        }).promise;
         painted = true;
       } catch (error) {
         if (error?.name === "RenderingCancelledException") {
@@ -2151,8 +2147,19 @@ async function renderSharpOverlay() {
     ctx.restore();
   }
   if (gen === sharpOverlayGen) {
+    const canvas = sharpOverlayCanvas();
+    canvas.width = plan.width;
+    canvas.height = plan.height;
+    canvas.style.left = `${workRect.left}px`;
+    canvas.style.top = `${workRect.top}px`;
+    canvas.style.width = `${workRect.width}px`;
+    canvas.style.height = `${workRect.height}px`;
+    canvas.getContext("2d").drawImage(work, 0, 0);
     canvas.hidden = false;
   }
+  // #308: 작업 캔버스 백킹은 바로 놓아준다.
+  work.width = 0;
+  work.height = 0;
 }
 
 function scheduleZoomRender() {

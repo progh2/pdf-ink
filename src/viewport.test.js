@@ -188,14 +188,15 @@ describe("#380 오버레이 배경 폴백", () => {
   });
 });
 
-describe("#382 오버레이 렌더 취소", () => {
-  it("cancels the in-flight overlay render before hiding or starting anew (#258류)", () => {
+describe("#388 취소 없는 오버레이", () => {
+  it("draws into a fresh canvas each time, so no cancel can kill the page render", () => {
     const here = dirname(fileURLToPath(import.meta.url));
     const src = readFileSync(join(here, "main.js"), "utf8");
-    assert.match(src, /function cancelSharpOverlayTask/);
-    assert.match(src, /sharpOverlayGen \+= 1;\s*cancelSharpOverlayTask\(\)/, "숨길 때 취소");
-    assert.match(src, /\+\+sharpOverlayGen;\s*cancelSharpOverlayTask\(\)/, "새로 그리기 전에도 취소");
-    assert.match(src, /RenderingCancelledException/, "취소는 조용히 접는다");
+    // #382에서 넣은 취소가 오히려 배경 렌더를 죽였다 — 취소를 없애는 게 새 사실.
+    assert.doesNotMatch(src, /cancelSharpOverlayTask/, "취소 장치는 없앴다");
+    assert.match(src, /const work = document\.createElement\("canvas"\)/, "매번 새 캔버스");
+    assert.match(src, /if \(sharpOverlayBusy\)/, "한 번에 하나만");
+    assert.match(src, /canvas\.getContext\("2d"\)\.drawImage\(work, 0, 0\)/, "세대 검사 후 합성");
   });
 });
 
