@@ -617,6 +617,7 @@ const els = {
   shapeChips: document.querySelector("#shape-chips"),
   settingsBtn: document.querySelector("#settings-btn"),
   settingsSheet: document.querySelector("#settings-sheet"),
+  panBtn: document.querySelector("#pan-btn"),
   stickerCloudChoices: document.querySelector("#sticker-cloud-choices"),
   settingsBackdrop: document.querySelector("#settings-backdrop"),
   settingsDone: document.querySelector("#settings-done"),
@@ -3497,6 +3498,8 @@ function syncToolSelection() {
   document.querySelectorAll("[data-tool]").forEach((btn) => {
     btn.classList.toggle("is-selected", btn.dataset.tool === state.tool);
   });
+  // #399: 도장은 ⋯ 안에 있다 — 쓰는 중임을 ⋯가 대신 알린다.
+  els.moreBtn?.classList.toggle("is-selected", state.tool === "stamp");
   syncInkTools();
   syncPenOnly();
   syncZoomLock();
@@ -4040,6 +4043,20 @@ function clearSelection() {
   hideSelectUi();
 }
 
+/** #399: 손바닥 — 편집 모드 안에서 종이를 끈다. 포토샵의 그 손이다. */
+function selectPanTool() {
+  state.tool = "pan";
+  state.rectTool = null;
+  state.cropping = null;
+  abortStroke();
+  hideMarquee();
+  closeAllPanels();
+  syncToolSelection();
+  syncRectTool();
+  syncSelectHud();
+  syncCursor();
+}
+
 function selectSelectTool() {
   state.tool = "select";
   state.rectTool = null;
@@ -4146,9 +4163,9 @@ function setInteractMode(mode) {
   state.interactMode = mode === "view" ? "view" : "edit";
   saveInteractMode(state.interactMode);
   if (state.interactMode === "edit" && !state.editEntered) {
-    // #366: 첫 편집 진입은 선택 도구로 — 실수로 긋기 전에 고르고 옮기는 일이 먼저다.
+    // #366→#399: 첫 편집 진입은 손바닥으로 — 실수로 긋기 전에 먼저 훑어본다.
     state.editEntered = true;
-    selectSelectTool();
+    selectPanTool();
   }
   hideLockMenu();
   viewNoticeAt = null;
@@ -5384,7 +5401,8 @@ function flashPdfLinkHint(pageNum, index) {
 
 /** Where a tap landed on this page, in page coordinates. */
 function pdfLinkSpotAtClient(client) {
-  if (state.interactMode !== "view" || !state.pdf) {
+  // #399: 손바닥도 링크를 연다 — 자물쇠를 풀었다고 링크가 죽으면 안 된다.
+  if ((state.interactMode !== "view" && state.tool !== "pan") || !state.pdf) {
     return null;
   }
   const stage = document.elementFromPoint(client.x, client.y)?.closest?.(".page-stage");
@@ -10696,6 +10714,13 @@ function selectMoreAction(action) {
     openStickerSheet();
     return;
   }
+  if (action === "stamp") {
+    // #399: 도장은 ⋯로 옮겼다 — 고르는 김에 어떤 도장인지도 바로 정한다.
+    closeMorePanel();
+    ignoreAfterPanel = true;
+    openInkEditor("stamp", els.moreBtn);
+    return;
+  }
   if (action === "save") {
     closeMorePanel();
     ignoreAfterPanel = true;
@@ -11056,7 +11081,23 @@ function onWorkspacePointerDown(event) {
  * S펜이 종이 위를 떠 있을 때 닿을 자리를 보여 준다 (#210). 펜만 —
  * 손가락 호버는 없고, 마우스는 이미 제 커서가 있다.
  */
+/** #399: 끄는 도구일 때, 링크 위면 화살표로 바꿔 「여기는 눌린다」를 알린다. */
+function updateLinkCursor(event) {
+  if (state.interactMode !== "view" && state.tool !== "pan") {
+    return;
+  }
+  const spot = pdfLinkSpotAtClient({ x: event.clientX, y: event.clientY });
+  const items = spot ? state.pdfLinks.get(pdfLinkCacheKey(spot.leaf.pdfPage, spot.leaf.rotate)) : null;
+  const hit = spot && items ? pdfLinkAt(spot.pageNum, spot.x, spot.y) : null;
+  if (hit) {
+    els.writeScreen.dataset.cursor = "link";
+  } else {
+    syncCursor();
+  }
+}
+
 function trackPenHover(event) {
+  updateLinkCursor(event);
   const dot = els.penHover;
   if (!dot) {
     return;
@@ -11424,6 +11465,36 @@ function bindToolbarGrip(grip) {
     event.stopPropagation();
   });
 }
+
+els.panBtn?.addEventListener("click", () => selectPanTool());
+
+// #399: PC에서 스페이스를 누르는 동안만 손바닥 — 떼면 쓰던 도구로 돌아온다.
+let toolBeforeSpace = "";
+document.addEventListener("keydown", (event) => {
+  if (event.code !== "Space" || event.repeat || els.writeScreen.hidden || isTextTarget(event.target)) {
+    return;
+  }
+  if (state.drawing || state.tool === "pan" || overlayOpen()) {
+    return;
+  }
+  event.preventDefault();
+  toolBeforeSpace = state.tool;
+  selectPanTool();
+});
+document.addEventListener("keyup", (event) => {
+  if (event.code !== "Space" || !toolBeforeSpace) {
+    return;
+  }
+  const back = toolBeforeSpace;
+  toolBeforeSpace = "";
+  if (back === "eraser") {
+    selectEraser();
+  } else if (back === "select") {
+    selectSelectTool();
+  } else {
+    selectInkTool(back);
+  }
+});
 
 for (const kind of ["pen", "highlighter", "pencil", "stamp"]) {
   const btn = document.querySelector(`[data-tool="${kind}"]`);

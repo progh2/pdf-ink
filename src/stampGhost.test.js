@@ -103,14 +103,14 @@ describe("#69 stamp ghost 40% 108×64", () => {
       "highlighter",
       "pencil",
       "eraser",
+      "pan",
       "select",
-      "stamp",
       "undo",
       "redo",
       "more",
     ]);
     assert.equal((html.match(/class="toolbar"/g) || []).length, 1);
-    assert.match(toolbar, /id="stamp-btn"/);
+    assert.match(html, /data-more="stamp"/); // #399: 도장은 ⋯ 메뉴로
     assert.doesNotMatch(toolbar, /stamp-ghost|ghost-btn|id="stamp-preview"|#68|rotateHandle|crop-handle/);
     assert.doesNotMatch(html, /id="m4-bar"|id="m4-rail"/);
   });

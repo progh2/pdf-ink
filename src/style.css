@@ -815,6 +815,11 @@ body {
   cursor: grab;
 }
 
+/* #399: 링크 위에서는 화살표로 — 눌리는 자리임을 손끝보다 먼저 알린다. */
+.write-screen[data-cursor="link"] .ink-canvas {
+  cursor: default;
+}
+
 /* 지우개는 커서를 지우고 실제 크기의 동그라미를 대신 그린다. */
 .pen-hover[data-shape="eraser"] {
   border-style: dashed;

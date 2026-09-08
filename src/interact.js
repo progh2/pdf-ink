@@ -166,6 +166,10 @@ export function shouldPanPointer({ interactMode, penOnly, pointerType, rectTool,
   if (normalizeInteractMode(interactMode) === "view") {
     return true;
   }
+  // #399: 손바닥은 편집 모드 안에서도 종이를 끈다 — 포토샵처럼.
+  if (tool === "pan") {
+    return true;
+  }
   if (rectTool) {
     return false;
   }
@@ -288,6 +292,9 @@ export function cursorForTool({ interactMode, tool, rectTool, eyedrop = false } 
   if (normalizeInteractMode(interactMode) === "view") {
     return "grab";
   }
+  if (tool === "pan") {
+    return "grab"; // #399
+  }
   if (rectTool) {
     return "crosshair";
   }
@@ -326,7 +333,7 @@ export function shouldShowHover({ pointerType, buttons = 0, interactMode, overla
     return false;
   }
   // 선택·스탬프는 원을 그릴 게 없다.
-  if (tool === "select" || tool === "stamp") {
+  if (tool === "select" || tool === "stamp" || tool === "pan") {
     return false;
   }
   return normalizeInteractMode(interactMode) !== "view";
