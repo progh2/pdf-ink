@@ -540,8 +540,9 @@ body {
   align-items: flex-start;
 }
 
-.write-screen.is-fullscreen .write-top,
-.write-screen.is-fullscreen .toolbar-rail {
+/* #397: 전체화면은 헤더만 감춘다. 도구 막대까지 숨기면 편집도 못 하고,
+   빠져나올 ⋯ 메뉴마저 사라져 갇힌다. */
+.write-screen.is-fullscreen .write-top {
   display: none;
 }
 
