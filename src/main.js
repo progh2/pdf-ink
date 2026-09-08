@@ -1914,6 +1914,8 @@ let sharpOverlayEl = null;
 let sharpOverlayTimer = 0;
 let sharpOverlayGen = 0;
 let sharpOverlayTask = null;
+// #384: 마지막 실패 원인 — 설정 시트에서 보여 폰에서도 진단할 수 있다.
+let sharpOverlayNote = "";
 
 // #382: #258과 같은 함정 — 세대 토큰은 결과만 버릴 뿐 진행 중 렌더를 멈추지
 // 않는다. 취소 없이 다음 오버레이를 시작하면 「같은 캔버스 중복 렌더」로 던진다.
@@ -2007,6 +2009,7 @@ async function renderSharpOverlay() {
     const offY = job.dy - job.sy * job.pagePxH;
     if (leaf && leaf.kind !== "outline") {
       let painted = false;
+      let fellBack = false;
       try {
         const pdfPage = await state.pdf.getPage(leaf.pdfPage);
         if (gen !== sharpOverlayGen) {
@@ -2036,12 +2039,14 @@ async function renderSharpOverlay() {
         }
         // #380: 원인은 콘솔에 남긴다 — 배경은 아래 폴백이 책임진다.
         console.warn("sharp overlay pdf render", error);
+        sharpOverlayNote = String(error?.message || error || "?").slice(0, 120); // #384
       }
       if (gen !== sharpOverlayGen) {
         ctx.restore();
         return;
       }
       if (!painted && page.view?.pdfCanvas?.width) {
+        fellBack = true;
         // #380: 렌더가 실패해도 배경이 사라지면 안 된다 — 이미 그려 둔 페이지
         // 캔버스에서 그 영역을 확대 복사한다(이전 수준의 흐림, 잉크는 선명).
         const srcCanvas = page.view.pdfCanvas;
@@ -2056,6 +2061,11 @@ async function renderSharpOverlay() {
           job.dw,
           job.dh,
         );
+      }
+      if (!painted && !fellBack) {
+        // #384: 배경을 못 칠했으면 흰 오버레이를 보여주지 않는다 — 조용히 접는다.
+        ctx.restore();
+        return;
       }
     }
     if (gen !== sharpOverlayGen) {
@@ -2264,6 +2274,7 @@ function zoomTo(next) {
   if (scale === state.userScale) {
     return;
   }
+  hideSharpOverlay(); // #384: 버튼·휠 줌도 낡은 오버레이를 먼저 걷는다.
   if (state.viewMode === "scroll") {
     const anchorX = els.workspace.clientWidth / 2;
     const anchorY = els.workspace.clientHeight / 2;
@@ -3455,6 +3466,7 @@ function closeSettings() {
 }
 
 function openSettings() {
+  syncOverlayNote(); // #384
   closeAllPanels();
   closePreview();
   applyChrome();
@@ -12104,6 +12116,12 @@ syncRectTool();
 // typeof 가드는 이 파일을 텍스트로만 읽는 계약 테스트·정적 분석에서 정의되지
 // 않은 전역이라도 안전하게 지나가도록 하기 위함이다.
 els.buildTag.textContent = typeof __BUILD_TAG__ === "string" ? __BUILD_TAG__ : "dev";
+
+// #384: 설정을 열 때 오버레이 진단을 빌드 표식 옆에 덧붙인다.
+function syncOverlayNote() {
+  const base = typeof __BUILD_TAG__ === "string" ? __BUILD_TAG__ : "dev";
+  els.buildTag.textContent = sharpOverlayNote ? `${base} · overlay: ${sharpOverlayNote}` : base;
+}
 
 migrateLastIntoFiles()
   .then(() => loadLastSession())

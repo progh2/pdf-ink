@@ -197,3 +197,14 @@ describe("#382 오버레이 렌더 취소", () => {
     assert.match(src, /RenderingCancelledException/, "취소는 조용히 접는다");
   });
 });
+
+describe("#384 오버레이 정직 표시", () => {
+  it("never shows a white overlay: unpainted pdf slice aborts, note lands in settings", () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const src = readFileSync(join(here, "main.js"), "utf8");
+    assert.match(src, /if \(!painted && !fellBack\)/, "못 칠했으면 접는다");
+    assert.match(src, /sharpOverlayNote = String\(error\?\.message/);
+    assert.match(src, /overlay: /, "설정 빌드표식 옆 진단");
+    assert.match(src, /hideSharpOverlay\(\); \/\/ #384/, "zoomTo도 먼저 걷는다");
+  });
+});
