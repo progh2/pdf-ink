@@ -1524,28 +1524,34 @@ async function blankThumbShape(leaf, size) {
  * 두 render()가 겹치면 던진다. 새로 그리기 전에 진행 중인 것을 취소하고,
  * 취소로 생기는 예외는 정상 흐름이므로 삼킨다.
  */
+/**
+ * #392: pdf.js는 렌더 중인 캔버스를 전역 WeakSet으로 추적해, 같은 캔버스에
+ * 렌더가 겹치면 「Cannot use the same canvas during multiple render()」를 던진다.
+ * #258은 이전 것을 취소해 풀었지만, 취소는 같은 페이지를 공유하는 다른 렌더까지
+ * 죽인다(#388에서 배경이 사라진 원인). 그래서 취소 대신 **캔버스별로 줄을
+ * 세운다** — 앞 렌더가 끝난 뒤 다음이 시작한다. 낡은 결과는 token·gen 검사가 버린다.
+ */
+const canvasRenderQueue = new WeakMap();
+
+function renderPdfToCanvas(pdfPage, ctx, options) {
+  const canvas = ctx.canvas;
+  const prev = canvasRenderQueue.get(canvas) || Promise.resolve();
+  const next = prev
+    .catch(() => {})
+    .then(() => pdfPage.render({ canvasContext: ctx, ...options }).promise);
+  canvasRenderQueue.set(canvas, next);
+  return next;
+}
+
 async function renderPdfPage(view, page, ctx, viewport) {
-  if (view.renderTask) {
-    try {
-      view.renderTask.cancel();
-    } catch {
-      // 이미 끝났을 수 있다.
-    }
-  }
-  const task = page.render({ canvasContext: ctx, viewport });
-  view.renderTask = task;
   try {
-    await task.promise;
+    await renderPdfToCanvas(page, ctx, { viewport });
   } catch (error) {
-    // 취소는 우리가 시킨 것 — 오류가 아니다.
+    // 문서가 닫히는 등 pdf.js가 스스로 접은 경우.
     if (error?.name === "RenderingCancelledException") {
       return "cancelled";
     }
     throw error;
-  } finally {
-    if (view.renderTask === task) {
-      view.renderTask = null;
-    }
   }
   return "done";
 }
@@ -2063,11 +2069,7 @@ async function paintSharpOverlay(gen) {
         const base = pdfPage.getViewport({ scale: 1, rotation });
         // #380: offsetX/offsetY 대신 공식 뷰어처럼 transform 행렬로 옮긴다.
         const viewport = pdfPage.getViewport({ scale: job.pagePxW / base.width, rotation });
-        await pdfPage.render({
-          canvasContext: ctx,
-          viewport,
-          transform: [1, 0, 0, 1, offX, offY],
-        }).promise;
+        await renderPdfToCanvas(pdfPage, ctx, { viewport, transform: [1, 0, 0, 1, offX, offY] });
         painted = true;
       } catch (error) {
         if (error?.name === "RenderingCancelledException") {
@@ -4364,7 +4366,7 @@ async function renderSplitPdfPage(pdf, pdfPageNum) {
   canvas.height = pixel.height;
   canvas.style.width = `${css.width}px`;
   canvas.style.height = `${css.height}px`;
-  await page.render({ canvasContext: canvas.getContext("2d"), viewport: pixel }).promise;
+  await renderPdfToCanvas(page, canvas.getContext("2d"), { viewport: pixel });
   els.splitStage.replaceChildren(canvas);
 }
 
@@ -4788,7 +4790,7 @@ async function fingerprintsOf(buffer, pages = null, onStep = null) {
       // 구워진 쪽은 제 흰 바탕을 그리지만, 아닌 쪽은 종이를 깔아 줘야 한다.
       ctx.fillStyle = "#FFFFFF";
       ctx.fillRect(0, 0, canvas.width, canvas.height);
-      await page.render({ canvasContext: ctx, viewport }).promise;
+      await renderPdfToCanvas(page, ctx, { viewport });
       const shot = ctx.getImageData(0, 0, canvas.width, canvas.height);
       hashes[number] = dHash(grayGrid(shot.data, canvas.width, canvas.height));
     } catch {
@@ -4962,7 +4964,7 @@ async function renderOldMoveThumb(canvas, pageNum) {
     const ctx = canvas.getContext("2d");
     ctx.fillStyle = "#FFFFFF";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-    await page.render({ canvasContext: ctx, viewport }).promise;
+    await renderPdfToCanvas(page, ctx, { viewport });
     const items = inkItemsForPage(inkMovePlan.record, pageNum);
     if (items.length) {
       const layers = await exportInkCanvas(items, { width: canvas.width, height: canvas.height }, base.width);
@@ -5123,7 +5125,7 @@ async function insertPayloadFor(row) {
   const ctx = canvas2d(canvas);
   ctx.fillStyle = "#FFFFFF";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
-  await page.render({ canvasContext: ctx, viewport }).promise;
+  await renderPdfToCanvas(page, ctx, { viewport });
   return {
     row,
     image: imageItem({
@@ -7993,7 +7995,7 @@ async function renderThumbPage(canvas, leaf, size) {
     canvas.width = Math.max(1, Math.round(base.width * scale));
     canvas.height = Math.max(1, Math.round(base.height * scale));
     const viewport = page.getViewport({ scale, rotation });
-    await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
+    await renderPdfToCanvas(page, canvas.getContext("2d"), { viewport });
   } catch {
     // cream placeholder
   }
@@ -8323,7 +8325,7 @@ async function exportFlatPagePng(leaf, items, pixels, cssWidth) {
     const rotation = normalizeRotation((page.rotate || 0) + (leaf.rotate || 0));
     const base = page.getViewport({ scale: 1, rotation });
     const viewport = page.getViewport({ scale: paper.width / base.width, rotation });
-    await page.render({ canvasContext: paperCtx, viewport }).promise;
+    await renderPdfToCanvas(page, paperCtx, { viewport });
   }
   const pdfData = paperCtx.getImageData(0, 0, paper.width, paper.height);
   const inkData = canvas2d(ink).getImageData(0, 0, ink.width, ink.height);
