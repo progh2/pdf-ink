@@ -231,7 +231,10 @@ describe("#372 저장 정직화·입력 상한 배선", () => {
 
   it("wires the honesty fixes: image-save failure, .ink upload check, 20MB cap", () => {
     const src = readFileSync(join(root, "src/main.js"), "utf8");
-    assert.match(src, /이미지를 저장하지 못했습니다/, "실패를 삼키지 않는다");
+    // #390: 영구 배너(showBanner)가 아니라 자동 소멸 + 문서당 한 번.
+    assert.match(src, /flashBanner\("이미지를 저장하지 못했습니다[^"]*", 4000\)/, "실패를 삼키지 않되 눌러앉지 않는다");
+    assert.match(src, /if \(!inkImageWarned\)/);
+    assert.match(src, /inkImageWarned = false; \/\/ #390/, "문서를 바꾸면 다시 알릴 수 있다");
     assert.match(src, /if \(!inkReply\.ok\)/, "사본 .ink 업로드 검사");
     assert.equal((src.match(/if \(pdfTooBigBanner\(buffer\)\)/g) || []).length, 4, "다운로드 4곳 상한");
   });
