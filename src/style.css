@@ -1998,6 +1998,36 @@ body {
   pointer-events: none;
 }
 
+/* #413: 잡는 자리는 눈에 보여야 잡는다. */
+.crop-grip {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border: 1px solid #2c2a26;
+  border-radius: 4px;
+  background: #fff;
+}
+
+.crop-grip[data-crop="nw"] {
+  left: -7px;
+  top: -7px;
+}
+
+.crop-grip[data-crop="ne"] {
+  right: -7px;
+  top: -7px;
+}
+
+.crop-grip[data-crop="se"] {
+  right: -7px;
+  bottom: -7px;
+}
+
+.crop-grip[data-crop="sw"] {
+  left: -7px;
+  bottom: -7px;
+}
+
 .sticker-cell {
   /* #411: 64는 작아 안 보였다. */
   width: 88px;

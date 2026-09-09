@@ -330,8 +330,13 @@
             <div class="sticker-studio-stage">
               <div class="sticker-studio-box" id="sticker-studio-box">
                 <canvas class="sticker-studio-canvas" id="sticker-studio-canvas"></canvas>
-                <!-- #411: 자를 자리 표시. -->
-                <div class="sticker-crop-box" id="sticker-crop-box" hidden></div>
+                <!-- #411→#413: 자를 상자 — 모서리를 잡아 조절한다. -->
+                <div class="sticker-crop-box" id="sticker-crop-box" hidden>
+                  <span class="crop-grip" data-crop="nw"></span>
+                  <span class="crop-grip" data-crop="ne"></span>
+                  <span class="crop-grip" data-crop="se"></span>
+                  <span class="crop-grip" data-crop="sw"></span>
+                </div>
                 <span class="sticker-handle" data-handle="nw"></span>
                 <span class="sticker-handle" data-handle="ne"></span>
                 <span class="sticker-handle" data-handle="se"></span>
@@ -345,6 +350,7 @@
               <button type="button" data-studio="crop" aria-label="자르기">자르기</button>
             </div>
             <input type="range" class="sticker-angle" id="sticker-angle" min="0" max="359" value="0" hidden />
+            <button type="button" class="sticker-flat" id="sticker-crop-apply" hidden>이대로 자르기</button>
             <div class="sticker-studio-actions">
               <button type="button" class="sticker-flat" id="sticker-undo">되돌리기</button>
               <button type="button" class="sticker-flat" id="sticker-cancel">취소</button>

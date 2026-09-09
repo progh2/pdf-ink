@@ -313,8 +313,12 @@ import {
   DEFAULT_FOLDER_ID,
   ERASER_RADIUS_CSS,
   addFolder,
+  cropHandleAt,
   cropRectPixels,
+  defaultCropRect,
   floodErase,
+  moveCropRect,
+  resizeCropRect,
   deleteFolder,
   deleteSticker,
   eraseCircle,
@@ -597,6 +601,7 @@ const els = {
   stickerNew: document.querySelector("#sticker-new"),
   stickerMake: document.querySelector("#sticker-make"),
   stickerCropBox: document.querySelector("#sticker-crop-box"),
+  stickerCropApply: document.querySelector("#sticker-crop-apply"),
   stickerUndo: document.querySelector("#sticker-undo"),
   stickerCancel: document.querySelector("#sticker-cancel"),
   stickerDelete: document.querySelector("#sticker-delete"),
@@ -10572,7 +10577,6 @@ function clearFolderDrop() {
 // #411: 작업 단위 되돌리기. 크기가 바뀌는 자르기까지 되돌리려면 치수도 함께.
 const STUDIO_UNDO_LIMIT = 20;
 let studioUndo = [];
-let studioCropFrom = null;
 
 function pushStudioUndo() {
   if (!studioPixels) {
@@ -10642,8 +10646,8 @@ function closeStudio() {
   state.stickerPick = null;
   studioPixels = null;
   studioUndo = [];
-  studioCropFrom = null;
   syncStudioUndo();
+  clearCropBox();
   syncStudioLayout(false); // #411
   if (els.stickerCropBox) {
     els.stickerCropBox.hidden = true;
@@ -10694,8 +10698,10 @@ function syncStudioPreview() {
 }
 
 function syncStudioTools() {
-  if (els.stickerCropBox && state.studioTool !== "crop") {
-    els.stickerCropBox.hidden = true; // #411
+  if (state.studioTool === "crop" && !studioCrop) {
+    startCropBox(); // #413: 고르면 바로 상자가 뜬다
+  } else if (state.studioTool !== "crop" && studioCrop) {
+    clearCropBox();
   }
   els.stickerTools?.querySelectorAll("[data-studio]").forEach((btn) => {
     btn.classList.toggle("is-selected", btn.dataset.studio === state.studioTool);
@@ -10720,30 +10726,60 @@ function putStudioPixels(data) {
   stickerCtx(canvas).putImageData(studioPixels, 0, 0);
 }
 
-/** #411: 자를 자리를 끌어 보여 주고, 놓을 때 그만큼만 남긴다. */
-function showCropBox(from, to) {
-  const canvas = els.stickerStudioCanvas;
+/**
+ * #411→#413: 끌어서 한 번에 정하던 것을, 가운데 상자를 띄우고 모서리로 다듬는
+ * 방식으로 바꿨다 — 세밀하게 맞출 수 있고, 「이대로 자르기」를 눌러야 잘린다.
+ */
+let studioCrop = null;
+let cropDrag = null;
+
+function syncCropBox() {
   const box = els.stickerCropBox;
-  if (!box || !from) {
+  const canvas = els.stickerStudioCanvas;
+  if (!box || !canvas) {
+    return;
+  }
+  const on = Boolean(studioCrop) && state.studioTool === "crop";
+  box.hidden = !on;
+  if (els.stickerCropApply) {
+    els.stickerCropApply.hidden = !on;
+  }
+  if (!on) {
     return;
   }
   const scaleX = canvas.clientWidth / Math.max(1, canvas.width);
   const scaleY = canvas.clientHeight / Math.max(1, canvas.height);
-  const left = Math.min(from.x, to.x) * scaleX;
-  const top = Math.min(from.y, to.y) * scaleY;
-  box.style.left = `${left}px`;
-  box.style.top = `${top}px`;
-  box.style.width = `${Math.abs(to.x - from.x) * scaleX}px`;
-  box.style.height = `${Math.abs(to.y - from.y) * scaleY}px`;
-  box.hidden = false;
+  box.style.left = `${studioCrop.x * scaleX}px`;
+  box.style.top = `${studioCrop.y * scaleY}px`;
+  box.style.width = `${studioCrop.w * scaleX}px`;
+  box.style.height = `${studioCrop.h * scaleY}px`;
 }
 
-function applyStudioCrop(from, to) {
+function startCropBox() {
   const canvas = els.stickerStudioCanvas;
-  const rect = cropRectPixels(from, to, canvas.width, canvas.height);
-  if (els.stickerCropBox) {
-    els.stickerCropBox.hidden = true;
+  if (!canvas?.width) {
+    return;
   }
+  studioCrop = defaultCropRect(canvas.width, canvas.height);
+  syncCropBox();
+}
+
+function clearCropBox() {
+  studioCrop = null;
+  cropDrag = null;
+  syncCropBox();
+}
+
+function applyStudioCrop() {
+  const canvas = els.stickerStudioCanvas;
+  const rect = studioCrop
+    ? cropRectPixels(
+        { x: studioCrop.x, y: studioCrop.y },
+        { x: studioCrop.x + studioCrop.w, y: studioCrop.y + studioCrop.h },
+        canvas.width,
+        canvas.height,
+      )
+    : null;
   if (!rect) {
     return;
   }
@@ -10756,6 +10792,7 @@ function applyStudioCrop(from, to) {
   ctx.clearRect(0, 0, rect.w, rect.h);
   ctx.drawImage(cut, 0, 0);
   studioPixels = ctx.getImageData(0, 0, rect.w, rect.h);
+  startCropBox();
 }
 
 function studioTap(event) {
@@ -10842,7 +10879,27 @@ async function deleteStudioSticker() {
 }
 
 /** ✕ on the thumb, no confirm, same as the outline x (#53). */
+// #413: 지우면 끝이다 — 한 번 묻는다. 이 앱은 브라우저 대화상자를 쓰지 않으므로
+// (#100·#103) 배너로 묻고 「한 번 더」로 받는다. 메뉴에서든 편집 화면에서든 여기를 지난다.
+let stickerDeleteArmed = "";
+let stickerDeleteTimer = 0;
+
+function disarmStickerDelete() {
+  window.clearTimeout(stickerDeleteTimer);
+  stickerDeleteTimer = 0;
+  stickerDeleteArmed = "";
+}
+
 async function removeSticker(id) {
+  if (stickerDeleteArmed !== id) {
+    const asked = state.stickers.find((item) => item.id === id);
+    stickerDeleteArmed = id;
+    window.clearTimeout(stickerDeleteTimer);
+    stickerDeleteTimer = window.setTimeout(disarmStickerDelete, 4000);
+    flashBanner(`${asked?.name ? `「${asked.name}」 ` : ""}정말 지울까요? 삭제를 한 번 더 누르세요.`, 4000);
+    return;
+  }
+  disarmStickerDelete();
   state.stickers = deleteSticker(state.stickers, id);
   if (state.stickerPick === id) {
     closeStudio();
@@ -11821,6 +11878,7 @@ els.stickerTools?.querySelectorAll("[data-studio]").forEach((btn) => {
     syncStudioTools();
   });
 });
+els.stickerCropApply?.addEventListener("click", applyStudioCrop);
 els.stickerUndo?.addEventListener("click", undoStudio);
 els.stickerCancel?.addEventListener("click", () => {
   // #411: 고친 것을 버리고 목록으로 — 저장 전이면 원본 그대로다.
@@ -11986,10 +12044,14 @@ if (els.stickerStudioCanvas) {
       return;
     }
     if (state.studioTool === "crop") {
-      // #411: 자를 자리를 끈다 — 놓을 때 그만큼만 남는다.
+      // #413: 모서리를 잡으면 늘이고, 안쪽을 잡으면 옮긴다.
       event.preventDefault();
-      studioCropFrom = studioPoint(event);
-      showCropBox(studioCropFrom, studioCropFrom);
+      const point = studioPoint(event);
+      const handle = cropHandleAt(studioCrop, point);
+      if (!handle) {
+        return;
+      }
+      cropDrag = { handle, last: point };
       try {
         els.stickerStudioCanvas.setPointerCapture(event.pointerId);
       } catch {
@@ -12000,9 +12062,16 @@ if (els.stickerStudioCanvas) {
     studioTap(event);
   });
   els.stickerStudioCanvas.addEventListener("pointermove", (event) => {
-    if (studioCropFrom) {
+    if (cropDrag) {
       event.preventDefault();
-      showCropBox(studioCropFrom, studioPoint(event));
+      const point = studioPoint(event);
+      const canvas = els.stickerStudioCanvas;
+      studioCrop =
+        cropDrag.handle === "move"
+          ? moveCropRect(studioCrop, point.x - cropDrag.last.x, point.y - cropDrag.last.y, canvas.width, canvas.height)
+          : resizeCropRect(studioCrop, cropDrag.handle, point, canvas.width, canvas.height);
+      cropDrag.last = point;
+      syncCropBox();
       return;
     }
     if (erasing) {
@@ -12011,10 +12080,7 @@ if (els.stickerStudioCanvas) {
     }
   });
   els.stickerStudioCanvas.addEventListener("pointerup", (event) => {
-    if (studioCropFrom) {
-      applyStudioCrop(studioCropFrom, studioPoint(event));
-      studioCropFrom = null;
-    }
+    cropDrag = null;
     erasing = false;
   });
   els.stickerStudioCanvas.addEventListener("pointercancel", () => {

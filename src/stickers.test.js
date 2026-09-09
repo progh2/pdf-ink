@@ -19,8 +19,12 @@ import {
   cornerScale,
   deleteRegionAt,
   applyChroma,
+  cropHandleAt,
   cropRectPixels,
+  defaultCropRect,
   floodErase,
+  moveCropRect,
+  resizeCropRect,
   deleteFolder,
   deleteSticker,
   eraseCircle,
@@ -529,5 +533,48 @@ describe("#411 스티커 시트 손질", () => {
     assert.match(main, /function pushStudioUndo/);
     assert.match(main, /studioUndo\.length > STUDIO_UNDO_LIMIT/, "되돌리기는 무한이 아니다");
     assert.match(main, /function applyStudioCrop/);
+  });
+});
+
+describe("#413 자를 상자와 삭제 확인", () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const main = readFileSync(join(here, "main.js"), "utf8");
+  const html = readFileSync(join(here, "..", "index.html"), "utf8");
+  const rect = { x: 20, y: 20, w: 60, h: 40 };
+
+  it("starts from a centred box, not from wherever the finger landed", () => {
+    assert.deepEqual(defaultCropRect(100, 100, 0.8), { x: 10, y: 10, w: 80, h: 80 });
+    const tiny = defaultCropRect(4, 4, 0.8);
+    assert.ok(tiny.w >= 8 && tiny.h >= 8, "너무 작으면 최소만큼은 준다");
+  });
+
+  it("knows which corner was grabbed, and what is just inside", () => {
+    assert.equal(cropHandleAt(rect, { x: 20, y: 20 }), "nw");
+    assert.equal(cropHandleAt(rect, { x: 80, y: 60 }), "se");
+    assert.equal(cropHandleAt(rect, { x: 50, y: 40 }), "move");
+    assert.equal(cropHandleAt(rect, { x: 200, y: 200 }), null);
+  });
+
+  it("keeps a resize inside the canvas and never smaller than the floor", () => {
+    const wide = resizeCropRect(rect, "se", { x: 999, y: 999 }, 100, 100);
+    assert.deepEqual(wide, { x: 20, y: 20, w: 80, h: 80 });
+    const squashed = resizeCropRect(rect, "se", { x: 0, y: 0 }, 100, 100);
+    assert.ok(squashed.w >= 8 && squashed.h >= 8);
+  });
+
+  it("moves the box without letting it walk off the paper", () => {
+    assert.deepEqual(moveCropRect(rect, 5, 5, 100, 100), { ...rect, x: 25, y: 25 });
+    assert.deepEqual(moveCropRect(rect, 999, 999, 100, 100), { ...rect, x: 40, y: 60 });
+  });
+
+  it("asks before deleting, in the app's own way (no browser dialog)", () => {
+    assert.doesNotMatch(main, /window\.confirm/, "#100·#103: 대화상자는 쓰지 않는다");
+    assert.match(main, /stickerDeleteArmed !== id/);
+    assert.match(main, /삭제를 한 번 더 누르세요/);
+  });
+
+  it("applies the crop only on the button, so a stray drag cuts nothing", () => {
+    assert.match(html, /id="sticker-crop-apply"/);
+    assert.match(main, /stickerCropApply\?\.addEventListener\("click", applyStudioCrop\)/);
   });
 });
