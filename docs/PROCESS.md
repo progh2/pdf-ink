@@ -385,3 +385,7 @@ Dropbox .ink 업로드가 리비전 없는 overwrite라 두 기기가 같은 판
 ## #401 도장을 기본 스티커로
 
 도장을 스티커 안에 넣자는 마스터 제안. 종이에 찍던 그 그림(paintStamp)을 그대로 투명 PNG로 구워 「도장」 폴더의 기본 스티커 다섯 장으로 심는다 — 스티커 동기화(#395)를 타고 다른 기기까지 따라온다. 심는 것은 처음 한 번뿐이고 표시를 남긴다: 지운 도장이 다음 실행에 되살아나면 그게 더 성가시다. ⋯의 도장 항목과 분기는 걷어냈다(툴바 아홉 칸은 #399에서 이미 손바닥이 받았다). 이미 찍어 둔 도장은 그대로 보이고 고르기·크기 조절도 된다 — 항목 형식(type: "stamp")과 렌더·리사이즈는 건드리지 않고 새로 찍는 입구만 없앴다. prefs 함수 이름과 키는 「main.js에 loadStamp/saveStamp/pdf-ink:stamp를 두지 않는다」는 옛 핀을 존중해 stampStickersSeeded·pdf-ink:sticker-stamps로 지었다.
+
+## #403 선명 오버레이가 매번 튕기던 ReferenceError
+
+「캔버스 정의 안함」 오류의 정체는 pdf.js가 아니라 우리 코드였다. #388에서 오버레이를 새 오프스크린 캔버스에 그리도록 바꾸며 변수명을 canvas→work로 옮겼는데 `ctx.clearRect(0, 0, canvas.width, canvas.height)` 한 줄을 놓쳤고, 같은 함수 뒤쪽의 `const canvas = sharpOverlayCanvas()`가 TDZ로 막아 오버레이를 그릴 때마다 「Cannot access canvas before initialization」으로 즉시 튕겼다 — #389 이후 선명 오버레이는 사실상 한 번도 그려지지 않았고 그 예외가 앱 오류 배너로 떴다(#392·#397에서 pdf.js 「same canvas」로 오진한 이유). 놓친 줄을 work로 고치고, 오버레이 실패가 앱 오류로 튀지 않게 renderSharpOverlay에서 잡아 진단에만 남긴다. 핀으로 「const canvas 선언 앞에서 canvas를 만지지 않는다」를 못박았다. 교훈: 변수명을 옮길 땐 함수 전체를 grep으로 훑을 것 — 뒤에 같은 이름을 새로 선언하면 앞의 잔존 참조가 조용한 문법 오류가 아니라 런타임 TDZ가 된다.

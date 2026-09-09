@@ -2043,6 +2043,10 @@ async function renderSharpOverlay() {
   sharpOverlayBusy = true;
   try {
     await paintSharpOverlay(++sharpOverlayGen);
+  } catch (error) {
+    // #403: 오버레이는 덤이다 — 실패해도 앱 오류로 튀지 않고 진단에만 남긴다.
+    console.warn("sharp overlay", error);
+    sharpOverlayNote = String(error?.message || error || "?").slice(0, 120);
   } finally {
     sharpOverlayBusy = false;
   }
@@ -2079,7 +2083,8 @@ async function paintSharpOverlay(gen) {
   const ctx = work.getContext("2d");
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "high";
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  // #403: 여기서 canvas를 부르면 아래 const canvas가 TDZ로 막는다 — work가 맞다.
+  ctx.clearRect(0, 0, work.width, work.height);
   for (const job of plan.jobs) {
     if (gen !== sharpOverlayGen) {
       return;
