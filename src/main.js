@@ -313,7 +313,7 @@ import {
   DEFAULT_FOLDER_ID,
   ERASER_RADIUS_CSS,
   addFolder,
-  applyChroma,
+  floodErase,
   deleteFolder,
   deleteSticker,
   eraseCircle,
@@ -10625,11 +10625,14 @@ function studioTap(event) {
     return;
   }
   const point = studioPoint(event);
-  const color = pixelAt(studioPixels.data, els.stickerStudioCanvas.width, point.x, point.y);
+  const canvas = els.stickerStudioCanvas;
+  const color = pixelAt(studioPixels.data, canvas.width, point.x, point.y);
   if (!color) {
     return;
   }
-  putStudioPixels(applyChroma(studioPixels.data, color, CHROMA_TOLERANCE));
+  // #407: 찍은 지역만 지운다 — 배경과 같은 색이 그림 안에 있어도 이어져
+  // 있지 않으면 남는다. 모서리마다 한 번씩 찍으면 배경이 사라진다.
+  putStudioPixels(floodErase(studioPixels.data, canvas.width, canvas.height, point.x, point.y, CHROMA_TOLERANCE));
 }
 
 function studioErase(event) {
