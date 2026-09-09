@@ -19,6 +19,7 @@ import {
   cornerScale,
   deleteRegionAt,
   applyChroma,
+  floodErase,
   deleteFolder,
   deleteSticker,
   eraseCircle,
@@ -241,7 +242,8 @@ describe("#79 시트 배선", () => {
     for (const tool of STUDIO_TOOLS) {
       assert.match(html, new RegExp(`data-studio="${tool}"`), tool);
     }
-    assert.match(main, /applyChroma\(studioPixels\.data, color, CHROMA_TOLERANCE\)/);
+    // #407: 「같은 색 전부」는 그림 안쪽에 구멍을 냈다 — 찍은 지역만 지운다.
+    assert.match(main, /floodErase\(studioPixels\.data, canvas\.width, canvas\.height, point\.x, point\.y, CHROMA_TOLERANCE\)/);
     assert.match(main, /eraseCircle\(studioPixels\.data/);
     assert.match(main, /rotate\(\$\{angle\}deg\)/);
     assert.doesNotMatch(main, /Math\.round\(angle \/ 90\)/, "no 90 snap");
@@ -437,5 +439,44 @@ describe("#103 배선", () => {
   it("keeps the new order in the store", () => {
     assert.match(main, /reorderStickers\(state\.stickers, state\.stickerFolder, from, slot\)/);
     assert.match(main, /function reorderStickerTo[\s\S]*persistStickers\(\)/);
+  });
+});
+
+describe("#407 찍은 지역만 지우기", () => {
+  // 3×3: 가장자리는 흰 배경, 가운데는 검은 그림. 오른쪽 아래에 배경과 같은 흰 점.
+  function board() {
+    const rgba = new Uint8ClampedArray(3 * 3 * 4);
+    const put = (x, y, v) => {
+      const i = (y * 3 + x) * 4;
+      rgba[i] = v;
+      rgba[i + 1] = v;
+      rgba[i + 2] = v;
+      rgba[i + 3] = 255;
+    };
+    for (let y = 0; y < 3; y += 1) {
+      for (let x = 0; x < 3; x += 1) {
+        put(x, y, 255);
+      }
+    }
+    put(1, 0, 0);
+    put(1, 1, 0);
+    put(1, 2, 0);
+    return rgba;
+  }
+  const alpha = (rgba, x, y) => rgba[(y * 3 + x) * 4 + 3];
+
+  it("erases only what the tap is joined to", () => {
+    const out = floodErase(board(), 3, 3, 0, 0, CHROMA_TOLERANCE);
+    assert.equal(alpha(out, 0, 0), 0, "찍은 왼쪽 배경은 지워지고");
+    assert.equal(alpha(out, 0, 2), 0, "이어진 아래도");
+    assert.equal(alpha(out, 2, 0), 255, "검은 줄 건너편 같은 흰색은 남는다");
+    assert.equal(alpha(out, 1, 1), 255, "그림은 그대로");
+  });
+
+  it("does nothing when the tap lands outside or on an already-clear pixel", () => {
+    const before = board();
+    assert.deepEqual([...floodErase(before, 3, 3, 9, 9, CHROMA_TOLERANCE)], [...before]);
+    const cleared = floodErase(before, 3, 3, 0, 0, CHROMA_TOLERANCE);
+    assert.deepEqual([...floodErase(cleared, 3, 3, 0, 0, CHROMA_TOLERANCE)], [...cleared]);
   });
 });

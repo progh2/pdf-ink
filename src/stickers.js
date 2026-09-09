@@ -336,6 +336,57 @@ export function applyChroma(rgba, color, tolerance = CHROMA_TOLERANCE) {
   return out;
 }
 
+/**
+ * #407: 찍은 자리에서 이어진 곳만 지운다. 배경과 같은 색이 그림 안쪽에 있어도
+ * 찍힌 곳과 이어져 있지 않으면 남는다 — 「같은 색 전부」로 구멍이 뚫리던 것을
+ * 막는다. 스택 기반 4방향 번짐이라 큰 그림에서도 재귀로 넘치지 않는다.
+ */
+export function floodErase(rgba, width, height, x, y, tolerance = CHROMA_TOLERANCE) {
+  const w = Math.max(1, Math.round(width));
+  const h = Math.max(1, Math.round(height));
+  const out = new Uint8ClampedArray(rgba);
+  const startX = Math.round(x);
+  const startY = Math.round(y);
+  if (startX < 0 || startY < 0 || startX >= w || startY >= h) {
+    return out;
+  }
+  const start = (startY * w + startX) * 4;
+  if (out[start + 3] === 0) {
+    return out;
+  }
+  const seed = { r: out[start], g: out[start + 1], b: out[start + 2] };
+  const limit = Math.max(0, Number(tolerance) || 0);
+  const seen = new Uint8Array(w * h);
+  const stack = [startY * w + startX];
+  while (stack.length) {
+    const at = stack.pop();
+    if (seen[at]) {
+      continue;
+    }
+    seen[at] = 1;
+    const i = at * 4;
+    if (out[i + 3] === 0 || colorDistance(out[i], out[i + 1], out[i + 2], seed.r, seed.g, seed.b) > limit) {
+      continue;
+    }
+    out[i + 3] = 0;
+    const px = at % w;
+    const py = (at - px) / w;
+    if (px > 0) {
+      stack.push(at - 1);
+    }
+    if (px < w - 1) {
+      stack.push(at + 1);
+    }
+    if (py > 0) {
+      stack.push(at - w);
+    }
+    if (py < h - 1) {
+      stack.push(at + w);
+    }
+  }
+  return out;
+}
+
 export function pixelAt(rgba, width, x, y) {
   const i = (Math.round(y) * Math.max(1, Math.round(width)) + Math.round(x)) * 4;
   if (i < 0 || i + 3 >= rgba.length) {
