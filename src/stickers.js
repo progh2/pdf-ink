@@ -410,6 +410,75 @@ export function cropRectPixels(start, end, width, height, min = CROP_MIN_PX) {
   return box;
 }
 
+/** #413: 자르기는 가운데 상자에서 시작해 모서리로 다듬는다. */
+export const CROP_HANDLE_PAD = 14;
+
+export function defaultCropRect(width, height, share = 0.8) {
+  const w = Math.max(1, Math.round(width));
+  const h = Math.max(1, Math.round(height));
+  const bw = Math.max(CROP_MIN_PX, Math.round(w * share));
+  const bh = Math.max(CROP_MIN_PX, Math.round(h * share));
+  return { x: Math.round((w - bw) / 2), y: Math.round((h - bh) / 2), w: bw, h: bh };
+}
+
+/** 잡은 곳이 어느 모서리인지, 아니면 안쪽(옮기기)인지. */
+export function cropHandleAt(rect, point, pad = CROP_HANDLE_PAD) {
+  if (!rect || !point) {
+    return null;
+  }
+  const near = (a, b) => Math.abs(a - b) <= pad;
+  const right = rect.x + rect.w;
+  const bottom = rect.y + rect.h;
+  if (near(point.x, rect.x) && near(point.y, rect.y)) {
+    return "nw";
+  }
+  if (near(point.x, right) && near(point.y, rect.y)) {
+    return "ne";
+  }
+  if (near(point.x, right) && near(point.y, bottom)) {
+    return "se";
+  }
+  if (near(point.x, rect.x) && near(point.y, bottom)) {
+    return "sw";
+  }
+  if (point.x >= rect.x && point.x <= right && point.y >= rect.y && point.y <= bottom) {
+    return "move";
+  }
+  return null;
+}
+
+export function resizeCropRect(rect, handle, point, width, height, min = CROP_MIN_PX) {
+  const w = Math.max(1, Math.round(width));
+  const h = Math.max(1, Math.round(height));
+  const clampX = (value) => Math.max(0, Math.min(w, Math.round(value)));
+  const clampY = (value) => Math.max(0, Math.min(h, Math.round(value)));
+  let left = rect.x;
+  let top = rect.y;
+  let right = rect.x + rect.w;
+  let bottom = rect.y + rect.h;
+  if (handle === "nw" || handle === "sw") {
+    left = Math.min(clampX(point.x), right - min);
+  }
+  if (handle === "ne" || handle === "se") {
+    right = Math.max(clampX(point.x), left + min);
+  }
+  if (handle === "nw" || handle === "ne") {
+    top = Math.min(clampY(point.y), bottom - min);
+  }
+  if (handle === "sw" || handle === "se") {
+    bottom = Math.max(clampY(point.y), top + min);
+  }
+  return { x: left, y: top, w: right - left, h: bottom - top };
+}
+
+export function moveCropRect(rect, dx, dy, width, height) {
+  const w = Math.max(1, Math.round(width));
+  const h = Math.max(1, Math.round(height));
+  const x = Math.max(0, Math.min(w - rect.w, Math.round(rect.x + dx)));
+  const y = Math.max(0, Math.min(h - rect.h, Math.round(rect.y + dy)));
+  return { ...rect, x, y };
+}
+
 export function pixelAt(rgba, width, x, y) {
   const i = (Math.round(y) * Math.max(1, Math.round(width)) + Math.round(x)) * 4;
   if (i < 0 || i + 3 >= rgba.length) {
