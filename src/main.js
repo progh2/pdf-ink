@@ -313,6 +313,7 @@ import {
   DEFAULT_FOLDER_ID,
   ERASER_RADIUS_CSS,
   addFolder,
+  cropRectPixels,
   floodErase,
   deleteFolder,
   deleteSticker,
@@ -593,6 +594,11 @@ const els = {
   stickerTools: document.querySelector("#sticker-tools"),
   stickerAngle: document.querySelector("#sticker-angle"),
   stickerSave: document.querySelector("#sticker-save"),
+  stickerNew: document.querySelector("#sticker-new"),
+  stickerMake: document.querySelector("#sticker-make"),
+  stickerCropBox: document.querySelector("#sticker-crop-box"),
+  stickerUndo: document.querySelector("#sticker-undo"),
+  stickerCancel: document.querySelector("#sticker-cancel"),
   stickerDelete: document.querySelector("#sticker-delete"),
   previewDrop: document.querySelector("#preview-drop"),
   previewClose: document.querySelector("#preview-close"),
@@ -10563,9 +10569,85 @@ function clearFolderDrop() {
 
 /* ---- 스튜디오: 투명 · 지우개 · 회전 · 코너 크기 ---- */
 
+// #411: 작업 단위 되돌리기. 크기가 바뀌는 자르기까지 되돌리려면 치수도 함께.
+const STUDIO_UNDO_LIMIT = 20;
+let studioUndo = [];
+let studioCropFrom = null;
+
+function pushStudioUndo() {
+  if (!studioPixels) {
+    return;
+  }
+  const canvas = els.stickerStudioCanvas;
+  studioUndo.push({
+    width: canvas.width,
+    height: canvas.height,
+    data: new Uint8ClampedArray(studioPixels.data),
+  });
+  if (studioUndo.length > STUDIO_UNDO_LIMIT) {
+    studioUndo.shift();
+  }
+  syncStudioUndo();
+}
+
+function syncStudioUndo() {
+  if (els.stickerUndo) {
+    els.stickerUndo.disabled = studioUndo.length === 0;
+  }
+}
+
+function undoStudio() {
+  const last = studioUndo.pop();
+  if (!last) {
+    return;
+  }
+  const canvas = els.stickerStudioCanvas;
+  canvas.width = last.width;
+  canvas.height = last.height;
+  const ctx = stickerCtx(canvas);
+  studioPixels = new ImageData(last.data, last.width, last.height);
+  ctx.putImageData(studioPixels, 0, 0);
+  syncStudioUndo();
+}
+
+/** #411: 편집은 전용 화면 — 목록·만들기를 감춰 아래로 밀리지 않게 한다. */
+function syncStudioLayout(open) {
+  const body = els.stickerSheet?.querySelector(".sticker-body");
+  for (const node of [els.stickerMake, els.stickerFolders, els.stickerGrid]) {
+    if (node) {
+      node.hidden = open ? true : node === els.stickerMake ? !stickerMakeOpen : false;
+    }
+  }
+  if (els.stickerNew) {
+    els.stickerNew.hidden = open;
+  }
+  if (open && body) {
+    body.scrollTop = 0;
+  }
+}
+
+let stickerMakeOpen = false;
+
+function toggleStickerMake() {
+  stickerMakeOpen = !stickerMakeOpen;
+  if (els.stickerMake) {
+    els.stickerMake.hidden = !stickerMakeOpen;
+  }
+  if (els.stickerNew) {
+    els.stickerNew.textContent = stickerMakeOpen ? "닫기" : "+ 새 스티커";
+  }
+}
+
 function closeStudio() {
   state.stickerPick = null;
   studioPixels = null;
+  studioUndo = [];
+  studioCropFrom = null;
+  syncStudioUndo();
+  syncStudioLayout(false); // #411
+  if (els.stickerCropBox) {
+    els.stickerCropBox.hidden = true;
+  }
   if (els.stickerStudio) {
     els.stickerStudio.hidden = true;
   }
@@ -10594,6 +10676,9 @@ async function openStudio(id) {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
   studioPixels = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  studioUndo = [];
+  syncStudioUndo();
+  syncStudioLayout(true); // #411: 편집은 전용 화면으로
   els.stickerStudio.hidden = false;
   els.stickerAngle.hidden = true;
   els.stickerAngle.value = "0";
@@ -10609,6 +10694,9 @@ function syncStudioPreview() {
 }
 
 function syncStudioTools() {
+  if (els.stickerCropBox && state.studioTool !== "crop") {
+    els.stickerCropBox.hidden = true; // #411
+  }
   els.stickerTools?.querySelectorAll("[data-studio]").forEach((btn) => {
     btn.classList.toggle("is-selected", btn.dataset.studio === state.studioTool);
   });
@@ -10632,6 +10720,44 @@ function putStudioPixels(data) {
   stickerCtx(canvas).putImageData(studioPixels, 0, 0);
 }
 
+/** #411: 자를 자리를 끌어 보여 주고, 놓을 때 그만큼만 남긴다. */
+function showCropBox(from, to) {
+  const canvas = els.stickerStudioCanvas;
+  const box = els.stickerCropBox;
+  if (!box || !from) {
+    return;
+  }
+  const scaleX = canvas.clientWidth / Math.max(1, canvas.width);
+  const scaleY = canvas.clientHeight / Math.max(1, canvas.height);
+  const left = Math.min(from.x, to.x) * scaleX;
+  const top = Math.min(from.y, to.y) * scaleY;
+  box.style.left = `${left}px`;
+  box.style.top = `${top}px`;
+  box.style.width = `${Math.abs(to.x - from.x) * scaleX}px`;
+  box.style.height = `${Math.abs(to.y - from.y) * scaleY}px`;
+  box.hidden = false;
+}
+
+function applyStudioCrop(from, to) {
+  const canvas = els.stickerStudioCanvas;
+  const rect = cropRectPixels(from, to, canvas.width, canvas.height);
+  if (els.stickerCropBox) {
+    els.stickerCropBox.hidden = true;
+  }
+  if (!rect) {
+    return;
+  }
+  pushStudioUndo();
+  const cut = offscreenCanvas(rect.w, rect.h);
+  cut.getContext("2d").drawImage(canvas, rect.x, rect.y, rect.w, rect.h, 0, 0, rect.w, rect.h);
+  canvas.width = rect.w;
+  canvas.height = rect.h;
+  const ctx = stickerCtx(canvas);
+  ctx.clearRect(0, 0, rect.w, rect.h);
+  ctx.drawImage(cut, 0, 0);
+  studioPixels = ctx.getImageData(0, 0, rect.w, rect.h);
+}
+
 function studioTap(event) {
   if (!studioPixels || state.studioTool !== "chroma") {
     return;
@@ -10642,14 +10768,18 @@ function studioTap(event) {
   if (!color) {
     return;
   }
+  pushStudioUndo(); // #411
   // #407: 찍은 지역만 지운다 — 배경과 같은 색이 그림 안에 있어도 이어져
   // 있지 않으면 남는다. 모서리마다 한 번씩 찍으면 배경이 사라진다.
   putStudioPixels(floodErase(studioPixels.data, canvas.width, canvas.height, point.x, point.y, CHROMA_TOLERANCE));
 }
 
-function studioErase(event) {
+function studioErase(event, first = false) {
   if (!studioPixels || state.studioTool !== "eraser") {
     return;
+  }
+  if (first) {
+    pushStudioUndo(); // #411: 한 획을 한 번으로 되돌린다
   }
   const canvas = els.stickerStudioCanvas;
   const point = studioPoint(event);
@@ -11691,6 +11821,13 @@ els.stickerTools?.querySelectorAll("[data-studio]").forEach((btn) => {
     syncStudioTools();
   });
 });
+els.stickerUndo?.addEventListener("click", undoStudio);
+els.stickerCancel?.addEventListener("click", () => {
+  // #411: 고친 것을 버리고 목록으로 — 저장 전이면 원본 그대로다.
+  closeStudio();
+  renderStickerGrid();
+});
+els.stickerNew?.addEventListener("click", toggleStickerMake);
 els.stickerSave?.addEventListener("click", saveStudio);
 els.stickerDelete?.addEventListener("click", deleteStudioSticker);
 els.stickerAngle?.addEventListener("input", () => {
@@ -11845,18 +11982,39 @@ if (els.stickerStudioCanvas) {
       } catch {
         // optional
       }
-      studioErase(event);
+      studioErase(event, true);
+      return;
+    }
+    if (state.studioTool === "crop") {
+      // #411: 자를 자리를 끈다 — 놓을 때 그만큼만 남는다.
+      event.preventDefault();
+      studioCropFrom = studioPoint(event);
+      showCropBox(studioCropFrom, studioCropFrom);
+      try {
+        els.stickerStudioCanvas.setPointerCapture(event.pointerId);
+      } catch {
+        // optional
+      }
       return;
     }
     studioTap(event);
   });
   els.stickerStudioCanvas.addEventListener("pointermove", (event) => {
+    if (studioCropFrom) {
+      event.preventDefault();
+      showCropBox(studioCropFrom, studioPoint(event));
+      return;
+    }
     if (erasing) {
       event.preventDefault();
       studioErase(event);
     }
   });
-  els.stickerStudioCanvas.addEventListener("pointerup", () => {
+  els.stickerStudioCanvas.addEventListener("pointerup", (event) => {
+    if (studioCropFrom) {
+      applyStudioCrop(studioCropFrom, studioPoint(event));
+      studioCropFrom = null;
+    }
     erasing = false;
   });
   els.stickerStudioCanvas.addEventListener("pointercancel", () => {

@@ -19,6 +19,7 @@ import {
   cornerScale,
   deleteRegionAt,
   applyChroma,
+  cropRectPixels,
   floodErase,
   deleteFolder,
   deleteSticker,
@@ -208,7 +209,8 @@ describe("#79 시트 배선", () => {
     assert.match(css, /\.sticker-tools button \{[\s\S]*height: 44px[\s\S]*min-width: 44px/);
     assert.match(css, /\.sticker-folder \{[\s\S]*height: 36px/);
     assert.match(css, /\.sticker-folder-add \{[\s\S]*width: 32px/);
-    assert.match(css, /\.sticker-cell \{[\s\S]*width: 64px[\s\S]*height: 64px/);
+    // #411: 64는 작아 잘 안 보였다 — 88로 키웠다.
+    assert.match(css, /\.sticker-cell \{[\s\S]*width: 88px[\s\S]*height: 88px/);
     assert.match(css, /\.sticker-grid \{[\s\S]*gap: 8px/);
   });
 
@@ -497,5 +499,35 @@ describe("#409 편집으로 가는 길", () => {
   it("keeps the old ways: tap places, hold opens 편집·삭제", () => {
     assert.match(main, /if \(action === "edit"\) \{\s*openStudio\(id\);/);
     assert.match(main, /openStickerMenu\(sticker\.id, cell\.getBoundingClientRect\(\)\)/);
+  });
+});
+
+describe("#411 스티커 시트 손질", () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const main = readFileSync(join(here, "main.js"), "utf8");
+  const html = readFileSync(join(here, "..", "index.html"), "utf8");
+
+  it("keeps a crop rectangle inside the canvas and refuses a slip of the finger", () => {
+    assert.deepEqual(cropRectPixels({ x: 10, y: 20 }, { x: 40, y: 60 }, 100, 100), { x: 10, y: 20, w: 30, h: 40 });
+    assert.deepEqual(cropRectPixels({ x: 40, y: 60 }, { x: 10, y: 20 }, 100, 100), { x: 10, y: 20, w: 30, h: 40 }, "거꾸로 끌어도 같다");
+    assert.deepEqual(cropRectPixels({ x: -50, y: -50 }, { x: 500, y: 500 }, 100, 80), { x: 0, y: 0, w: 100, h: 80 }, "밖은 잘린다");
+    assert.equal(cropRectPixels({ x: 10, y: 10 }, { x: 12, y: 12 }, 100, 100), null, "손 떨림은 자르지 않는다");
+  });
+
+  it("opens 만들기 behind a button, so the shelf is for using stickers", () => {
+    assert.match(html, /id="sticker-new"/);
+    assert.match(html, /id="sticker-make" hidden/);
+    assert.match(main, /function toggleStickerMake/);
+  });
+
+  it("gives the studio the whole sheet, with undo, cancel and crop", () => {
+    assert.match(html, /data-studio="crop"/);
+    assert.match(html, /id="sticker-undo"/);
+    assert.match(html, /id="sticker-cancel"/);
+    assert.match(main, /function syncStudioLayout/);
+    assert.match(main, /body\.scrollTop = 0/, "편집은 맨 위에서 시작한다");
+    assert.match(main, /function pushStudioUndo/);
+    assert.match(main, /studioUndo\.length > STUDIO_UNDO_LIMIT/, "되돌리기는 무한이 아니다");
+    assert.match(main, /function applyStudioCrop/);
   });
 });

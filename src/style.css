@@ -1828,8 +1828,9 @@ body {
   left: 50%;
   top: 50%;
   transform: translate(-50%, -50%);
-  width: min(360px, calc(100vw - 24px));
-  max-height: min(640px, calc(100dvh - 48px));
+  /* #411: 목록을 더 보여준다 — 칸이 커졌고 아래도 스크롤로 닿는다. */
+  width: min(420px, calc(100vw - 24px));
+  max-height: min(760px, calc(100dvh - 32px));
   display: flex;
   flex-direction: column;
   border: 1px solid var(--line);
@@ -1973,13 +1974,34 @@ body {
 .sticker-grid {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  min-height: 64px;
+  gap: 10px;
+  min-height: 88px;
+}
+
+/* #411: 만들기를 여는 버튼과 자를 자리 표시. */
+.sticker-new {
+  margin-left: auto;
+  margin-right: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  color: #5c574e;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.sticker-crop-box {
+  position: absolute;
+  border: 1px dashed #2c2a26;
+  background: rgba(44, 42, 38, 0.12);
+  pointer-events: none;
 }
 
 .sticker-cell {
-  width: 64px;
-  height: 64px;
+  /* #411: 64는 작아 안 보였다. */
+  width: 88px;
+  height: 88px;
   padding: 0;
   border: 1px solid var(--line);
   border-radius: 10px;
