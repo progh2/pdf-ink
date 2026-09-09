@@ -10361,7 +10361,19 @@ function renderStickerGrid() {
       const img = document.createElement("img");
       img.src = sticker.src;
       img.alt = sticker.name || "스티커";
-      cell.append(img);
+      // #409: 편집이 길게 누르기 안에만 있으면 못 찾는다 — 연필로 꺼내 둔다.
+      const edit = document.createElement("span");
+      edit.className = "sticker-edit";
+      edit.setAttribute("role", "button");
+      edit.setAttribute("aria-label", "스티커 편집");
+      edit.textContent = "✎";
+      edit.addEventListener("pointerdown", (event) => {
+        // 칸으로 번지면 종이에 붙는다 — 여기서 끊는다.
+        event.stopPropagation();
+        event.preventDefault();
+        openStudio(sticker.id);
+      });
+      cell.append(img, edit);
       bindStickerCell(cell, sticker);
       return cell;
     }),
