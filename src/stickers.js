@@ -387,6 +387,29 @@ export function floodErase(rgba, width, height, x, y, tolerance = CHROMA_TOLERAN
   return out;
 }
 
+/** #411: 드래그 두 점을 캔버스 안의 자를 사각형으로. 너무 작으면 통째로. */
+export const CROP_MIN_PX = 8;
+
+export function cropRectPixels(start, end, width, height, min = CROP_MIN_PX) {
+  const w = Math.max(1, Math.round(width));
+  const h = Math.max(1, Math.round(height));
+  const clamp = (value, limit) => Math.max(0, Math.min(limit, Math.round(Number(value) || 0)));
+  const x1 = clamp(start?.x, w);
+  const y1 = clamp(start?.y, h);
+  const x2 = clamp(end?.x, w);
+  const y2 = clamp(end?.y, h);
+  const box = {
+    x: Math.min(x1, x2),
+    y: Math.min(y1, y2),
+    w: Math.abs(x2 - x1),
+    h: Math.abs(y2 - y1),
+  };
+  if (box.w < min || box.h < min) {
+    return null;
+  }
+  return box;
+}
+
 export function pixelAt(rgba, width, x, y) {
   const i = (Math.round(y) * Math.max(1, Math.round(width)) + Math.round(x)) * 4;
   if (i < 0 || i + 3 >= rgba.length) {
