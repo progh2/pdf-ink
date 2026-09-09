@@ -239,3 +239,21 @@ describe("#386 오버레이 백지 검증", () => {
     assert.match(src, /sharpOverlayNote = `blank /);
   });
 });
+
+describe("#403 오버레이 TDZ 사고", () => {
+  it("clears the work canvas, never the not-yet-declared visible one", () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const src = readFileSync(join(here, "main.js"), "utf8");
+    const fn = src.slice(src.indexOf("async function paintSharpOverlay"), src.indexOf("function scheduleZoomRender"));
+    const head = fn.slice(0, fn.indexOf("const canvas = sharpOverlayCanvas()"));
+    assert.match(fn, /ctx\.clearRect\(0, 0, work\.width, work\.height\)/);
+    assert.doesNotMatch(head, /\bcanvas\.(width|height|style|hidden|getContext)/, "선언 전에 canvas를 만지면 TDZ로 튕긴다");
+  });
+
+  it("keeps an overlay failure out of the app error banner", () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const src = readFileSync(join(here, "main.js"), "utf8");
+    const fn = src.slice(src.indexOf("async function renderSharpOverlay"), src.indexOf("async function paintSharpOverlay"));
+    assert.match(fn, /catch \(error\)[\s\S]{0,160}console\.warn\("sharp overlay"/);
+  });
+});
