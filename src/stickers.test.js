@@ -480,3 +480,22 @@ describe("#407 찍은 지역만 지우기", () => {
     assert.deepEqual([...floodErase(cleared, 3, 3, 0, 0, CHROMA_TOLERANCE)], [...cleared]);
   });
 });
+
+describe("#409 편집으로 가는 길", () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const main = readFileSync(join(here, "main.js"), "utf8");
+  const css = readFileSync(join(here, "style.css"), "utf8");
+
+  it("puts an edit badge on every sticker, and a tap on it never lands on the paper", () => {
+    const grid = main.slice(main.indexOf('cell.className = "sticker-cell"'), main.indexOf("bindStickerCell(cell, sticker)"));
+    assert.match(grid, /class(Name)? = "sticker-edit"/);
+    assert.match(grid, /openStudio\(sticker\.id\)/, "한 번에 스튜디오로");
+    assert.match(grid, /event\.stopPropagation\(\)/, "칸으로 번지면 종이에 붙는다");
+    assert.match(css, /\.sticker-edit \{[\s\S]*position: absolute/);
+  });
+
+  it("keeps the old ways: tap places, hold opens 편집·삭제", () => {
+    assert.match(main, /if \(action === "edit"\) \{\s*openStudio\(id\);/);
+    assert.match(main, /openStickerMenu\(sticker\.id, cell\.getBoundingClientRect\(\)\)/);
+  });
+});
