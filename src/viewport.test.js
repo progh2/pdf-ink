@@ -257,3 +257,13 @@ describe("#403 오버레이 TDZ 사고", () => {
     assert.match(fn, /catch \(error\)[\s\S]{0,160}console\.warn\("sharp overlay"/);
   });
 });
+
+describe("#405 오버레이는 덧칠만 한다", () => {
+  it("paints no white under the slice, and asks pdf.js for a transparent background", () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const src = readFileSync(join(here, "main.js"), "utf8");
+    const fn = src.slice(src.indexOf("async function paintSharpOverlay"), src.indexOf("function scheduleZoomRender"));
+    assert.match(fn, /background: "rgba\(0,0,0,0\)"/);
+    assert.doesNotMatch(fn, /fillStyle = "#FFFFFF"/, "흰 칠은 이웃 페이지를 하얗게 만들었다");
+  });
+});

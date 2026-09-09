@@ -2095,8 +2095,8 @@ async function paintSharpOverlay(gen) {
     ctx.beginPath();
     ctx.rect(job.dx, job.dy, job.dw, job.dh);
     ctx.clip();
-    ctx.fillStyle = "#FFFFFF";
-    ctx.fillRect(job.dx, job.dy, job.dw, job.dh);
+    // #405: 흰 칠을 하지 않는다 — 오버레이는 덧칠하는 층이고, 못 그린 자리는
+    // 아래의 진짜 페이지가 비쳐야 한다(칠하면 재렌더 중인 이웃이 하얘졌다).
     const offX = job.dx - job.sx * job.pagePxW;
     const offY = job.dy - job.sy * job.pagePxH;
     if (leaf && leaf.kind !== "outline") {
@@ -2112,7 +2112,12 @@ async function paintSharpOverlay(gen) {
         const base = pdfPage.getViewport({ scale: 1, rotation });
         // #380: offsetX/offsetY 대신 공식 뷰어처럼 transform 행렬로 옮긴다.
         const viewport = pdfPage.getViewport({ scale: job.pagePxW / base.width, rotation });
-        await renderPdfToCanvas(pdfPage, ctx, { viewport, transform: [1, 0, 0, 1, offX, offY] });
+        await renderPdfToCanvas(pdfPage, ctx, {
+          viewport,
+          transform: [1, 0, 0, 1, offX, offY],
+          // #405: pdf.js 기본은 흰 배경이다 — 투명으로 그려야 덧칠이 된다.
+          background: "rgba(0,0,0,0)",
+        });
         painted = true;
       } catch (error) {
         if (error?.name === "RenderingCancelledException") {
