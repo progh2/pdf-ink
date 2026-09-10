@@ -250,8 +250,13 @@ function tracePath(ctx, points, canvas, scale, jitter = 0, salt = 0, startAt = 0
     ctx.stroke();
     return;
   }
-  const pts = points.map(at);
-  const begin = Math.min(Math.max(0, Math.round(startAt) || 0), pts.length - 1);
+  // #416: 긴 획에서 매 프레임 전 점을 다시 만들면 그만큼 버벅인다 — 그릴
+  // 구간(이웃 한 점 포함)만 만든다. 인덱스는 원본과 같게 둔다.
+  const begin = Math.min(Math.max(0, Math.round(startAt) || 0), points.length - 1);
+  const pts = [];
+  for (let index = Math.max(0, begin - 1); index < points.length; index += 1) {
+    pts[index] = at(points[index]);
+  }
   ctx.moveTo(pts[begin].x, pts[begin].y);
   for (let index = begin; index < pts.length - 1; index += 1) {
     const p0 = pts[index - 1] || pts[index];

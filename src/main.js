@@ -3255,6 +3255,7 @@ function moveStroke(event) {
   const chipsUp = Boolean(els.shapeChips && !els.shapeChips.hidden);
   const chipHit = Boolean(ignoreChipMountMoves) || eventHitsShapeChips(event);
   let append = true;
+  let jitterOnly = false;
   if (canShapeHold(state.currentStroke.type)) {
     const holdLocked = chipHit || chipsUp || shapeHold.isOffering() || shapeHold.isHoldLocked();
     append = shapeHold.noteMove({
@@ -3264,6 +3265,11 @@ function moveStroke(event) {
     });
     if (holdLocked || !append) {
       append = false;
+    }
+    // #416: 잔떨림이라고 버리면 글씨가 6px 격자로 뭉뚱그려진다 — 얼지 않았으면 받는다.
+    if (!append && !holdLocked && shapeHold.inkDuringJitter()) {
+      append = true;
+      jitterOnly = true;
     }
   } else if (chipHit) {
     append = false;
@@ -3279,7 +3285,9 @@ function moveStroke(event) {
     // #279: 예측 꼬리를 뺀다 — 모서리에서 옛 방향으로 살짝 튀었다 되돌아가
     // ㄴ 아래 가로가 짧게 들어갔다 사라져 보였다. 지연은 워커로 이미 낮다.
     predictedTail = [];
-    if (canShapeHold(state.currentStroke.type)) {
+    if (canShapeHold(state.currentStroke.type) && !jitterOnly) {
+      // #416: 떨림 구간은 기억하지 않는다 — 끝에서 얼 때 되돌아갈 자리는
+      // 떨리기 전이어야 #70의 끝단 누수가 재발하지 않는다.
       shapeHold.rememberPoints(state.currentStroke.points);
       frozenEndClient = client;
     }
