@@ -444,6 +444,13 @@ export function createShapeHold({
      * mutating it, and freezing copies, so a snapshot still cannot be moved
      * under our feet.
      */
+    /**
+     * #416: 잔떨림 판정은 도형 홀드의 것이지 잉크의 것이 아니다. 얼지도
+     * 제안 중도 아니면, 6px 안쪽 움직임도 글씨이므로 계속 받아야 한다.
+     */
+    inkDuringJitter() {
+      return armed && !frozen?.length && !offer;
+    },
     rememberPoints(points) {
       lastGood = Array.isArray(points) ? points : [];
     },

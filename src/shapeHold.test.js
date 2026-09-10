@@ -973,3 +973,45 @@ describe("#210 글씨를 얼리지 않는다", () => {
     assert.equal(hold.isFrozen(), true);
   });
 });
+
+describe("#416 잔떨림에도 잉크는 흐른다", () => {
+  it("lets ink through while jittering, but not once the shape froze", () => {
+    const clock = createClock();
+    const hold = createShapeHold({
+      holdMs: SHAPE_HOLD_MS,
+      now: clock.now,
+      setTimeoutFn: clock.setTimeoutFn,
+      clearTimeoutFn: clock.clearTimeoutFn,
+    });
+    const live = [{ x: 0.1, y: 0.1 }];
+    hold.begin({ tool: "pen", client: { x: 10, y: 10 }, getPoints: () => live, onOffer: () => {} });
+    // 한 획 긋고(유의미한 이동) 나면,
+    assert.equal(hold.noteMove({ client: { x: 60, y: 10 }, getPoints: () => live, onOffer: () => {} }), true);
+    live.push({ x: 0.5, y: 0.1 });
+    hold.rememberPoints(live); // main.js가 유의미한 이동마다 하는 일
+    // 6px 안쪽 떨림은 도형 판정에선 잔떨림이지만 잉크는 계속 흘러야 한다.
+    assert.equal(hold.noteMove({ client: { x: 62, y: 12 }, getPoints: () => live, onOffer: () => {} }), false, "도형 쪽은 무시");
+    assert.equal(hold.inkDuringJitter(), true, "얼지 않았으면 글씨는 이어진다");
+    // 400ms를 머물면 도형이 얼고, 그때부터는 잉크도 멈춘다.
+    clock.advance(SHAPE_HOLD_MS + 10);
+    hold.noteMove({ client: { x: 63, y: 13 }, getPoints: () => live, onOffer: () => {} });
+    assert.equal(hold.inkDuringJitter(), false, "얼거나 제안 중이면 멈춘다");
+  });
+
+  it("wires the ink-through-jitter path without remembering those points", () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const src = readFileSync(join(here, "main.js"), "utf8");
+    assert.match(src, /shapeHold\.inkDuringJitter\(\)\) \{\s*append = true;\s*jitterOnly = true;/);
+    assert.match(src, /canShapeHold\(state\.currentStroke\.type\) && !jitterOnly/, "떨림 구간은 스냅샷에 안 넣는다");
+  });
+});
+
+describe("#416 긴 획의 프레임 비용", () => {
+  it("maps only the stretch it is about to draw", () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const ink = readFileSync(join(here, "ink.js"), "utf8");
+    const fn = ink.slice(ink.indexOf("function tracePath"), ink.indexOf("export const STROKE_WIDTH_REF_CSS"));
+    assert.doesNotMatch(fn, /points\.map\(at\)/, "전 점을 매 프레임 다시 만들지 않는다");
+    assert.match(fn, /for \(let index = Math\.max\(0, begin - 1\)/);
+  });
+});
