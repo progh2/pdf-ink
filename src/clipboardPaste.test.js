@@ -40,9 +40,20 @@ describe("#219 바깥에서 복사해 온 것", () => {
 
   it("pulls the picture out of an html fragment", () => {
     assert.equal(imageSrcFromHtml('<meta><img src="data:image/png;base64,AA">'), "data:image/png;base64,AA");
-    assert.equal(imageSrcFromHtml("<img src='blob:https://x/y'>"), "blob:https://x/y");
     assert.equal(imageSrcFromHtml("<p>글자뿐</p>"), "");
     assert.equal(imageSrcFromHtml('<img src="javascript:alert(1)">'), "", "주소 아닌 것은 안 받는다");
+  });
+
+  it("keeps only raster data:image prefixes from html img src (#419)", () => {
+    assert.equal(imageSrcFromHtml('<img src="data:image/png;base64,AA">'), "data:image/png;base64,AA");
+    assert.equal(imageSrcFromHtml('<img src="data:image/jpeg;base64,AA">'), "data:image/jpeg;base64,AA");
+    assert.equal(imageSrcFromHtml('<img src="data:image/jpg;base64,AA">'), "data:image/jpg;base64,AA");
+    assert.equal(imageSrcFromHtml('<img src="DATA:IMAGE/WEBP;base64,AA">'), "DATA:IMAGE/WEBP;base64,AA");
+    assert.equal(imageSrcFromHtml('<img src="https://example.invalid/a.png">'), "", "원격은 굽는 동안 로드된다");
+    assert.equal(imageSrcFromHtml('<img src="http://example.invalid/a.jpg">'), "");
+    assert.equal(imageSrcFromHtml("<img src='blob:https://x/y'>"), "", "blob도 바깥 주소");
+    assert.equal(imageSrcFromHtml('<img src="data:image/svg+xml;utf8,<svg>">'), "", "SVG data URL은 거절");
+    assert.equal(imageSrcFromHtml('<img src="data:text/html,x">'), "");
   });
 
   it("wraps a vector so an <img> can read it — never a document that runs", () => {
@@ -85,6 +96,14 @@ describe("#219 바깥에서 복사해 온 것", () => {
     const found = await readClipboardImage(clipboard, async (blob) => `data:${blob}`);
     assert.equal(found.src, "data:blob:image/png");
     assert.deepEqual(await readClipboardImage(null, async () => "x"), { src: "", saw: "" });
+  });
+
+  it("does not read a remote html img as a drawable address (#419)", async () => {
+    const clipboard = {
+      read: async () => [{ types: ["text/html"], getType: async () => '<img src="https://example.invalid/a.png">' }],
+    };
+    const found = await readClipboardImage(clipboard, async () => "", async (blob) => blob);
+    assert.equal(found.src, "");
   });
 
   it("turns GoodNotes handwriting (a vector) into something drawable", async () => {
@@ -191,6 +210,19 @@ describe("#226 진짜 paste 이벤트", () => {
       data: { "text/html": '<img src="data:image/png;base64,AA">' },
     }));
     assert.equal(found.src, "data:image/png;base64,AA");
+  });
+
+  it("does not attach html whose img src is remote or blob (#419)", () => {
+    const remote = readPasteEvent(transfer({
+      types: ["text/html"],
+      data: { "text/html": '<img src="https://example.invalid/a.png">' },
+    }));
+    assert.equal(remote.src, "", "원격 img는 붙이지 않는다");
+    const blob = readPasteEvent(transfer({
+      types: ["text/html"],
+      data: { "text/html": "<img src='blob:https://x/y'>" },
+    }));
+    assert.equal(blob.src, "");
   });
 
   it("takes handwriting that arrived as a vector, even under text/plain", () => {
