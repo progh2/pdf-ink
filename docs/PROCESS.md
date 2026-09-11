@@ -413,3 +413,7 @@ Dropbox .ink 업로드가 리비전 없는 overwrite라 두 기기가 같은 판
 ## #416 필기가 6px 격자로 뭉뚱그려지던 것
 
 S26 울트라 S펜에서 빨리 쓰면 생략되고 천천히 쓰면 답답했다. 원인은 도형 홀드(#116·#70)의 잔떨림 판정이 잉크까지 막고 있던 것: `moveStroke`는 `shapeHold.noteMove()`가 false면 그 이벤트의 표본을 통째로 버리는데, noteMove는 직전 유의미한 점에서 6px 미만이면 잔떨림으로 보고 false를 준다. S펜은 240Hz로 보고하므로 보통 속도의 글씨는 표본 간격이 6px보다 작아 대부분이 버려졌고, 획이 6px 격자로 뭉뚱그려졌다 — 느릴수록 더 심하다. 이제 잔떨림 판정은 도형 홀드 상태기계에만 쓰고, 얼지도 제안 중도 아니면(`inkDuringJitter()`) 잉크는 계속 받는다. 다만 그 구간의 점은 rememberPoints로 기억하지 않는다 — 끝에서 멈춰 도형이 얼 때 되돌아갈 스냅샷이 떨림 이전이어야 #70의 끝단 누수가 재발하지 않는다(얼면 restoreFrozenStroke가 떨림을 걷어낸다). 덤으로 tracePath가 매 프레임 전 점을 화면 좌표로 다시 만들던 것을 그릴 구간만 만들도록 좁혔다 — 긴 획의 프레임 비용과 GC 압력이 줄어 빠른 필기의 끊김도 함께 나아진다.
+
+## #419 HTML 붙여넣기 img src는 data:image 래스터만
+
+방어 점검(시온). HTML 조각에서 꺼낸 img src가 http(s)·blob까지 통과해 굽는 동안 바깥 주소가 로드될 수 있었다. `imageSrcFromHtml`의 허용을 `acceptImageSrc`와 같이 `data:image/png|jpeg|jpg|webp`로 좁혔다. SVG data URL과 그 외는 빈 값. 굿노트 필기처럼 SVG 원문을 래스터로 굽는 길은 그대로다. 툴바·기능은 손대지 않았다.

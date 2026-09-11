@@ -1,4 +1,4 @@
-import { IMAGE_MIN_FRAC } from "./image.js";
+import { IMAGE_MIN_FRAC, acceptImageSrc } from "./image.js";
 
 /**
  * 바깥에서 복사해 온 것 붙여넣기 (#219).
@@ -35,12 +35,16 @@ export function findImageEntry(entries) {
   return null;
 }
 
-/** HTML 조각에서 그림 주소를 뽑는다. 굿노트가 `<img src="data:...">`로 줄 때. */
+/**
+ * HTML 조각에서 그림 주소를 뽑는다. 굿노트가 `<img src="data:...">`로 줄 때.
+ * #419: http(s)·blob은 굽는 동안 원격 주소가 로드되므로 data:image 래스터만.
+ * 허용 목록은 acceptImageSrc와 같다 — png/jpeg/jpg/webp. SVG data URL은 거절.
+ */
 export function imageSrcFromHtml(html) {
   const text = String(html || "");
   const tag = text.match(/<img\b[^>]*>/i)?.[0] || "";
   const src = tag.match(/\ssrc\s*=\s*"([^"]+)"/i)?.[1] || tag.match(/\ssrc\s*=\s*'([^']+)'/i)?.[1] || "";
-  return /^(data:image\/|blob:|https?:)/i.test(src) ? src : "";
+  return acceptImageSrc(src) ? src : "";
 }
 
 /** SVG 원문을 `<img>`가 읽을 수 있는 데이터 URL로. 실행이 아니라 그리기다. */
