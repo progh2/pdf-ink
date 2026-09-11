@@ -76,3 +76,41 @@ describe("#373 보안 헤더·iframe sandbox", () => {
     assert.match(src373, /setAttribute\("sandbox", "allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox"\)/);
   });
 });
+
+describe("#421 최소 CSP", () => {
+  it("pins deploy CSP to the Drive/Dropbox origins the modules already use", () => {
+    const here421 = dirname(fileURLToPath(import.meta.url));
+    const vercel = readFileSync(join(here421, "../vercel.json"), "utf8");
+    const gdrive = readFileSync(join(here421, "gdrive.js"), "utf8");
+    const dropbox = readFileSync(join(here421, "dropbox.js"), "utf8");
+    // #373 헤더는 그대로 — CSP만 얹는다.
+    assert.match(vercel, /X-Content-Type-Options/);
+    assert.match(vercel, /X-Frame-Options/);
+    assert.match(vercel, /Permissions-Policy/);
+    assert.match(vercel, /"key": "Content-Security-Policy"/);
+    assert.match(vercel, /object-src 'none'/);
+    assert.match(vercel, /base-uri 'self'/);
+    // XFO DENY와 맞춤. frame-src는 두지 않는다: Picker·GIS iframe과
+    // 분할 화면 외부 URL(#373)이 막히면 Drive/링크 분할이 죽는다.
+    assert.match(vercel, /frame-ancestors 'none'/);
+    assert.doesNotMatch(vercel, /frame-src/);
+    assert.doesNotMatch(vercel, /default-src/);
+    assert.match(gdrive, /https:\/\/accounts\.google\.com\/gsi\/client/);
+    assert.match(gdrive, /https:\/\/apis\.google\.com\/js\/api\.js/);
+    assert.match(gdrive, /https:\/\/www\.googleapis\.com/);
+    assert.match(dropbox, /https:\/\/www\.dropbox\.com/);
+    assert.match(dropbox, /https:\/\/api\.dropboxapi\.com/);
+    assert.match(dropbox, /https:\/\/content\.dropboxapi\.com/);
+    assert.match(
+      vercel,
+      /script-src 'self' https:\/\/accounts\.google\.com https:\/\/apis\.google\.com/,
+    );
+    assert.match(
+      vercel,
+      /connect-src 'self' https:\/\/www\.googleapis\.com https:\/\/accounts\.google\.com https:\/\/apis\.google\.com https:\/\/www\.dropbox\.com https:\/\/api\.dropboxapi\.com https:\/\/content\.dropboxapi\.com/,
+    );
+    // favicon·붙여넣기 래스터(#419)는 data:image. 워커는 self, pdf.js가 blob:을 쓰면 허용.
+    assert.match(vercel, /img-src 'self' data:/);
+    assert.match(vercel, /worker-src 'self' blob:/);
+  });
+});
