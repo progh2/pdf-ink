@@ -4,8 +4,9 @@ import { IMAGE_MIN_FRAC, acceptImageSrc } from "./image.js";
  * 바깥에서 복사해 온 것 붙여넣기 (#219).
  *
  * 굿노트 웹은 고른 필기를 **그림으로** 시스템 클립보드에 올린다. 그래서
- * 우리도 클립보드에서 그림을 찾아 이미지 항목으로 놓는다. 읽기는 사용자
- * 동작(홀드로 연 메뉴) 안에서만 하고, 거절당하면 조용히 없는 셈 친다.
+ * 우리도 클립보드에서 그림을 찾아 이미지 항목으로 놓는다. 읽기는 사용자가
+ * 붙여넣기를 실행할 때만 하고, 거절당하면 조용히 없는 셈 친다. 메뉴만 열
+ * 때는 앱 안 복사본만 본다 (#420) — 있나 확인하려고 열면 권한을 묻는다.
  */
 
 /** 바로 그릴 수 있는 그림. */
@@ -63,23 +64,15 @@ export function describeClipboard(entries) {
 }
 
 /**
- * 붙여넣을 것이 있나. 내 것(앱 안에서 복사한 항목)이 먼저고, 없으면 시스템
- * 클립보드에 그림이 있는지 본다. 못 읽으면 `false` — 있다고 속이지 않는다.
+ * 붙여넣을 것이 있나. 앱 안에서 복사한 항목만 본다 (#420).
+ * 두 번째 인자를 넘겨도 시스템 클립보드는 열지 않는다 — 메뉴 칸을 켤 때
+ * 읽으면 권한 창이 뜬다. 바깥 그림은 붙여넣기를 누를 때 `readClipboardImage`가 읽는다.
  */
-export async function pasteAvailability(inkClipboard, clipboard) {
+export function pasteAvailability(inkClipboard, _clipboard) {
   if ((inkClipboard || []).length) {
     return { ready: true, source: "ink" };
   }
-  if (!clipboard || typeof clipboard.read !== "function") {
-    return { ready: false, source: "" };
-  }
-  try {
-    const found = findImageEntry(await clipboard.read());
-    return found ? { ready: true, source: found.type } : { ready: false, source: "" };
-  } catch {
-    // 권한 거절·미지원: 모르는 것은 없는 것으로 둔다.
-    return { ready: false, source: "" };
-  }
+  return { ready: false, source: "" };
 }
 
 /**

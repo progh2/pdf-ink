@@ -5567,21 +5567,17 @@ function placeMarqueeMenuUi() {
 }
 
 /**
- * 붙여넣을 것이 있는지 보고 칸을 흐리게 한다 (#219). 시스템 클립보드는
- * 물어봐야 알 수 있어 비동기다 — 먼저 내 것으로 판단해 놓고, 답이 오면 고친다.
+ * 붙여넣을 것이 있는지 보고 칸을 흐리게 한다 (#219).
+ * #420: 시스템 클립보드는 열지 않는다 — 메뉴만 열어도 읽기 권한을 묻기 때문.
+ * 칸은 앱 안 inkClipboard만으로 켠다. 바깥 그림은 붙여넣기를 누를 때 읽는다.
  */
 function refreshPasteCell() {
   const cell = els.marqueeMenu?.querySelector('[data-marquee="paste"]');
   if (!cell) {
     return;
   }
-  const mine = state.inkClipboard.length > 0;
+  const mine = pasteAvailability(state.inkClipboard).ready;
   cell.disabled = !mine;
-  pasteAvailability(state.inkClipboard, navigator.clipboard).then((found) => {
-    if (!els.marqueeMenu?.hidden) {
-      cell.disabled = !found.ready;
-    }
-  });
 }
 
 function showMarqueeMenu() {
