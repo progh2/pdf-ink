@@ -69,25 +69,22 @@ describe("#219 바깥에서 복사해 온 것", () => {
   });
 
   describe("붙여넣을 것이 있나", () => {
-    it("says yes at once when the app itself holds something", async () => {
-      const out = await pasteAvailability([{ type: "pen" }], null);
+    it("says yes at once when the app itself holds something", () => {
+      const out = pasteAvailability([{ type: "pen" }], null);
       assert.deepEqual(out, { ready: true, source: "ink" });
     });
 
-    it("looks in the system clipboard when the app holds nothing", async () => {
-      const clipboard = { read: async () => [entry(["image/png"])] };
-      assert.deepEqual(await pasteAvailability([], clipboard), { ready: true, source: "image/png" });
-    });
-
-    it("says no — never maybe — when the clipboard has no picture", async () => {
-      const clipboard = { read: async () => [entry(["text/plain"])] };
-      assert.deepEqual(await pasteAvailability([], clipboard), { ready: false, source: "" });
-    });
-
-    it("treats a refused clipboard as empty instead of throwing", async () => {
-      const denied = { read: async () => { throw new Error("NotAllowedError"); } };
-      assert.deepEqual(await pasteAvailability([], denied), { ready: false, source: "" });
-      assert.deepEqual(await pasteAvailability([], undefined), { ready: false, source: "" });
+    it("does not open the system clipboard to decide (#420)", () => {
+      let reads = 0;
+      const clipboard = {
+        read: () => {
+          reads += 1;
+          return [entry(["image/png"])];
+        },
+      };
+      assert.deepEqual(pasteAvailability([], clipboard), { ready: false, source: "" });
+      assert.equal(reads, 0, "메뉴 칸을 켤 때 읽기 권한을 묻지 않는다");
+      assert.deepEqual(pasteAvailability(undefined), { ready: false, source: "" });
     });
   });
 
@@ -151,8 +148,9 @@ describe("#219 배선", () => {
   it("offers 붙여넣기 on the area menu, greyed out when there is nothing", () => {
     assert.match(html, /data-marquee="paste">붙여넣기/);
     const refresh = main.slice(main.indexOf("function refreshPasteCell"), main.indexOf("function showMarqueeMenu"));
-    assert.match(refresh, /cell\.disabled = !mine/, "먼저 내 것으로 판단하고");
-    assert.match(refresh, /pasteAvailability\(state\.inkClipboard, navigator\.clipboard\)/, "클립보드 답이 오면 고친다");
+    assert.match(refresh, /cell\.disabled = !mine/, "내 것으로만 칸을 켠다");
+    // #420: 시스템 클립보드를 열어 칸을 고치면 메뉴만 열어도 읽기 권한을 묻는다.
+    assert.doesNotMatch(refresh, /navigator\.clipboard/, "메뉴 오픈은 클립보드를 안 연다");
   });
 
   it("opens the paste-only menu at a point (right-click), showing only 붙여넣기", () => {
@@ -367,5 +365,41 @@ describe("#351 최소 크기 일관·종횡비", () => {
     const at = pastePlacement({ x: 0.5, y: 0.5 }, { w: 0.4, h: 0.2 });
     assert.equal(at.w, 0.4);
     assert.equal(at.h, 0.2);
+  });
+});
+
+describe("#420 메뉴 오픈은 클립보드를 열지 않는다", () => {
+  const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+  const src = readFileSync(join(root, "src/clipboardPaste.js"), "utf8");
+  const main = readFileSync(join(root, "src/main.js"), "utf8");
+
+  it("pasteAvailability never calls clipboard.read, even if a clipboard is passed", () => {
+    const fn = src.slice(src.indexOf("export function pasteAvailability"), src.indexOf("export async function readClipboardImage"));
+    assert.doesNotMatch(fn, /clipboard\.read/, "있나 확인하려고 열지 않는다");
+    let reads = 0;
+    const clipboard = { read: () => { reads += 1; return [entry(["image/png"])]; } };
+    assert.deepEqual(pasteAvailability([], clipboard), { ready: false, source: "" });
+    assert.equal(reads, 0);
+  });
+
+  it("opening the marquee/paste menu does not call clipboard.read", () => {
+    const refresh = main.slice(main.indexOf("function refreshPasteCell"), main.indexOf("function showMarqueeMenu"));
+    assert.match(refresh, /pasteAvailability\(state\.inkClipboard\)/, "내 것만 본다");
+    assert.doesNotMatch(refresh, /navigator\.clipboard/, "메뉴 오픈은 시스템 클립보드를 안 본다");
+    assert.doesNotMatch(refresh, /clipboard\.read/);
+    const show = main.slice(main.indexOf("function showMarqueeMenu"), main.indexOf("function showPasteMenuAt"));
+    assert.match(show, /refreshPasteCell\(\)/);
+    assert.doesNotMatch(show, /clipboard\.read/);
+    const pasteMenu = main.slice(main.indexOf("function showPasteMenuAt"), main.indexOf("function restoreMarqueeCells"));
+    assert.match(pasteMenu, /refreshPasteCell\(\)/);
+    assert.doesNotMatch(pasteMenu, /clipboard\.read/);
+    assert.doesNotMatch(pasteMenu, /navigator\.clipboard/);
+  });
+
+  it("the actual paste action still reads, and native paste still uses the event", () => {
+    const paste = main.slice(main.indexOf("async function pasteHere"), main.indexOf("async function onNativePaste"));
+    assert.match(paste, /readClipboardImage\(navigator\.clipboard/, "붙여넣기를 누를 때는 그대로 읽는다");
+    assert.match(main, /document\.addEventListener\("paste", onNativePaste\)/);
+    assert.match(main, /readPasteEvent\(event\.clipboardData\)/);
   });
 });

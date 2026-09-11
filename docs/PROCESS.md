@@ -417,3 +417,7 @@ S26 울트라 S펜에서 빨리 쓰면 생략되고 천천히 쓰면 답답했�
 ## #419 HTML 붙여넣기 img src는 data:image 래스터만
 
 방어 점검(시온). HTML 조각에서 꺼낸 img src가 http(s)·blob까지 통과해 굽는 동안 바깥 주소가 로드될 수 있었다. `imageSrcFromHtml`의 허용을 `acceptImageSrc`와 같이 `data:image/png|jpeg|jpg|webp`로 좁혔다. SVG data URL과 그 외는 빈 값. 굿노트 필기처럼 SVG 원문을 래스터로 굽는 길은 그대로다. 툴바·기능은 손대지 않았다.
+
+## #420 메뉴 오픈은 clipboard.read를 부르지 않는다
+
+방어 점검(시온). 마퀴/붙여넣기 메뉴를 열 때 `refreshPasteCell` → `pasteAvailability`가 `navigator.clipboard.read()`로 「있나」만 확인해, 칸을 켤 목적으로 읽기 권한을 물었다. 칸은 앱 안 `inkClipboard`만으로 켜고, 시스템 클립보드는 사용자가 붙여넣기를 누를 때(`readClipboardImage`)와 네이티브 `paste` 이벤트에서만 읽는다. 툴바·기능은 손대지 않았다.
