@@ -103,14 +103,15 @@ describe("#69 stamp ghost 40% 108×64", () => {
       "highlighter",
       "pencil",
       "eraser",
-      "pan",
       "select",
+      "stamp",
       "undo",
       "redo",
       "more",
     ]);
     assert.equal((html.match(/class="toolbar"/g) || []).length, 1);
-    assert.doesNotMatch(html, /data-more="stamp"|id="stamp-btn"/); // #401: 도장은 기본 스티커가 됐다
+    assert.match(toolbar, /id="stamp-btn"/); // #56: 스탬프는 바 칸
+    assert.doesNotMatch(html, /data-more="stamp"/); // #401: ⋯에는 안 남김
     assert.doesNotMatch(toolbar, /stamp-ghost|ghost-btn|id="stamp-preview"|#68|rotateHandle|crop-handle/);
     assert.doesNotMatch(html, /id="m4-bar"|id="m4-rail"/);
   });
