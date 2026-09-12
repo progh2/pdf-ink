@@ -209,6 +209,7 @@ export function rectBigEnough(rect, minNorm = 0.012) {
 export const M4_OVERFLOW_ITEMS = [
   "fullscreen",
   "image",
+  "importpages", // #425: 이미지·PDF를 지금 쪽 다음에 쪽으로
   "sticker",
   "rotate",
   "pagecopy",
@@ -226,6 +227,7 @@ export const M4_OVERFLOW_LABELS = {
   capture: "영역캡처",
   fullscreen: "전체화면",
   image: "이미지",
+  importpages: "페이지 추가·가져오기",
   sticker: "스티커",
   rotate: "회전",
   pagecopy: "이 쪽 복사",

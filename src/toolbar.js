@@ -41,6 +41,7 @@ export const COLOR_DOT_TOOLS = ["pen", "highlighter", "pencil"];
 export const BAR_OVERFLOW_ITEMS = [
   "fullscreen",
   "image",
+  "importpages", // #425: 지금 쪽 다음에 이미지·PDF 쪽
   "sticker",
   "rotate",
   "pagecopy",

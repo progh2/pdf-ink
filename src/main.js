@@ -397,6 +397,12 @@ import {
   resizeImage,
   trueSizeOnPage,
 } from "./image.js";
+import {
+  IMPORT_ACCEPT,
+  classifyImportFile,
+  importedLeafId,
+  insertImportedAfter,
+} from "./importPages.js";
 import { addRotation, angleDegFromCenter, imagePaintDest, normalizeRotation, rotateItems, rotateSelectedItems } from "./rotate.js";
 import {
   filterLeaves,
@@ -553,6 +559,8 @@ const els = {
   stampBtn: document.querySelector("#stamp-btn"),
   morePanel: document.querySelector("#more-panel"),
   imageInput: document.querySelector("#image-input"),
+  importPages: document.querySelector("#import-pages"),
+  importPagesInput: document.querySelector("#import-pages-input"),
   previewDrawer: document.querySelector("#preview-drawer"),
   pageMenu: document.querySelector("#page-menu"),
   updateNote: document.querySelector("#update-note"),
@@ -7667,6 +7675,105 @@ async function pasteFromShelf(entry) {
   flashBanner(`${state.page + 1}쪽에 붙여넣었습니다.`);
 }
 
+function importPageBox(imgWidth, imgHeight) {
+  const view = state.pageViews.find((item) => item.pageNum === state.page);
+  const pageW = view?.cssWidth || state.pageCssWidth || 400;
+  const pageH = view?.cssHeight || state.pageCssHeight || 600;
+  return containBoxOnPage(imgWidth, imgHeight, pageW, pageH);
+}
+
+async function specsFromImageFile(file) {
+  const raw = await readFileDataUrl(file);
+  if (!acceptImageSrc(raw)) {
+    throw new Error("image");
+  }
+  const img = await loadHtmlImage(raw);
+  const box = importPageBox(img.naturalWidth || img.width, img.naturalHeight || img.height);
+  return [
+    {
+      id: importedLeafId(),
+      title: file.name || "가져온 쪽",
+      items: [imageItem({ ...box, src: raw, locked: true })],
+    },
+  ];
+}
+
+async function specsFromPdfFile(file) {
+  const check = await validatePdfContents(file);
+  if (!check.ok) {
+    throw new Error(check.message || "pdf");
+  }
+  const buffer = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: buffer.slice(0) }).promise;
+  try {
+    const specs = [];
+    const count = pdf.numPages || 0;
+    for (let pageNum = 1; pageNum <= count; pageNum += 1) {
+      const page = await pdf.getPage(pageNum);
+      const base = page.getViewport({ scale: 1 });
+      const viewport = page.getViewport({ scale: 1000 / Math.max(1, base.width) });
+      const canvas = offscreenCanvas(Math.round(viewport.width), Math.round(viewport.height));
+      const ctx = canvas2d(canvas);
+      ctx.fillStyle = "#FFFFFF";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      await renderPdfToCanvas(page, ctx, { viewport });
+      const src = canvas.toDataURL("image/jpeg", 0.82);
+      const box = importPageBox(viewport.width, viewport.height);
+      specs.push({
+        id: importedLeafId(),
+        title: count > 1 ? `${file.name || "PDF"} ${pageNum}` : file.name || "가져온 쪽",
+        items: [imageItem({ ...box, src, locked: true })],
+      });
+    }
+    return specs;
+  } finally {
+    await pdf.destroy();
+  }
+}
+
+/** #425: 고른 이미지·PDF를 지금 쪽 바로 다음에 쪽으로 끼운다. */
+async function importPagesFromFile(file) {
+  if (state.interactMode === "view") {
+    flashBanner("보기 중입니다. 자물쇠를 풀면 넣을 수 있습니다.");
+    return;
+  }
+  const classified = classifyImportFile(file);
+  if (classified.kind === "reject") {
+    flashBanner(classified.message);
+    return;
+  }
+  flashBanner("페이지를 넣는 중…");
+  try {
+    const specs = classified.kind === "pdf" ? await specsFromPdfFile(file) : await specsFromImageFile(file);
+    if (!specs.length) {
+      flashBanner("넣을 페이지가 없습니다.");
+      return;
+    }
+    const index = state.page - 1;
+    commitBulkChange(() => {
+      const out = insertImportedAfter(state.leaves, state.pages, index, specs);
+      state.leaves = out.leaves;
+      state.pages = out.pages;
+    });
+    afterPageOp(index + 2);
+    flashBanner(specs.length === 1 ? `${index + 2}쪽에 넣었습니다.` : `${specs.length}쪽을 ${index + 2}쪽부터 넣었습니다.`);
+  } catch {
+    flashBanner("페이지를 넣지 못했습니다.");
+  }
+}
+
+function pickImportPages() {
+  if (state.interactMode === "view") {
+    flashBanner("보기 중입니다. 자물쇠를 풀면 넣을 수 있습니다.");
+    return;
+  }
+  if (!els.importPagesInput) {
+    return;
+  }
+  els.importPagesInput.value = "";
+  els.importPagesInput.click();
+}
+
 function movePageByDrag(from, to) {
   if (from === to) {
     return;
@@ -10961,6 +11068,12 @@ function selectMoreAction(action) {
     els.imageInput.click();
     return;
   }
+  if (action === "importpages") {
+    closeMorePanel();
+    ignoreAfterPanel = true;
+    pickImportPages();
+    return;
+  }
   if (action === "sticker") {
     closeMorePanel();
     ignoreAfterPanel = true;
@@ -12196,6 +12309,17 @@ els.imageInput.addEventListener("change", () => {
     addImageFile(file);
   }
 });
+if (els.importPagesInput) {
+  els.importPagesInput.accept = IMPORT_ACCEPT;
+}
+els.importPagesInput.addEventListener("change", () => {
+  const file = els.importPagesInput.files?.[0];
+  els.importPagesInput.value = "";
+  if (file) {
+    importPagesFromFile(file);
+  }
+});
+els.importPages.addEventListener("click", pickImportPages);
 els.previewClose.addEventListener("click", closePreview);
 els.previewDrawer?.addEventListener("pointerdown", (event) => {
   if (!event.target.closest(".preview-row")) {
