@@ -40,6 +40,7 @@ describe("M4 #25 chrome", () => {
     assert.deepEqual(M4_OVERFLOW_ITEMS, [
       "fullscreen",
       "image",
+      "importpages", // #425: 지금 쪽 다음에 이미지·PDF 쪽
       "sticker",
       "rotate",
       "pagecopy",

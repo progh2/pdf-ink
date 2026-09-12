@@ -221,6 +221,7 @@
       <div class="slot-panel more-panel" id="more-panel" hidden>
         <button type="button" data-more="fullscreen" id="fullscreen-item">전체화면</button>
         <button type="button" data-more="image">이미지</button>
+        <button type="button" data-more="importpages">페이지 추가·가져오기</button>
         <button type="button" data-more="sticker">스티커</button>
         <div class="more-rotate">
           <button type="button" data-rotate="-90">왼쪽</button>
@@ -239,6 +240,7 @@
       </div>
 
       <input id="image-input" type="file" accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp" hidden />
+      <input id="import-pages-input" type="file" accept="image/jpeg,image/png,image/webp,image/*,application/pdf,.pdf,.jpg,.jpeg,.png,.webp" hidden />
 
       <aside class="preview-drawer" id="preview-drawer" hidden>
         <div class="preview-grip" id="preview-grip" aria-hidden="true"></div>
@@ -259,6 +261,7 @@
           <div class="preview-list" id="preview-list">
             <div class="preview-drop" id="preview-drop" hidden></div>
           </div>
+          <button type="button" class="preview-insert" id="import-pages">페이지 가져오기</button>
           <button type="button" class="preview-insert" id="outline-insert">빈 쪽 넣기</button>
         </div>
         <div class="preview-toc" id="preview-toc" hidden>
