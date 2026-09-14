@@ -68,10 +68,18 @@ export function insertImportedAfter(leaves, pages, index, specs) {
   let at = Math.min(Math.max(0, Number(index) + 1), list.length);
   const firstAt = at;
   for (const spec of items) {
-    const leaf = makeOutlineLeaf(spec.id, { title: spec.title || "가져온 쪽" });
+    const leaf = makeOutlineLeaf(spec.id, { title: spec.title || "가져온 쪽", imported: true });
     list.splice(at, 0, leaf);
     nextPages[inkKey(leaf)] = Array.isArray(spec.items) ? spec.items.slice() : [];
     at += 1;
   }
   return { leaves: list, pages: nextPages, firstAt, count: items.length };
+}
+
+/** #428: 비동기 변환 중 이동해도 시작한 잎 뒤에 넣고, 다른 문서에는 넣지 않는다. */
+export function importTargetIndex(target, current) {
+  if (!target || target.identity !== current.identity || target.gen !== current.gen || current.interactMode === "view") {
+    return -1;
+  }
+  return (current.leaves || []).findIndex((leaf) => leaf.id === target.leafId);
 }

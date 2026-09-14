@@ -1,3 +1,4 @@
+// #428: 문서별 비동기 작업·확정 목록·고정 삽입 위치에 맞춰 배선 핀을 갱신했다. 동작은 previewLifecycle.test.js에서 검증한다.
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { readFileSync } from "node:fs";
@@ -86,7 +87,7 @@ describe("#338 유령 리프 차단 배선", () => {
   const src = readFileSync(join(here, "main.js"), "utf8");
 
   it("merges remote leaves against the real PDF page count, not the leaf count", () => {
-    const uses = src.match(/normalizeLeaves\(remote\.leaves, state\.pdf\?\.numPages \|\| state\.pageCount \|\| remote\.leaves\.length\)/g) || [];
+    const uses = src.match(/normalizeSavedLeaves\(remote, state\.pdf\?\.numPages \|\| state\.pageCount \|\| remote\.leaves\.length\)/g) || [];
     assert.equal(uses.length, 2, "채택부 두 곳 모두");
   });
 

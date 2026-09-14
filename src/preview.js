@@ -32,6 +32,8 @@ export function makeOutlineLeaf(id, extras = {}) {
     bookmark: Boolean(extras.bookmark),
     rotate: normalizeRotation(extras.rotate || 0),
     title: extras.title || "빈 쪽",
+    // #428: 예전 가져온 잎은 ID 접두어로도 식별한다. 파일명을 종류로 쓰지 않는다.
+    ...((extras.imported || /^o:(imp|shelf|mv)-/.test(key)) ? { imported: true } : {}),
   };
 }
 
@@ -55,7 +57,7 @@ function uniqueId(base, used) {
   return id;
 }
 
-export function normalizeLeaves(leaves, pageCount) {
+export function normalizeLeaves(leaves, pageCount, { complete = false } = {}) {
   const n = Math.max(0, Math.round(Number(pageCount) || 0));
   if (!Array.isArray(leaves) || !leaves.length) {
     return defaultLeaves(n);
@@ -82,6 +84,8 @@ export function normalizeLeaves(leaves, pageCount) {
       out.push(leaf);
     }
   }
+  // #428: 버전이 있는 저장본은 의도적으로 지운 쪽을 다시 채우지 않는다.
+  if (complete && out.length) return out;
   for (let page = 1; page <= n; page += 1) {
     if (seen.has(page)) {
       continue;
@@ -96,6 +100,11 @@ export function normalizeLeaves(leaves, pageCount) {
     }
   }
   return out;
+}
+
+/** 옛 저장본의 누락 보충은 유지하고 새 목록만 확정된 문서 구성으로 취급한다. */
+export function normalizeSavedLeaves(record, pageCount) {
+  return normalizeLeaves(record?.leaves, pageCount, { complete: record?.leavesVersion === 1 });
 }
 
 /**
@@ -147,7 +156,7 @@ export function filterLeaves(leaves, mode) {
     return (leaves || []).filter((leaf) => leaf.bookmark);
   }
   if (mode === "outline") {
-    return (leaves || []).filter((leaf) => leaf.kind === "outline");
+    return (leaves || []).filter((leaf) => leaf.kind === "outline" && !leaf.imported);
   }
   return leaves || [];
 }
