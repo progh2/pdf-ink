@@ -195,8 +195,9 @@ describe("#277 새로고침·재열기 후 클라우드 문서 복원", () => {
   const root = join(dirname(fileURLToPath(import.meta.url)), "..");
   const main = readFileSync(join(root, "src/main.js"), "utf8");
 
+  // #430: 저장소 복원 단계가 길어져도 문서 열기 함수 전체를 검사한다.
   it("rebuilds the dropbox doc from the identity when it is not in memory", () => {
-    const open = main.slice(main.indexOf("async function openPdfBuffer"), main.indexOf("async function openPdfBuffer") + 1200);
+    const open = main.slice(main.indexOf("async function openPdfBuffer"), main.indexOf("async function openSelectedFile"));
     assert.match(open, /const path = dbxId\.slice\("dbx::"\.length\)/);
     assert.match(open, /state\.dropboxDoc = \{ path, name:/);
     // #362: 다른 문서로 바꾸면 반드시 재구성 — 잔존 doc이 사이드카를 공유시켰다.
@@ -204,7 +205,7 @@ describe("#277 새로고침·재열기 후 클라우드 문서 복원", () => {
   });
 
   it("rebuilds the drive doc too", () => {
-    const open = main.slice(main.indexOf("async function openPdfBuffer"), main.indexOf("async function openPdfBuffer") + 1600);
+    const open = main.slice(main.indexOf("async function openPdfBuffer"), main.indexOf("async function openSelectedFile"));
     // #362: id가 다르면 재구성.
     assert.match(open, /!state\.driveDoc \|\| state\.driveDoc\.id !== driveId/);
     assert.match(open, /state\.driveDoc = \{ id: driveId,/);
