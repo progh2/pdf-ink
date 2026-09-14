@@ -21,7 +21,7 @@ import {
   loadThumb,
   loadThumbEntries,
   loadStickers,
-  loadStrokes,
+  loadSavedStrokes,
   migrateLastIntoFiles,
   saveCaptures,
   saveInkImages,
@@ -965,6 +965,7 @@ function noticeViewMode() {
 
 let strokesDirty = false;
 let strokeSaveTimer = 0;
+let strokeSaveAttempt = 0;
 
 /**
  * 이 저장이 획 사이의 끊김이었다 (#208): 획 하나 끝날 때마다 **문서 전체**
@@ -974,29 +975,46 @@ let strokeSaveTimer = 0;
 // #390: 이미지 저장 실패는 문서당 한 번만 알린다(성공하면 다시 열린다).
 let inkImageWarned = false;
 
+const STROKE_READ_FAILURE = "저장된 필기를 읽지 못했습니다. 이 탭을 유지하고 잠시 후 다시 열어 주세요.";
+const STROKE_SAVE_FAILURE = "필기를 기기에 저장하지 못했습니다. 탭을 닫기 전에 ⋯ → 내보내기로 PDF를 보관해 주세요.";
+
 function writeStrokesNow() {
   if (!strokesDirty || !state.identity) {
     return;
   }
   strokesDirty = false;
-  // #273: 이미지 dataURL은 무거워 localStorage를 넘친다. 가벼운 필기만 여기,
-  // 이미지 원본은 IndexedDB로 뺀다.
+  // #430: 비동기 저장의 실패가 나중에 열린 다른 문서를 더럽히지 않는다.
+  const identity = state.identity;
+  const pages = state.pages;
+  const attempt = ++strokeSaveAttempt;
+  const current = () => state.identity === identity && state.pages === pages && strokeSaveAttempt === attempt;
+  const failed = (error) => {
+    console.warn("saveStrokes", error);
+    if (current()) {
+      strokesDirty = true;
+      showBanner(STROKE_SAVE_FAILURE);
+    }
+  };
+  // #273: 이미지 원본은 별도 저장하고 필기 스냅샷에는 배치 정보만 남긴다.
   const { light, images } = stripImages(state.pages);
   try {
-    saveStrokes(state.identity, light, state.leaves, state.outline, state.inkGone);
-    state.leavesVersion = 1;
-  } catch {
-    showBanner("필기를 저장하지 못했습니다. 브라우저 저장 공간이 부족할 수 있습니다.");
+    saveStrokes(state.identity, light, state.leaves, state.outline, state.inkGone)
+      .then(() => {
+        if (!current()) return;
+        state.leavesVersion = 1;
+        if (els.banner.textContent === STROKE_SAVE_FAILURE) showBanner("");
+      }, failed);
+  } catch (error) {
+    failed(error);
   }
   saveInkImages(state.identity, images, liveImageIds(state.pages))
     .then(() => {
-      inkImageWarned = false;
+      if (current()) inkImageWarned = false;
     })
     .catch((error) => {
-      // #372: 이미지 원본 저장 실패를 조용히 삼키면 재시작 때 그림이 사라진다.
-      // #390: 다만 showBanner는 안 사라진다 — 자동 소멸 배너로, 문서당 한 번만.
-      strokesDirty = true;
       console.warn("saveInkImages", error);
+      if (!current()) return;
+      strokesDirty = true;
       if (!inkImageWarned) {
         inkImageWarned = true;
         flashBanner("이미지를 저장하지 못했습니다. 저장 공간이 부족할 수 있습니다.", 4000);
@@ -2534,8 +2552,8 @@ async function openStoredDocument(identity) {
       page: row.page || 1,
       handle: row.handle || null,
     });
-  } catch {
-    showBanner("저장된 파일을 열 수 없습니다.");
+  } catch (error) {
+    showBanner(error?.name === "InkStorageReadError" ? STROKE_READ_FAILURE : "저장된 파일을 열 수 없습니다.");
   }
 }
 
@@ -2763,6 +2781,17 @@ async function openPdfBuffer(buffer, { identity, name, page = 1, handle = null }
   const gen = ++openGen;
   // #208: 아직 안 쓴 필기는 지금 문서 것이다 — 정체가 바뀌기 전에 쓴다.
   writeStrokesNow();
+  let stored;
+  try {
+    stored = await loadSavedStrokes(identity);
+  } catch (error) {
+    // #430: 저장소를 읽지 못한 문서를 빈 필기로 열면 다음 저장 때 덮어쓰게 된다.
+    if (gen === openGen) showBanner(STROKE_READ_FAILURE);
+    const failure = new Error(STROKE_READ_FAILURE, { cause: error });
+    failure.name = "InkStorageReadError";
+    throw failure;
+  }
+  if (gen !== openGen) return;
   inkImageWarned = false; // #390
   // #356: 옛 문서를 향해 걸려 있던 자동저장은 여기서 끊는다.
   window.clearTimeout(autosaveTimer);
@@ -2813,7 +2842,6 @@ async function openPdfBuffer(buffer, { identity, name, page = 1, handle = null }
   state.identity = identity;
   state.fileName = name;
   state.buffer = buffer;
-  const stored = loadStrokes(identity);
   state.inkGone = sanitizeGone(stored.gone);
   // #273: localStorage엔 이미지 src가 비어 있다. IndexedDB에서 원본을 붙인다.
   try {
@@ -2835,6 +2863,7 @@ async function openPdfBuffer(buffer, { identity, name, page = 1, handle = null }
   state.pageCount = state.leaves.length;
   state.page = Math.min(Math.max(1, page), state.pageCount);
   state.pages = stored.pages;
+  strokesDirty = !!stored.unsaved; // #430: 이전 저장이 실패한 스냅샷은 다음 기회에 재시도.
   state.outline = normalizeOutline(stored.outline, state.leaves);
   anchorLinkFixesNow();
   await importPdfOutline(pdf);
@@ -2855,6 +2884,7 @@ async function openPdfBuffer(buffer, { identity, name, page = 1, handle = null }
   hideSyncNote();
   showDocumentUi();
   showBanner("");
+  if (stored.unsaved) scheduleStrokeSave(); // #430: 다시 연 실패 기록을 재시도.
   await rebuildPages();
   if (gen !== openGen) {
     return; // #358: 세션·동기화 감시는 마지막 문서만.
@@ -2886,8 +2916,8 @@ async function openSelectedFile(file, handle = null) {
       name: file.name,
       handle,
     });
-  } catch {
-    showBanner("PDF를 열 수 없습니다. 다른 파일을 선택해 주세요.");
+  } catch (error) {
+    showBanner(error?.name === "InkStorageReadError" ? STROKE_READ_FAILURE : "PDF를 열 수 없습니다. 다른 파일을 선택해 주세요.");
   } finally {
     els.fileInput.value = "";
   }
@@ -4980,7 +5010,13 @@ async function openInkMove() {
     return;
   }
   for (const row of others) {
-    const record = loadStrokes(row.identity);
+    let record;
+    try {
+      record = await loadSavedStrokes(row.identity);
+    } catch {
+      showBanner(STROKE_READ_FAILURE);
+      return;
+    }
     const inked = inkedPagesOf(record);
     const button = document.createElement("button");
     button.type = "button";
@@ -8911,13 +8947,19 @@ async function openDropboxFile(entry) {
       return;
     }
     closeDropboxSheet();
-    state.dropboxDoc = doc;
     showBanner("");
     await openPdfBuffer(buffer, { identity: dropboxIdentity(doc), name: doc.name });
+    // #430: 저장소 복원이 실패하면 기존 문서의 업로드 대상을 유지한다.
+    if (state.identity !== dropboxIdentity(doc)) return;
+    state.dropboxDoc = doc;
     await loadInkSidecar(doc);
     await rebuildPages();
     await downloadThumbPack(doc);
-  } catch {
+  } catch (error) {
+    if (error?.name === "InkStorageReadError") {
+      showBanner(STROKE_READ_FAILURE);
+      return;
+    }
     flashBanner("드롭박스에서 열지 못했습니다.");
   }
 }
@@ -9249,13 +9291,18 @@ async function openDriveFile(picked) {
       flashBanner(check.message);
       return;
     }
-    state.driveDoc = doc;
-    state.driveSidecarId = "";
     showBanner("");
     await openPdfBuffer(buffer, { identity: driveIdentity(doc), name: doc.name });
+    if (state.identity !== driveIdentity(doc)) return;
+    state.driveDoc = doc;
+    state.driveSidecarId = "";
     await loadDriveSidecar(doc);
     await rebuildPages();
   } catch (error) {
+    if (error?.name === "InkStorageReadError") {
+      showBanner(STROKE_READ_FAILURE);
+      return;
+    }
     // The status tells us whether it was the grant, the scope or the network.
     const why = error?.message ? ` (${error.message})` : "";
     flashBanner(`구글 드라이브에서 열지 못했습니다.${why}`, 3200);
@@ -9989,7 +10036,7 @@ async function flattenAfterWriteBack(blob) {
   // Rotation, duplicates and blank pages are baked in: the leaves start over.
   const outline = flattenOutline(state.outline, state.leaves);
   try {
-    saveStrokes(state.identity, {}, null, outline);
+    await saveStrokes(state.identity, {}, null, outline);
   } catch {
     // storage is best effort
   }
