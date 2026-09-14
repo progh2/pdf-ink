@@ -1600,6 +1600,17 @@ body {
   font-size: 11px;
 }
 
+/* #428: 파일명 때문에 현재 쪽번호가 밀리지 않게 같은 행 안에서만 줄인다. */
+.preview-source-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: #8a8478;
+}
+
 /* #217: TOC title beside the page number, only when that page has an entry. */
 .preview-toc-caption {
   flex: 1 1 auto;

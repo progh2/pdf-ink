@@ -175,7 +175,8 @@ export function createPaintCache(limit = 8, onEvict = null) {
   const map = new Map();
   const drop = (value) => {
     if (typeof onEvict === "function") {
-      onEvict(value);
+      // #428: 해제 실패가 캐시 한도·문서 전환을 중단하면 안 된다.
+      try { onEvict(value); } catch { /* 이미 해제된 자원도 버린다. */ }
     }
   };
   return {
@@ -200,8 +201,9 @@ export function createPaintCache(limit = 8, onEvict = null) {
       map.set(key, value);
       while (map.size > max) {
         const oldest = map.keys().next().value;
-        drop(map.get(oldest));
+        const old = map.get(oldest);
         map.delete(oldest);
+        drop(old);
       }
       return value;
     },
@@ -209,16 +211,17 @@ export function createPaintCache(limit = 8, onEvict = null) {
       return map.has(key);
     },
     delete(key) {
-      if (map.has(key)) {
-        drop(map.get(key));
-      }
-      return map.delete(key);
+      const old = map.get(key);
+      const removed = map.delete(key);
+      if (removed) drop(old);
+      return removed;
     },
     clear() {
-      for (const value of map.values()) {
+      const values = [...map.values()];
+      map.clear();
+      for (const value of values) {
         drop(value);
       }
-      map.clear();
     },
     get size() {
       return map.size;

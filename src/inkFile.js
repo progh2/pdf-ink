@@ -42,6 +42,7 @@ export function buildInkFile({
     shareThumbs: Boolean(shareThumbs),
     pages: pages || {},
     leaves: Array.isArray(leaves) ? leaves : [],
+    leavesVersion: Array.isArray(leaves) && leaves.length ? 1 : 0,
     outline: Array.isArray(outline) ? outline : [],
     // #190: 파일이 들고 온 링크 중 사람이 고쳐 준 것. PDF는 안 건드린다.
     linkFixes: linkFixes && typeof linkFixes === "object" ? linkFixes : {},
@@ -77,6 +78,7 @@ export function parseInkFile(text) {
       // #372: 사이드카의 원격 URL 이미지는 추적 요청·캔버스 오염 통로 — data:image만.
       pages: scrubImageSrc(data.pages),
       leaves: Array.isArray(data.leaves) ? data.leaves : [],
+      leavesVersion: data.leavesVersion === 1 ? 1 : 0,
       outline: Array.isArray(data.outline) ? data.outline : [],
       linkFixes: sanitizeLinkFixes(data.linkFixes),
       gone: sanitizeGone(data.gone),
@@ -106,6 +108,17 @@ export function pickNewer(local, remote) {
     return "local";
   }
   return Number(remote.savedAt) > Number(local.savedAt) ? "remote" : "local";
+}
+
+/** #428: 새 구조는 빈 문서의 삭제도 반영한다. 구버전이 빠진 쪽을 되살리지는 않는다. */
+export function takeRemoteStructure(local, remote) {
+  if (!remote) return false;
+  if (local?.leavesVersion === 1 && remote.leavesVersion !== 1) return false;
+  if (remote.leavesVersion === 1) {
+    return Array.isArray(remote.leaves) && remote.leaves.length > 0 &&
+      Number(remote.savedAt) > Number(local?.savedAt || 0);
+  }
+  return pickNewer(local, remote) === "remote";
 }
 
 /** Rough size guard, so a runaway document does not wedge the upload. */

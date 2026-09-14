@@ -1,3 +1,4 @@
+// #428: 문서별 비동기 작업·확정 목록·고정 삽입 위치에 맞춰 배선 핀을 갱신했다. 동작은 previewLifecycle.test.js에서 검증한다.
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { readFileSync } from "node:fs";
@@ -193,9 +194,9 @@ describe("#348 저장 무손실 배선", () => {
   });
 
   it("shrinks only the iOS display decode, never the stored bytes", () => {
-    const fn = src.slice(src.indexOf("function cachedImage"), src.indexOf("function paintImageLayer"));
+    const fn = src.slice(src.indexOf("const imageCache = createImageLoadCache"), src.indexOf("function paintImageLayer"));
     assert.match(fn, /IOS_CANVAS_DIET && long > IMAGE_MAX_EDGE/);
-    assert.match(fn, /createImageBitmap\(img, \{ resizeWidth/);
+    assert.match(fn, /createImageBitmap\(img, \{\s*resizeWidth/);
   });
 });
 

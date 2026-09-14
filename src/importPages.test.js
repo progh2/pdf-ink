@@ -1,3 +1,4 @@
+// #428: 문서별 비동기 작업·확정 목록·고정 삽입 위치에 맞춰 배선 핀을 갱신했다. 동작은 previewLifecycle.test.js에서 검증한다.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -113,7 +114,7 @@ describe("#425 배선", () => {
     const run = main.slice(main.indexOf("function importPageBox"), main.indexOf("function pickImportPages"));
     assert.match(run, /classifyImportFile\(file\)/);
     assert.match(run, /insertImportedAfter\(state\.leaves, state\.pages, index, specs\)/);
-    assert.match(run, /const index = state\.page - 1/);
+    assert.match(run, /const index = validImportIndex\(target\)/);
     assert.match(run, /commitBulkChange/, "여러 쪽 undo가 한 번에 돌아가게");
     assert.match(run, /afterPageOp\(index \+ 2\)/, "첫 가져온 쪽 = 지금+1");
     assert.match(run, /containBoxOnPage/, "그림은 쪽 안에 비율 유지");

@@ -37,6 +37,8 @@ export function loadStrokes(identity) {
       leaves: Array.isArray(data.leaves) ? data.leaves : null,
       outline: Array.isArray(data.outline) ? data.outline : [],
       gone: data.gone && typeof data.gone === "object" ? data.gone : {},
+      leavesVersion: data.leavesVersion === 1 ? 1 : 0,
+      savedAt: Number(data.savedAt) || 0,
     };
   } catch {
     return emptyStrokeRecord();
@@ -66,6 +68,7 @@ export function saveStrokes(identity, pages, leaves = null, outline = null, gone
     identity,
     pages,
     ...(leaves ? { leaves } : {}),
+    ...(Array.isArray(leaves) ? { leavesVersion: 1 } : {}),
     ...(hasOutline ? { outline } : {}),
     ...(gone ? { gone } : {}),
     savedAt: Date.now(),
