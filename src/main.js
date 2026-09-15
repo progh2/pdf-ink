@@ -22,6 +22,8 @@ import {
   loadThumbEntries,
   loadStickers,
   saveDocumentPlace,
+  freeThumbsExcept,
+  isQuotaError,
   loadSavedStrokes,
   migrateLastIntoFiles,
   saveCaptures,
@@ -980,6 +982,12 @@ let inkImageWarned = false;
 
 const STROKE_READ_FAILURE = "저장된 필기를 읽지 못했습니다. 이 탭을 유지하고 잠시 후 다시 열어 주세요.";
 const STROKE_SAVE_FAILURE = "필기를 기기에 저장하지 못했습니다. 탭을 닫기 전에 ⋯ → 내보내기로 PDF를 보관해 주세요.";
+// #437: 원인이 할당량이면 할 일이 다르다 — 무엇을 비우면 되는지 말해 준다.
+const STROKE_SAVE_FULL = "저장 공간이 가득 찼습니다. 미리보기 그림을 비우고 다시 저장해 봅니다.";
+const STROKE_SAVE_FULL_STILL =
+  "저장 공간이 가득 찼습니다. 다른 문서를 닫거나 ⋯ → 내보내기로 PDF를 보관해 주세요.";
+// 같은 한 번의 저장에서 미리보기 비우기를 두 번 하지 않는다.
+let thumbsFreedForSave = false;
 
 function writeStrokesNow() {
   if (!strokesDirty || !state.identity) {
@@ -993,10 +1001,34 @@ function writeStrokesNow() {
   const current = () => state.identity === identity && state.pages === pages && strokeSaveAttempt === attempt;
   const failed = (error) => {
     console.warn("saveStrokes", error);
-    if (current()) {
-      strokesDirty = true;
-      showBanner(STROKE_SAVE_FAILURE);
+    if (!current()) {
+      return;
     }
+    strokesDirty = true;
+    if (!isQuotaError(error)) {
+      showBanner(STROKE_SAVE_FAILURE);
+      return;
+    }
+    // #437: 할당량이 찼다. 미리보기 그림은 다시 그리면 그만인 캐시다 —
+    // 한 번 비우고 곧바로 다시 저장해 본다(성공하면 배너는 스스로 걷힌다).
+    if (thumbsFreedForSave) {
+      showBanner(STROKE_SAVE_FULL_STILL);
+      return;
+    }
+    thumbsFreedForSave = true;
+    showBanner(STROKE_SAVE_FULL);
+    freeThumbsExcept(identity)
+      .then((removed) => {
+        console.warn("freeThumbsExcept", removed);
+        if (current()) {
+          writeStrokesNow();
+        }
+      })
+      .catch(() => {
+        if (current()) {
+          showBanner(STROKE_SAVE_FULL_STILL);
+        }
+      });
   };
   // #273: 이미지 원본은 별도 저장하고 필기 스냅샷에는 배치 정보만 남긴다.
   const { light, images } = stripImages(state.pages);
@@ -1005,7 +1037,11 @@ function writeStrokesNow() {
       .then(() => {
         if (!current()) return;
         state.leavesVersion = 1;
-        if (els.banner.textContent === STROKE_SAVE_FAILURE) showBanner("");
+        thumbsFreedForSave = false;
+        const shown = els.banner.textContent;
+        if (shown === STROKE_SAVE_FAILURE || shown === STROKE_SAVE_FULL || shown === STROKE_SAVE_FULL_STILL) {
+          showBanner("");
+        }
       }, failed);
   } catch (error) {
     failed(error);
