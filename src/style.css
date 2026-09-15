@@ -134,6 +134,74 @@ body {
   background: var(--selected);
 }
 
+/* #441: 카드와 지우기는 한 줄에. 지우기는 카드를 밀지 않게 고정 폭. */
+.recent-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.recent-row .recent-card {
+  width: auto;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.recent-card-size {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.recent-del {
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--paper);
+  color: var(--muted);
+  font: inherit;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.recent-del:hover {
+  background: var(--selected);
+  color: var(--title);
+}
+
+.recents-clear {
+  width: 320px;
+  margin-top: 4px;
+  padding: 10px 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--paper);
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.recents-clear:hover {
+  background: var(--selected);
+  color: var(--title);
+}
+
+.storage-note {
+  width: 320px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+}
+
+.storage-note.is-tight {
+  color: #B4462E;
+}
+
 .write-screen {
   height: 100dvh;
   max-height: 100dvh;
