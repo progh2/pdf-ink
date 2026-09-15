@@ -643,6 +643,7 @@ const els = {
   shapeChips: document.querySelector("#shape-chips"),
   settingsBtn: document.querySelector("#settings-btn"),
   settingsSheet: document.querySelector("#settings-sheet"),
+  panBtn: document.querySelector("#pan-btn"),
   stickerCloudChoices: document.querySelector("#sticker-cloud-choices"),
   settingsBackdrop: document.querySelector("#settings-backdrop"),
   settingsDone: document.querySelector("#settings-done"),
@@ -4251,9 +4252,9 @@ function setInteractMode(mode) {
   state.interactMode = mode === "view" ? "view" : "edit";
   saveInteractMode(state.interactMode);
   if (state.interactMode === "edit" && !state.editEntered) {
-    // #366: 첫 편집 진입은 선택 도구로 — 바 칸이 있는 도구만 기본값 (#56, pan은 제스처만).
+    // #366→#399: 첫 편집 진입은 손바닥으로 — 실수로 긋기 전에 먼저 훑어본다.
     state.editEntered = true;
-    selectSelectTool();
+    selectPanTool();
   }
   hideLockMenu();
   viewNoticeAt = null;
@@ -11999,8 +12000,9 @@ function bindToolbarGrip(grip) {
   });
 }
 
+els.panBtn?.addEventListener("click", () => selectPanTool());
+
 // #399: PC에서 스페이스를 누르는 동안만 손바닥 — 떼면 쓰던 도구로 돌아온다.
-// #56: 바 칸은 없다. 손바닥은 스페이스·보기 제스처만.
 let toolBeforeSpace = "";
 document.addEventListener("keydown", (event) => {
   if (event.code !== "Space" || event.repeat || els.writeScreen.hidden || isTextTarget(event.target)) {

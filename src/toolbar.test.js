@@ -52,8 +52,8 @@ describe("#56 GoodNotes 4 utility bar", () => {
       "highlighter",
       "pencil",
       "eraser",
+      "pan",
       "select",
-      "stamp",
       "undo",
       "redo",
       "more",
@@ -86,10 +86,10 @@ describe("#56 GoodNotes 4 utility bar", () => {
     assert.ok(toolbar.indexOf('data-tool="highlighter"') < toolbar.indexOf('data-tool="pencil"'));
     assert.ok(toolbar.indexOf('data-tool="pencil"') < toolbar.indexOf('id="eraser-btn"'));
     assert.ok(toolbar.indexOf('id="eraser-btn"') < toolbar.indexOf('id="select-btn"'));
-    // #56: 잠금 — 선택 다음이 스탬프. pan은 바 칸이 없다.
-    assert.ok(toolbar.indexOf('id="select-btn"') < toolbar.indexOf('id="stamp-btn"'));
-    assert.ok(toolbar.indexOf('id="stamp-btn"') < toolbar.indexOf('id="undo-btn"'));
-    assert.doesNotMatch(toolbar, /id="pan-btn"/);
+    // #399: 도장은 ⋯로 가고 그 자리에 손바닥(pan)이 왔다.
+    assert.ok(toolbar.indexOf('id="pan-btn"') < toolbar.indexOf('id="select-btn"'));
+    assert.ok(toolbar.indexOf('id="select-btn"') < toolbar.indexOf('id="undo-btn"'));
+    assert.doesNotMatch(toolbar, /id="stamp-btn"/);
     assert.ok(toolbar.indexOf('id="undo-btn"') < toolbar.indexOf('id="redo-btn"'));
     assert.ok(toolbar.indexOf('id="redo-btn"') < toolbar.indexOf('id="more-btn"'));
     assert.match(toolbar, /id="toolbar-grip"/);
@@ -326,5 +326,17 @@ describe("#119 헤더로 옮긴 미리보기·보기/편집", () => {
     assert.match(css, /\.write-top-start \{[\s\S]*display: flex/);
     assert.match(css, /\.header-icon \{[\s\S]*width: 32px[\s\S]*height: 32px/);
     assert.match(css, /\.doc-title \{[\s\S]*max-width: min\(38vw/);
+  });
+});
+
+describe("#435 손바닥 칸은 바에 남는다", () => {
+  it("keeps pan in the bar and the stamp in stickers", () => {
+    // #427이 #56의 옛 잠금을 따라 지웠던 칸이다. 마스터 제보로 되돌렸고,
+    // 도장은 기본 스티커(#401)라 바 칸을 다시 만들지 않는다.
+    assert.ok(BAR_TOOLS.includes("pan"), "손바닥 칸");
+    assert.ok(!BAR_TOOLS.includes("stamp"), "도장은 스티커로 갔다");
+    assert.equal(BAR_TOOLS.length, 9);
+    assert.match(main, /els\.panBtn\?\.addEventListener\("click", \(\) => selectPanTool\(\)\)/);
+    assert.match(main, /!state\.editEntered\)[\s\S]{0,160}selectPanTool\(\)/, "첫 편집 진입은 손바닥");
   });
 });
