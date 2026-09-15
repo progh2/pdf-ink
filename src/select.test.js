@@ -404,3 +404,30 @@ describe("#346 담긴 필기도 상자 안으로", () => {
     assert.equal(pen.id, "new", "병합 안전: 새 id");
   });
 });
+
+describe("#436 글씨 위 끌기는 상자를 그린다", () => {
+  const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+  const main = readFileSync(join(root, "src/main.js"), "utf8");
+
+  it("획은 탭이나 재선택으로만 끌린다 — 그림·도장은 그대로", () => {
+    // 배선 핀: 획이면서 아직 안 고른 것은 move로 들어가지 않는다.
+    assert.match(
+      main,
+      /const grabbable = top >= 0 && \(!isStrokeItem\(items\[top\]\) \|\| state\.selectIndices\.includes\(top\)\);/,
+    );
+    assert.match(main, /if \(grabbable\) \{/);
+    // 탭으로 집는 길은 endSelect의 작은 상자 경로가 계속 맡는다.
+    assert.match(main, /const boxed = rectBigEnough\(rect\);[\s\S]{0,400}pickItemsAt\(pageStrokes\(drag\.page\), drag\.a/);
+  });
+
+  it("판정의 근거: 글씨 근처는 획 히트가 거의 늘 걸린다", () => {
+    // 2px 획에 손가락 여유까지 더하면 글자 옆 몇 px도 히트다 — 그래서
+    // pointerdown만으로 move를 정하면 빽빽한 곳에서 상자를 못 그렸다.
+    const near = { x: 0.3 + 0.004, y: 0.2 + 0.004 };
+    assert.equal(strokeHitsPoint(stroke, near, 400, 600), true);
+    assert.deepEqual(pickItemsAt([stroke], near, 400, 600), [0]);
+    // 같은 자리라도 그림이면 예전처럼 바로 끌린다.
+    assert.equal(isStrokeItem(stroke), true);
+    assert.equal(isStrokeItem({ type: "image", x: 0.1, y: 0.1, w: 0.3, h: 0.3, src: "data:image/png;base64,AA" }), false);
+  });
+});

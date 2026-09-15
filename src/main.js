@@ -377,6 +377,7 @@ import {
   offsetItems,
   fitItemsIntoBox,
   pickItemsAt,
+  isStrokeItem,
   pickItemsInRect,
   remapItemsBetweenRects,
   lockedImageAt,
@@ -5925,8 +5926,14 @@ function startSelect(event, stage) {
   }
 
   const hits = pickItemsAt(items, point, cssW, cssH);
-  if (hits.length) {
-    const top = hits[hits.length - 1];
+  const top = hits.length ? hits[hits.length - 1] : -1;
+  // #436: 글씨 위에서 시작한 끌기는 그 획을 끌고 가는 게 아니라 **상자**를
+  // 그린다 — 획 히트는 두께 + 손가락 여유(#86)라 글씨 근처면 거의 늘 걸려서
+  // 빽빽한 곳에서는 영역 선택이 아예 안 됐다. 획을 집는 길은 둘로 남긴다:
+  // 탭(작은 상자는 endSelect가 pickItemsAt으로 받는다), 그리고 이미 고른
+  // 것 위에서 다시 끌기. 그림·도장은 예전처럼 바로 끌린다.
+  const grabbable = top >= 0 && (!isStrokeItem(items[top]) || state.selectIndices.includes(top));
+  if (grabbable) {
     if (!state.selectIndices.includes(top)) {
       state.selectIndices = [top];
     }
