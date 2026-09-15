@@ -374,6 +374,9 @@ export function createShapeHold({
   let frozen = null;
   let lastGood = null;
   let drawn = false;
+  // #432/#70: 칩을 향한 큰 튐이 제안을 걷어낸 직후, 아직 새 잉크가 한 점도
+  // 들어오지 않은 상태. 이때의 pen-up 끝점은 글씨가 아니라 누수다.
+  let thawPending = false;
 
   const clearTimer = () => {
     if (timer) {
@@ -426,6 +429,7 @@ export function createShapeHold({
       frozen = null;
       lastGood = null;
       drawn = false;
+      thawPending = false;
     },
     begin({ tool: nextTool, client, getPoints, onOffer } = {}) {
       this.reset();
@@ -451,8 +455,13 @@ export function createShapeHold({
     inkDuringJitter() {
       return armed && !frozen?.length && !offer;
     },
+    /** #432: 잉크가 실제로 한 점 들어왔다 — 더는 누수 대기 상태가 아니다. */
+    noteInk() {
+      thawPending = false;
+    },
     rememberPoints(points) {
       lastGood = Array.isArray(points) ? points : [];
+      thawPending = false;
     },
     frozenPoints() {
       if (frozen?.length) {
@@ -479,6 +488,7 @@ export function createShapeHold({
         }
         offer = null;
         frozen = null;
+        thawPending = true;
         lastClient = client;
         lastSignificantAt = now();
         drawn = true;
@@ -509,9 +519,19 @@ export function createShapeHold({
     },
     finish(freehandPoints) {
       clearTimer();
-      const keptPoints = frozen?.length ? frozen : lastGood?.length ? lastGood : freehandPoints;
+      // #432: 스냅샷은 **홀드가 실제로 일어났을 때만** 쓴다. 예전엔 lastGood이
+      // 언제나 이겨서, 홀드하지 않은 일반 획도 잔떨림 구간(#416)과 pen-up
+      // 끝점(#316)을 잃었다 — 짧은 삐침이 3점에서 2점으로 잘렸다.
+      const snapshot = frozen?.length ? frozen : lastGood?.length ? lastGood : null;
+      const heldNow = Boolean(frozen?.length || offer || thawPending);
+      let keptPoints = heldNow && snapshot ? snapshot : freehandPoints;
       if (armed && !offer && now() - lastSignificantAt >= holdMs) {
         offer = shapeOfferFromStroke(keptPoints);
+        if (offer && snapshot) {
+          // 뗄 때서야 홀드로 인정된 경우 — 도형 칩이 뜨므로 #70의 끝단
+          // 떨림은 다시 걷어낸다.
+          keptPoints = snapshot;
+        }
       }
       const kept = offer;
       lastClient = null;
@@ -519,6 +539,7 @@ export function createShapeHold({
       frozen = null;
       lastGood = null;
       drawn = false;
+      thawPending = false;
       return {
         points: keptPoints,
         offer: kept,
