@@ -379,6 +379,7 @@ import {
   offsetItems,
   fitItemsIntoBox,
   pickItemsAt,
+  isStrokeItem,
   pickItemsInRect,
   remapItemsBetweenRects,
   lockedImageAt,
@@ -645,6 +646,7 @@ const els = {
   shapeChips: document.querySelector("#shape-chips"),
   settingsBtn: document.querySelector("#settings-btn"),
   settingsSheet: document.querySelector("#settings-sheet"),
+  panBtn: document.querySelector("#pan-btn"),
   stickerCloudChoices: document.querySelector("#sticker-cloud-choices"),
   settingsBackdrop: document.querySelector("#settings-backdrop"),
   settingsDone: document.querySelector("#settings-done"),
@@ -4287,9 +4289,9 @@ function setInteractMode(mode) {
   state.interactMode = mode === "view" ? "view" : "edit";
   saveInteractMode(state.interactMode);
   if (state.interactMode === "edit" && !state.editEntered) {
-    // #366: 첫 편집 진입은 선택 도구로 — 바 칸이 있는 도구만 기본값 (#56, pan은 제스처만).
+    // #366→#399: 첫 편집 진입은 손바닥으로 — 실수로 긋기 전에 먼저 훑어본다.
     state.editEntered = true;
-    selectSelectTool();
+    selectPanTool();
   }
   hideLockMenu();
   viewNoticeAt = null;
@@ -5960,8 +5962,14 @@ function startSelect(event, stage) {
   }
 
   const hits = pickItemsAt(items, point, cssW, cssH);
-  if (hits.length) {
-    const top = hits[hits.length - 1];
+  const top = hits.length ? hits[hits.length - 1] : -1;
+  // #436: 글씨 위에서 시작한 끌기는 그 획을 끌고 가는 게 아니라 **상자**를
+  // 그린다 — 획 히트는 두께 + 손가락 여유(#86)라 글씨 근처면 거의 늘 걸려서
+  // 빽빽한 곳에서는 영역 선택이 아예 안 됐다. 획을 집는 길은 둘로 남긴다:
+  // 탭(작은 상자는 endSelect가 pickItemsAt으로 받는다), 그리고 이미 고른
+  // 것 위에서 다시 끌기. 그림·도장은 예전처럼 바로 끌린다.
+  const grabbable = top >= 0 && (!isStrokeItem(items[top]) || state.selectIndices.includes(top));
+  if (grabbable) {
     if (!state.selectIndices.includes(top)) {
       state.selectIndices = [top];
     }
@@ -12035,8 +12043,9 @@ function bindToolbarGrip(grip) {
   });
 }
 
+els.panBtn?.addEventListener("click", () => selectPanTool());
+
 // #399: PC에서 스페이스를 누르는 동안만 손바닥 — 떼면 쓰던 도구로 돌아온다.
-// #56: 바 칸은 없다. 손바닥은 스페이스·보기 제스처만.
 let toolBeforeSpace = "";
 document.addEventListener("keydown", (event) => {
   if (event.code !== "Space" || event.repeat || els.writeScreen.hidden || isTextTarget(event.target)) {
