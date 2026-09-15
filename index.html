@@ -31,6 +31,9 @@
           <button type="button" class="dropbox-open" id="dropbox-open">드롭박스에서 열기</button>
           <button type="button" class="dropbox-open" id="gdrive-open" hidden>구글 드라이브에서 열기</button>
           <ul class="recents" id="recents" hidden></ul>
+          <!-- #441: 쌓인 문서를 지울 수 있게 — 저장 공간이 차면 필기 저장이 실패한다(#437). -->
+          <button type="button" class="recents-clear" id="recents-clear" hidden>로컬 문서 모두 지우기</button>
+          <p class="storage-note" id="storage-note" hidden></p>
         </div>
         <p class="source-note">
           필기웹은 자유 소프트웨어입니다 ·

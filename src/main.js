@@ -1,6 +1,7 @@
 import * as pdfjsLib from "pdfjs-dist";
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import { maxPdfBytes, sizeLimitLabel, validatePdfContents, validatePdfFile } from "./validate.js";
+import { documentSizeNote, storageNote } from "./storageUse.js";
 import {
   fileIdentity,
   listDocuments,
@@ -22,6 +23,9 @@ import {
   loadThumbEntries,
   loadStickers,
   saveDocumentPlace,
+  deleteAllDocuments,
+  deleteDocument,
+  storageEstimate,
   freeThumbsExcept,
   isQuotaError,
   loadSavedStrokes,
@@ -497,6 +501,8 @@ const els = {
   writeScreen: document.querySelector("#write-screen"),
   dropzone: document.querySelector("#dropzone"),
   recents: document.querySelector("#recents"),
+  recentsClear: document.querySelector("#recents-clear"),
+  storageNote: document.querySelector("#storage-note"),
   otherPdf: document.querySelector("#other-pdf"),
   penOnlyBtn: document.querySelector("#pen-only-btn"),
   shareThumbsBtn: document.querySelector("#share-thumbs-btn"),
@@ -2537,6 +2543,69 @@ async function showUploadScreen() {
   }
 }
 
+/**
+ * #441: 무엇을 지우면 얼마가 도는지 같은 자리에서 보여 준다. 사용량을 모르는
+ * 브라우저(사파리)는 줄을 감춘다 — 거짓 숫자보다 없는 편이 낫다.
+ */
+async function refreshStorageNote() {
+  if (!els.storageNote) {
+    return;
+  }
+  const note = storageNote(await storageEstimate());
+  els.storageNote.textContent = note?.text || "";
+  els.storageNote.classList.toggle("is-tight", Boolean(note?.tight));
+  els.storageNote.hidden = !note;
+}
+
+// 브라우저 대화상자를 쓰지 않으므로(#100·#103) 배너로 묻고 「한 번 더」로 받는다(#413).
+let recentDeleteArmed = "";
+let recentDeleteTimer = 0;
+
+function disarmRecentDelete() {
+  window.clearTimeout(recentDeleteTimer);
+  recentDeleteTimer = 0;
+  recentDeleteArmed = "";
+}
+
+function armRecentDelete(key, ask) {
+  recentDeleteArmed = key;
+  window.clearTimeout(recentDeleteTimer);
+  recentDeleteTimer = window.setTimeout(disarmRecentDelete, 4000);
+  flashBanner(ask, 4000);
+}
+
+async function removeRecent(identity, title) {
+  if (recentDeleteArmed !== identity) {
+    armRecentDelete(identity, `「${title}」를 기기에서 지울까요? 지우기를 한 번 더 누르세요.`);
+    return;
+  }
+  disarmRecentDelete();
+  try {
+    await deleteDocument(identity);
+    flashBanner(`「${title}」를 지웠습니다.`, 2400);
+  } catch (error) {
+    console.warn("deleteDocument", error);
+    flashBanner("문서를 지우지 못했습니다.", 2400);
+  }
+  await renderRecents();
+}
+
+async function removeAllRecents(count) {
+  if (recentDeleteArmed !== "*") {
+    armRecentDelete("*", `기기에 저장된 문서 ${count}개를 모두 지울까요? 한 번 더 누르세요.`);
+    return;
+  }
+  disarmRecentDelete();
+  try {
+    await deleteAllDocuments();
+    flashBanner("기기에 저장된 문서를 모두 지웠습니다.", 2400);
+  } catch (error) {
+    console.warn("deleteAllDocuments", error);
+    flashBanner("문서를 지우지 못했습니다.", 2400);
+  }
+  await renderRecents();
+}
+
 async function renderRecents() {
   let rows = [];
   try {
@@ -2551,13 +2620,21 @@ async function renderRecents() {
   } catch {
     rows = [];
   }
+  disarmRecentDelete();
   els.recents.replaceChildren();
+  refreshStorageNote();
+  if (els.recentsClear) {
+    els.recentsClear.hidden = !rows.length;
+    els.recentsClear.onclick = () => removeAllRecents(rows.length);
+  }
   if (!rows.length) {
     els.recents.hidden = true;
     return;
   }
+  const sizes = new Map(rows.map((row) => [row.identity, row.size]));
   for (const entry of recentCardEntries(rows)) {
     const item = document.createElement("li");
+    item.className = "recent-row";
     const button = document.createElement("button");
     button.type = "button";
     button.className = "recent-card";
@@ -2571,8 +2648,21 @@ async function renderRecents() {
       note.textContent = entry.note;
       button.append(note);
     }
+    const sizeText = documentSizeNote(sizes.get(entry.identity));
+    if (sizeText) {
+      const size = document.createElement("span");
+      size.className = "recent-card-size";
+      size.textContent = sizeText;
+      button.append(size);
+    }
     button.addEventListener("click", () => openStoredDocument(entry.identity));
-    item.append(button);
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "recent-del";
+    del.textContent = "✕";
+    del.setAttribute("aria-label", `${entry.title} 지우기`);
+    del.addEventListener("click", () => removeRecent(entry.identity, entry.title));
+    item.append(button, del);
     els.recents.append(item);
   }
   els.recents.hidden = false;

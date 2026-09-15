@@ -328,6 +328,107 @@ export async function listDocuments() {
   return rows.sort((a, b) => (b.openedAt || 0) - (a.openedAt || 0));
 }
 
+/**
+ * #441: 문서를 지우면 그 문서에 딸린 것이 **전부** 사라져야 한다 — 본문만
+ * 지우고 필기·이미지·미리보기가 남으면 공간은 안 돌고 다른 문서에 섞일 위험만
+ * 남는다(#362에서 데인 적 있다). 지운 뒤 세션 포인터가 이 문서를 가리키면
+ * 그것도 거둔다.
+ */
+export async function deleteDocument(identity) {
+  if (!identity) {
+    return;
+  }
+  try {
+    localStorage.removeItem(STROKE_PREFIX + identity);
+    localStorage.removeItem(LINK_FIX_PREFIX + identity);
+  } catch {
+    // localStorage가 막힌 브라우저에서도 나머지는 지운다.
+  }
+  unsavedStrokeRecords.delete(identity);
+  strokeSaveTimes.delete(identity);
+  const db = await openDb();
+  try {
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(
+        [FILES_STORE, SESSION_STORE, THUMB_STORE, INK_IMAGE_STORE],
+        "readwrite",
+      );
+      tx.oncomplete = () => resolve();
+      tx.onerror = tx.onabort = () => reject(tx.error || new Error("문서 삭제 실패"));
+      tx.objectStore(FILES_STORE).delete(identity);
+      const session = tx.objectStore(SESSION_STORE);
+      session.delete(STROKE_PREFIX + identity);
+      const last = session.get("last");
+      last.onsuccess = () => {
+        if (last.result?.identity === identity) {
+          session.delete("last");
+        }
+      };
+      deleteByPrefix(tx.objectStore(THUMB_STORE), `${identity}::`);
+      deleteByPrefix(tx.objectStore(INK_IMAGE_STORE), `${identity}::`);
+    });
+  } finally {
+    db.close();
+  }
+}
+
+function deleteByPrefix(store, prefix) {
+  const keys = store.getAllKeys();
+  keys.onsuccess = () => {
+    for (const key of keys.result || []) {
+      if (typeof key === "string" && key.startsWith(prefix)) {
+        store.delete(key);
+      }
+    }
+  };
+}
+
+/** 기기에 있는 문서를 통째로 비운다. 스티커·선반·설정은 문서가 아니므로 남는다. */
+export async function deleteAllDocuments() {
+  try {
+    for (const key of Object.keys(localStorage)) {
+      if (key.startsWith(STROKE_PREFIX) || key.startsWith(LINK_FIX_PREFIX)) {
+        localStorage.removeItem(key);
+      }
+    }
+  } catch {
+    // 위와 같다.
+  }
+  unsavedStrokeRecords.clear();
+  strokeSaveTimes.clear();
+  const db = await openDb();
+  try {
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(
+        [FILES_STORE, SESSION_STORE, THUMB_STORE, INK_IMAGE_STORE],
+        "readwrite",
+      );
+      tx.oncomplete = () => resolve();
+      tx.onerror = tx.onabort = () => reject(tx.error || new Error("문서 전체 삭제 실패"));
+      tx.objectStore(FILES_STORE).clear();
+      tx.objectStore(THUMB_STORE).clear();
+      tx.objectStore(INK_IMAGE_STORE).clear();
+      // 세션 저장소에는 대체 필기 기록(#430)도 함께 산다 — 통째로 비운다.
+      tx.objectStore(SESSION_STORE).clear();
+    });
+  } finally {
+    db.close();
+  }
+}
+
+/** 브라우저가 알려 주는 사용량. 모르면 null이라 화면이 줄을 감춘다. */
+export async function storageEstimate() {
+  try {
+    const estimate = await globalThis.navigator?.storage?.estimate?.();
+    if (!estimate) {
+      return null;
+    }
+    return { usage: Number(estimate.usage), quota: Number(estimate.quota) };
+  } catch {
+    return null;
+  }
+}
+
 export async function migrateLastIntoFiles() {
   const last = await loadLastSession();
   if (!last?.identity || !last.buffer) {
