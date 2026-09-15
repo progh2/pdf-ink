@@ -22,7 +22,10 @@ describe("M4 #25 chrome", () => {
     assert.match(toolbar, /id="select-btn"/);
     assert.doesNotMatch(html, /id="rotate-panel"/);
     assert.ok(toolbar.indexOf('id="eraser-btn"') < toolbar.indexOf('id="select-btn"'));
-    assert.ok(toolbar.indexOf('id="select-btn"') < toolbar.indexOf('id="undo-btn"'));
+    // #56: 잠금 순서 — 선택 다음이 스탬프, pan 바 칸 없음.
+    assert.ok(toolbar.indexOf('id="select-btn"') < toolbar.indexOf('id="stamp-btn"'));
+    assert.ok(toolbar.indexOf('id="stamp-btn"') < toolbar.indexOf('id="undo-btn"'));
+    assert.doesNotMatch(toolbar, /id="pan-btn"/);
     assert.ok(toolbar.indexOf('id="undo-btn"') < toolbar.indexOf('id="redo-btn"'));
     assert.ok(toolbar.indexOf('id="redo-btn"') < toolbar.indexOf('id="more-btn"'));
     assert.doesNotMatch(toolbar, /id="prev-btn"|id="next-btn"/);
@@ -40,6 +43,7 @@ describe("M4 #25 chrome", () => {
     assert.deepEqual(M4_OVERFLOW_ITEMS, [
       "fullscreen",
       "image",
+      "importpages", // #425: 지금 쪽 다음에 이미지·PDF 쪽
       "sticker",
       "rotate",
       "pagecopy",

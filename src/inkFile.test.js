@@ -1,3 +1,4 @@
+// #428: 문서별 비동기 작업·확정 목록·고정 삽입 위치에 맞춰 배선 핀을 갱신했다. 동작은 previewLifecycle.test.js에서 검증한다.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -99,9 +100,9 @@ describe("#147 배선", () => {
     assert.match(main, /await loadInkSidecar\(doc\)/);
     const load = main.slice(main.indexOf("async function loadInkSidecar"), main.indexOf("/* ---- 다른 기기의 변경"));
     // #83부터: 더 최근 쪽이 구조를 정하고, 필기는 합집합이다.
-    assert.match(load, /const takeStructure = pickNewer\(local, remote\) === "remote"/);
+    assert.match(load, /const takeStructure = takeRemoteStructure\(local, remote\)/);
     assert.match(load, /mergePages\(state\.pages, remote\.pages, state\.inkGone\)/);
-    assert.match(load, /normalizeLeaves\(remote\.leaves/);
+    assert.match(load, /normalizeSavedLeaves\(remote/);
     assert.match(load, /normalizeOutline\(remote\.outline/);
   });
 
@@ -194,8 +195,9 @@ describe("#277 새로고침·재열기 후 클라우드 문서 복원", () => {
   const root = join(dirname(fileURLToPath(import.meta.url)), "..");
   const main = readFileSync(join(root, "src/main.js"), "utf8");
 
+  // #430: 저장소 복원 단계가 길어져도 문서 열기 함수 전체를 검사한다.
   it("rebuilds the dropbox doc from the identity when it is not in memory", () => {
-    const open = main.slice(main.indexOf("async function openPdfBuffer"), main.indexOf("async function openPdfBuffer") + 1200);
+    const open = main.slice(main.indexOf("async function openPdfBuffer"), main.indexOf("async function openSelectedFile"));
     assert.match(open, /const path = dbxId\.slice\("dbx::"\.length\)/);
     assert.match(open, /state\.dropboxDoc = \{ path, name:/);
     // #362: 다른 문서로 바꾸면 반드시 재구성 — 잔존 doc이 사이드카를 공유시켰다.
@@ -203,7 +205,7 @@ describe("#277 새로고침·재열기 후 클라우드 문서 복원", () => {
   });
 
   it("rebuilds the drive doc too", () => {
-    const open = main.slice(main.indexOf("async function openPdfBuffer"), main.indexOf("async function openPdfBuffer") + 1600);
+    const open = main.slice(main.indexOf("async function openPdfBuffer"), main.indexOf("async function openSelectedFile"));
     // #362: id가 다르면 재구성.
     assert.match(open, /!state\.driveDoc \|\| state\.driveDoc\.id !== driveId/);
     assert.match(open, /state\.driveDoc = \{ id: driveId,/);

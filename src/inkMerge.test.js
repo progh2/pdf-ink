@@ -1,3 +1,4 @@
+// #428: 문서별 비동기 작업·확정 목록·고정 삽입 위치에 맞춰 배선 핀을 갱신했다. 동작은 previewLifecycle.test.js에서 검증한다.
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -81,7 +82,7 @@ describe("#83 배선", () => {
   const inkFile = readFileSync(join(root, "src/inkFile.js"), "utf8");
 
   it("merges the sidecar instead of letting the newer save win", () => {
-    assert.match(main, /const takeStructure = pickNewer\(local, remote\) === "remote"/);
+    assert.match(main, /const takeStructure = takeRemoteStructure\(local, remote\)/);
     assert.match(main, /state\.pages = mergePages\(state\.pages, remote\.pages, state\.inkGone\)/);
     assert.equal((main.match(/mergePages\(state\.pages, remote\.pages/g) || []).length, 2, "드롭박스·드라이브 둘 다");
   });

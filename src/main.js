@@ -22,7 +22,7 @@ import {
   loadThumbEntries,
   loadStickers,
   saveDocumentPlace,
-  loadStrokes,
+  loadSavedStrokes,
   migrateLastIntoFiles,
   saveCaptures,
   saveInkImages,
@@ -116,6 +116,7 @@ import {
   shouldPanPointer,
   shouldShowHover,
 } from "./interact.js";
+import { createImageLoadCache } from "./imageLoad.js";
 import { liveImageIds, mergeImages, stripImages } from "./inkImages.js";
 import { canRedo, canUndo, cloneItems, createHistory, extendChange, recordChange, redoChange, undoChange } from "./history.js";
 import { bindUndoHold } from "./undoHold.js";
@@ -236,7 +237,7 @@ import {
 import {
   AUTOSAVE_MS,
   parseInkFile,
-  pickNewer,
+  takeRemoteStructure,
   inkFileImageStats,
   serializeInkFile,
   sidecarName,
@@ -398,6 +399,13 @@ import {
   resizeImage,
   trueSizeOnPage,
 } from "./image.js";
+import {
+  IMPORT_ACCEPT,
+  classifyImportFile,
+  importedLeafId,
+  importTargetIndex,
+  insertImportedAfter,
+} from "./importPages.js";
 import { addRotation, angleDegFromCenter, imagePaintDest, normalizeRotation, rotateItems, rotateSelectedItems } from "./rotate.js";
 import {
   filterLeaves,
@@ -405,7 +413,7 @@ import {
   insertOutlineAfter,
   leafAt,
   nearestPdfLeaf,
-  normalizeLeaves,
+  normalizeSavedLeaves,
   outlineViewport,
   pageOfInkKey,
   pageOfLeaf,
@@ -554,6 +562,8 @@ const els = {
   stampBtn: document.querySelector("#stamp-btn"),
   morePanel: document.querySelector("#more-panel"),
   imageInput: document.querySelector("#image-input"),
+  importPages: document.querySelector("#import-pages"),
+  importPagesInput: document.querySelector("#import-pages-input"),
   previewDrawer: document.querySelector("#preview-drawer"),
   pageMenu: document.querySelector("#page-menu"),
   updateNote: document.querySelector("#update-note"),
@@ -633,7 +643,6 @@ const els = {
   shapeChips: document.querySelector("#shape-chips"),
   settingsBtn: document.querySelector("#settings-btn"),
   settingsSheet: document.querySelector("#settings-sheet"),
-  panBtn: document.querySelector("#pan-btn"),
   stickerCloudChoices: document.querySelector("#sticker-cloud-choices"),
   settingsBackdrop: document.querySelector("#settings-backdrop"),
   settingsDone: document.querySelector("#settings-done"),
@@ -715,6 +724,7 @@ const state = {
   dropbox: null,
   dropboxDoc: null,
   inkSavedAt: 0,
+  leavesVersion: 0,
   shareThumbs: false,
   thumbPackKeys: null,
   driveDoc: null,
@@ -791,7 +801,9 @@ const IOS_CANVAS_DIET =
 // 끊긴 캔버스 메모리를 한참 쥐고 있어, 핀치 반복 시 한도를 넘겨 탭이 죽었다.
 function freeBitmapEntry(entry) {
   const bitmap = entry?.bitmap;
-  if (bitmap && typeof bitmap.width === "number") {
+  if (typeof bitmap?.close === "function") {
+    bitmap.close();
+  } else if (bitmap && typeof bitmap.width === "number") {
     bitmap.width = 0;
     bitmap.height = 0;
   }
@@ -954,6 +966,7 @@ function noticeViewMode() {
 
 let strokesDirty = false;
 let strokeSaveTimer = 0;
+let strokeSaveAttempt = 0;
 
 /**
  * 이 저장이 획 사이의 끊김이었다 (#208): 획 하나 끝날 때마다 **문서 전체**
@@ -963,28 +976,46 @@ let strokeSaveTimer = 0;
 // #390: 이미지 저장 실패는 문서당 한 번만 알린다(성공하면 다시 열린다).
 let inkImageWarned = false;
 
+const STROKE_READ_FAILURE = "저장된 필기를 읽지 못했습니다. 이 탭을 유지하고 잠시 후 다시 열어 주세요.";
+const STROKE_SAVE_FAILURE = "필기를 기기에 저장하지 못했습니다. 탭을 닫기 전에 ⋯ → 내보내기로 PDF를 보관해 주세요.";
+
 function writeStrokesNow() {
   if (!strokesDirty || !state.identity) {
     return;
   }
   strokesDirty = false;
-  // #273: 이미지 dataURL은 무거워 localStorage를 넘친다. 가벼운 필기만 여기,
-  // 이미지 원본은 IndexedDB로 뺀다.
+  // #430: 비동기 저장의 실패가 나중에 열린 다른 문서를 더럽히지 않는다.
+  const identity = state.identity;
+  const pages = state.pages;
+  const attempt = ++strokeSaveAttempt;
+  const current = () => state.identity === identity && state.pages === pages && strokeSaveAttempt === attempt;
+  const failed = (error) => {
+    console.warn("saveStrokes", error);
+    if (current()) {
+      strokesDirty = true;
+      showBanner(STROKE_SAVE_FAILURE);
+    }
+  };
+  // #273: 이미지 원본은 별도 저장하고 필기 스냅샷에는 배치 정보만 남긴다.
   const { light, images } = stripImages(state.pages);
   try {
-    saveStrokes(state.identity, light, state.leaves, state.outline, state.inkGone);
-  } catch {
-    showBanner("필기를 저장하지 못했습니다. 브라우저 저장 공간이 부족할 수 있습니다.");
+    saveStrokes(state.identity, light, state.leaves, state.outline, state.inkGone)
+      .then(() => {
+        if (!current()) return;
+        state.leavesVersion = 1;
+        if (els.banner.textContent === STROKE_SAVE_FAILURE) showBanner("");
+      }, failed);
+  } catch (error) {
+    failed(error);
   }
   saveInkImages(state.identity, images, liveImageIds(state.pages))
     .then(() => {
-      inkImageWarned = false;
+      if (current()) inkImageWarned = false;
     })
     .catch((error) => {
-      // #372: 이미지 원본 저장 실패를 조용히 삼키면 재시작 때 그림이 사라진다.
-      // #390: 다만 showBanner는 안 사라진다 — 자동 소멸 배너로, 문서당 한 번만.
-      strokesDirty = true;
       console.warn("saveInkImages", error);
+      if (!current()) return;
+      strokesDirty = true;
       if (!inkImageWarned) {
         inkImageWarned = true;
         flashBanner("이미지를 저장하지 못했습니다. 저장 공간이 부족할 수 있습니다.", 4000);
@@ -1027,6 +1058,7 @@ function commitPageChange(pageNum, apply) {
   const before = cloneItems(pageStrokes(pageNum));
   const leavesBefore = cloneItems(state.leaves);
   apply(key);
+  if (leavesNeedRebuild(leavesBefore, state.leaves)) markStructureChanged();
   const after = cloneItems(pageStrokes(pageNum));
   state.inkGone = goneAfterChange(before, after, state.inkGone);
   recordChange(state.history, {
@@ -1054,6 +1086,9 @@ function resetEditorExtras() {
   state.scrollLayout = null;
   pageCache.clear();
   thumbCache.clear();
+  pageThumbCache.clear();
+  imageCache.clear();
+  stopThumbWarming();
   stagePool.length = 0;
   hideMarquee();
   hideSelectUi();
@@ -1259,7 +1294,16 @@ function drawStrokesOn(view, liveStroke = null) {
   }
   // #260: 이미지는 모두 잉크 아래에. 그래야 붙여넣은 그림 위에 바로 필기할 수
   // 있다. 고르기·옮기기는 좌표로 하므로 아래 있어도 잡힌다. overCanvas는 비운다.
-  paintImageLayer(view.underCanvas, items, null, () => drawStrokesOn(view));
+  const identity = state.identity;
+  const gen = openGen;
+  const leafId = leafAt(state.leaves, view.pageNum)?.id;
+  const token = view.token;
+  paintImageLayer(view.underCanvas, items, null, () => {
+    if (identity === state.identity && gen === openGen && token === view.token &&
+        leafId === leafAt(state.leaves, view.pageNum)?.id && state.pageViews.includes(view)) {
+      drawStrokesOn(view);
+    }
+  });
   const over = canvas2d(view.overCanvas);
   over.clearRect(0, 0, view.overCanvas.width, view.overCanvas.height);
   paintMosaicOverlay(view);
@@ -1268,39 +1312,24 @@ function drawStrokesOn(view, liveStroke = null) {
   clearLiveLayer(view);
 }
 
-const imageCache = new Map();
+const imageCache = createImageLoadCache(async (src) => {
+  const img = await loadHtmlImage(src);
+  const long = Math.max(img.naturalWidth || 0, img.naturalHeight || 0);
+  if (IOS_CANVAS_DIET && long > IMAGE_MAX_EDGE && typeof createImageBitmap === "function") {
+    try {
+      return await createImageBitmap(img, {
+        resizeWidth: Math.round((img.naturalWidth * IMAGE_MAX_EDGE) / long),
+        resizeQuality: "high",
+      });
+    } catch { /* 축소하지 못하면 원본을 쓴다. */ }
+  }
+  return img;
+}, (img) => {
+  if (typeof img?.close === "function") img.close();
+});
 
 function cachedImage(src, onReady) {
-  if (!src) {
-    return null;
-  }
-  let entry = imageCache.get(src);
-  if (!entry) {
-    const img = new Image();
-    entry = { img, ready: false };
-    img.onload = () => {
-      // #348: 저장본은 원본이지만 iOS는 디코드 메모리가 빠듯하다(#308/#310).
-      // 긴 변이 상한을 넘으면 표시용으로만 축소 디코드해 바꿔 끼운다.
-      const long = Math.max(img.naturalWidth || 0, img.naturalHeight || 0);
-      if (IOS_CANVAS_DIET && long > IMAGE_MAX_EDGE && typeof createImageBitmap === "function") {
-        createImageBitmap(img, { resizeWidth: Math.round((img.naturalWidth * IMAGE_MAX_EDGE) / long), resizeQuality: "high" })
-          .then((bitmap) => {
-            entry.img = bitmap;
-          })
-          .catch(() => {})
-          .finally(() => {
-            entry.ready = true;
-            onReady?.();
-          });
-        return;
-      }
-      entry.ready = true;
-      onReady?.();
-    };
-    img.src = src;
-    imageCache.set(src, entry);
-  }
-  return entry;
+  return imageCache.get(src, onReady);
 }
 
 function paintImageLayer(canvas, items, locked, onReady) {
@@ -2447,6 +2476,7 @@ function pickerAllowed() {
 }
 
 async function showUploadScreen() {
+  openGen += 1; // #428: 늦게 끝난 가져오기·그리기는 홈 화면으로 넘어가지 않는다.
   blockFilePicker();
   persistStrokes();
   abortStroke();
@@ -2524,8 +2554,8 @@ async function openStoredDocument(identity) {
       page: row.page || 1,
       handle: row.handle || null,
     });
-  } catch {
-    showBanner("저장된 파일을 열 수 없습니다.");
+  } catch (error) {
+    showBanner(error?.name === "InkStorageReadError" ? STROKE_READ_FAILURE : "저장된 파일을 열 수 없습니다.");
   }
 }
 
@@ -2753,6 +2783,17 @@ async function openPdfBuffer(buffer, { identity, name, page = 1, handle = null }
   const gen = ++openGen;
   // #208: 아직 안 쓴 필기는 지금 문서 것이다 — 정체가 바뀌기 전에 쓴다.
   writeStrokesNow();
+  let stored;
+  try {
+    stored = await loadSavedStrokes(identity);
+  } catch (error) {
+    // #430: 저장소를 읽지 못한 문서를 빈 필기로 열면 다음 저장 때 덮어쓰게 된다.
+    if (gen === openGen) showBanner(STROKE_READ_FAILURE);
+    const failure = new Error(STROKE_READ_FAILURE, { cause: error });
+    failure.name = "InkStorageReadError";
+    throw failure;
+  }
+  if (gen !== openGen) return;
   inkImageWarned = false; // #390
   // #356: 옛 문서를 향해 걸려 있던 자동저장은 여기서 끊는다.
   window.clearTimeout(autosaveTimer);
@@ -2806,7 +2847,6 @@ async function openPdfBuffer(buffer, { identity, name, page = 1, handle = null }
   state.identity = identity;
   state.fileName = name;
   state.buffer = buffer;
-  const stored = loadStrokes(identity);
   state.inkGone = sanitizeGone(stored.gone);
   // #273: localStorage엔 이미지 src가 비어 있다. IndexedDB에서 원본을 붙인다.
   try {
@@ -2822,10 +2862,13 @@ async function openPdfBuffer(buffer, { identity, name, page = 1, handle = null }
   }
   // #190: the corrections this browser knows; a sidecar may add more.
   state.linkFixes = sanitizeLinkFixes(loadLinkFixes(identity));
-  state.leaves = normalizeLeaves(stored.leaves, pdf.numPages);
+  state.leaves = normalizeSavedLeaves(stored, pdf.numPages);
+  state.leavesVersion = stored.leavesVersion || 0;
+  state.inkSavedAt = stored.savedAt || 0;
   state.pageCount = state.leaves.length;
   state.page = Math.min(Math.max(1, page), state.pageCount);
   state.pages = stored.pages;
+  strokesDirty = !!stored.unsaved; // #430: 이전 저장이 실패한 스냅샷은 다음 기회에 재시도.
   state.outline = normalizeOutline(stored.outline, state.leaves);
   anchorLinkFixesNow();
   await importPdfOutline(pdf);
@@ -2846,6 +2889,7 @@ async function openPdfBuffer(buffer, { identity, name, page = 1, handle = null }
   hideSyncNote();
   showDocumentUi();
   showBanner("");
+  if (stored.unsaved) scheduleStrokeSave(); // #430: 다시 연 실패 기록을 재시도.
   await rebuildPages();
   if (gen !== openGen) {
     return; // #358: 세션·동기화 감시는 마지막 문서만.
@@ -2877,8 +2921,8 @@ async function openSelectedFile(file, handle = null) {
       name: file.name,
       handle,
     });
-  } catch {
-    showBanner("PDF를 열 수 없습니다. 다른 파일을 선택해 주세요.");
+  } catch (error) {
+    showBanner(error?.name === "InkStorageReadError" ? STROKE_READ_FAILURE : "PDF를 열 수 없습니다. 다른 파일을 선택해 주세요.");
   } finally {
     els.fileInput.value = "";
   }
@@ -3536,8 +3580,6 @@ function syncToolSelection() {
   document.querySelectorAll("[data-tool]").forEach((btn) => {
     btn.classList.toggle("is-selected", btn.dataset.tool === state.tool);
   });
-  // #399: 도장은 ⋯ 안에 있다 — 쓰는 중임을 ⋯가 대신 알린다.
-  els.moreBtn?.classList.toggle("is-selected", state.tool === "stamp");
   syncInkTools();
   syncPenOnly();
   syncZoomLock();
@@ -4201,9 +4243,9 @@ function setInteractMode(mode) {
   state.interactMode = mode === "view" ? "view" : "edit";
   saveInteractMode(state.interactMode);
   if (state.interactMode === "edit" && !state.editEntered) {
-    // #366→#399: 첫 편집 진입은 손바닥으로 — 실수로 긋기 전에 먼저 훑어본다.
+    // #366: 첫 편집 진입은 선택 도구로 — 바 칸이 있는 도구만 기본값 (#56, pan은 제스처만).
     state.editEntered = true;
-    selectPanTool();
+    selectSelectTool();
   }
   hideLockMenu();
   viewNoticeAt = null;
@@ -4973,7 +5015,13 @@ async function openInkMove() {
     return;
   }
   for (const row of others) {
-    const record = loadStrokes(row.identity);
+    let record;
+    try {
+      record = await loadSavedStrokes(row.identity);
+    } catch {
+      showBanner(STROKE_READ_FAILURE);
+      return;
+    }
     const inked = inkedPagesOf(record);
     const button = document.createElement("button");
     button.type = "button";
@@ -5572,21 +5620,17 @@ function placeMarqueeMenuUi() {
 }
 
 /**
- * 붙여넣을 것이 있는지 보고 칸을 흐리게 한다 (#219). 시스템 클립보드는
- * 물어봐야 알 수 있어 비동기다 — 먼저 내 것으로 판단해 놓고, 답이 오면 고친다.
+ * 붙여넣을 것이 있는지 보고 칸을 흐리게 한다 (#219).
+ * #420: 시스템 클립보드는 열지 않는다 — 메뉴만 열어도 권한 창이 뜨기 때문.
+ * 칸은 앱 안 inkClipboard만으로 켠다. 바깥 그림은 붙여넣기를 누를 때 읽는다.
  */
 function refreshPasteCell() {
   const cell = els.marqueeMenu?.querySelector('[data-marquee="paste"]');
   if (!cell) {
     return;
   }
-  const mine = state.inkClipboard.length > 0;
+  const mine = pasteAvailability(state.inkClipboard).ready;
   cell.disabled = !mine;
-  pasteAvailability(state.inkClipboard, navigator.clipboard).then((found) => {
-    if (!els.marqueeMenu?.hidden) {
-      cell.disabled = !found.ready;
-    }
-  });
 }
 
 function showMarqueeMenu() {
@@ -6739,8 +6783,14 @@ function readFileDataUrl(file) {
 function loadHtmlImage(src) {
   return new Promise((resolve, reject) => {
     const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error("image"));
+    const timer = window.setTimeout(() => {
+      img.onload = null;
+      img.onerror = null;
+      img.src = "";
+      reject(new Error("이미지 로딩 시간 초과"));
+    }, 15000);
+    img.onload = () => { window.clearTimeout(timer); resolve(img); };
+    img.onerror = () => { window.clearTimeout(timer); reject(new Error("이미지를 읽지 못했습니다.")); };
     img.src = src;
   });
 }
@@ -6944,12 +6994,14 @@ function renderPreview() {
 
 function addTocEntry() {
   state.outline = addOutlineEntry(state.outline, state.page, state.leaves);
+  markStructureChanged();
   persistStrokes();
   renderTocList();
 }
 
 function saveTocTitle(id, title) {
   state.outline = renameOutlineEntry(state.outline, id, title);
+  markStructureChanged();
   persistStrokes();
   renderTocList();
   syncPreviewOutlineCaptions();
@@ -6957,6 +7009,7 @@ function saveTocTitle(id, title) {
 
 function removeTocEntry(id) {
   state.outline = deleteOutlineEntry(state.outline, id);
+  markStructureChanged();
   persistStrokes();
   renderTocList();
 }
@@ -7020,6 +7073,7 @@ function ensurePreviewTocCaption(row, title) {
   if (!meta) {
     return null;
   }
+  meta.querySelector(".preview-source-label")?.remove();
   let caption = meta.querySelector(".preview-toc-caption");
   if (!caption) {
     caption = document.createElement("span");
@@ -7208,12 +7262,20 @@ function renderTocList() {
   }
 }
 
+function markStructureChanged() {
+  state.leavesVersion = 1;
+  state.inkSavedAt = Date.now();
+}
+
 /** Bulk page work: leaves and every page's ink in one undo step (#159). */
 function commitBulkChange(apply) {
   const key = inkKey(leafAt(state.leaves, state.page)) || "1";
   const leavesBefore = cloneItems(state.leaves);
   const pagesBefore = cloneItems(state.pages);
+  const outlineBefore = cloneItems(state.outline);
   apply();
+  state.outline = normalizeOutline(state.outline, state.leaves);
+  markStructureChanged();
   // #83: 일괄 삭제(여러 쪽 지우기)도 무덤에 남아야 다른 기기에서 안 살아난다.
   for (const pageKey of new Set([...Object.keys(pagesBefore), ...Object.keys(state.pages)])) {
     state.inkGone = goneAfterChange(pagesBefore[pageKey], state.pages[pageKey], state.inkGone);
@@ -7223,6 +7285,8 @@ function commitBulkChange(apply) {
     before: cloneItems(state.pages[key] || []),
     after: cloneItems(state.pages[key] || []),
     extra: {
+      outlineBefore,
+      outlineAfter: cloneItems(state.outline),
       leavesBefore,
       leavesAfter: cloneItems(state.leaves),
       pagesBefore,
@@ -7237,13 +7301,17 @@ function commitBulkChange(apply) {
 function commitLeafChange(key, apply) {
   const before = cloneItems(state.pages[key] || []);
   const leavesBefore = cloneItems(state.leaves);
+  const outlineBefore = cloneItems(state.outline);
   apply();
+  state.outline = normalizeOutline(state.outline, state.leaves);
+  markStructureChanged();
   const after = cloneItems(state.pages[key] || []);
+  state.inkGone = goneAfterChange(before, after, state.inkGone);
   recordChange(state.history, {
     page: key,
     before,
     after,
-    extra: { leavesBefore, leavesAfter: cloneItems(state.leaves) },
+    extra: { leavesBefore, leavesAfter: cloneItems(state.leaves), outlineBefore, outlineAfter: cloneItems(state.outline) },
   });
   persistStrokes();
   syncHistoryButtons();
@@ -7659,7 +7727,6 @@ async function pasteFromShelf(entry) {
   }
   // 쪽: 지금 쪽 뒤에 새 빈 쪽을 끼우고 그 그림을 고정 배경으로, 필기를 얹는다 (#204식).
   const index = state.page - 1;
-  const leaf = leafAt(state.leaves, state.page);
   const id = `o:shelf-${Date.now().toString(36)}`;
   // #346: 이웃 크기에 맞춰 늘리면 찌그러진다 — 빈 쪽 안에 비율 유지(contain)로
   // 중앙 배치하고, 함께 담긴 필기도 같은 변환을 받는다.
@@ -7668,12 +7735,140 @@ async function pasteFromShelf(entry) {
   const pageH = view?.cssHeight || state.pageCssHeight || 600;
   const box = containBoxOnPage(entry.w, entry.h, pageW, pageH);
   const image = imageItem({ ...box, src: entry.src, locked: true });
-  commitLeafChange(inkKey(leaf) || id, () => {
+  commitBulkChange(() => {
     state.leaves = insertOutlineAfter(state.leaves, index, id);
     state.pages[id] = [image, ...fitItemsIntoBox(entry.items || [], box)];
   });
   afterPageOp(state.page + 1);
-  flashBanner(`${state.page + 1}쪽에 붙여넣었습니다.`);
+  flashBanner(`${state.page}쪽에 붙여넣었습니다.`);
+}
+
+let pendingImportTarget = null;
+let importingPages = false;
+
+function currentImportTarget() {
+  const leaf = leafAt(state.leaves, state.page);
+  const view = state.pageViews.find((item) => item.pageNum === state.page);
+  return {
+    identity: state.identity, gen: openGen, leafId: leaf?.id, page: state.page,
+    width: view?.cssWidth || state.pageCssWidth || 400,
+    height: view?.cssHeight || state.pageCssHeight || 600,
+  };
+}
+
+function importPageBox(imgWidth, imgHeight, target) {
+  return containBoxOnPage(imgWidth, imgHeight, target.width, target.height);
+}
+
+function validImportIndex(target) {
+  if (!state.pdf || els.writeScreen.hidden) return -1;
+  return importTargetIndex(target, { identity: state.identity, gen: openGen, leaves: state.leaves, interactMode: state.interactMode });
+}
+
+async function specsFromImageFile(file, target) {
+  const raw = await readFileDataUrl(file);
+  if (!acceptImageSrc(raw)) throw new Error("image");
+  const img = await loadHtmlImage(raw);
+  const box = importPageBox(img.naturalWidth || img.width, img.naturalHeight || img.height, target);
+  return [{
+    id: importedLeafId(), title: file.name || "가져온 쪽",
+    items: [imageItem({ ...box, src: raw, locked: true, id: importedLeafId("img") })],
+  }];
+}
+
+async function specsFromPdfFile(file, target) {
+  const check = await validatePdfContents(file);
+  if (!check.ok) throw new Error(check.message || "pdf");
+  const buffer = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: buffer.slice(0) }).promise;
+  try {
+    const specs = [];
+    const count = pdf.numPages || 0;
+    for (let pageNum = 1; pageNum <= count; pageNum += 1) {
+      if (validImportIndex(target) < 0) return [];
+      const page = await pdf.getPage(pageNum);
+      const base = page.getViewport({ scale: 1 });
+      const viewport = page.getViewport({ scale: 1000 / Math.max(1, base.width) });
+      const canvas = offscreenCanvas(Math.round(viewport.width), Math.round(viewport.height));
+      try {
+        const ctx = canvas2d(canvas);
+        ctx.fillStyle = "#FFFFFF";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        await renderPdfToCanvas(page, ctx, { viewport });
+        const src = canvas.toDataURL("image/jpeg", 0.82);
+        const box = importPageBox(viewport.width, viewport.height, target);
+        specs.push({
+          id: importedLeafId(),
+          title: count > 1 ? `${file.name || "PDF"} · 원본 ${pageNum}쪽` : file.name || "가져온 쪽",
+          items: [imageItem({ ...box, src, locked: true, id: importedLeafId("img") })],
+        });
+      } finally {
+        canvas.width = 0;
+        canvas.height = 0;
+      }
+    }
+    return specs;
+  } finally {
+    await pdf.destroy();
+  }
+}
+
+/** #428: 위치는 선택창을 열 때 정하고, 변환이 끝나면 같은 문서인지 재확인한다. */
+async function importPagesFromFile(file) {
+  const target = pendingImportTarget || currentImportTarget();
+  pendingImportTarget = null;
+  if (importingPages) return;
+  if (state.interactMode === "view" || validImportIndex(target) < 0) {
+    flashBanner("가져오기를 취소했습니다. 원래 문서에서 잠금을 풀고 다시 선택하세요.");
+    return;
+  }
+  const classified = classifyImportFile(file);
+  if (classified.kind === "reject") {
+    flashBanner(classified.message);
+    return;
+  }
+  importingPages = true;
+  els.importPages.disabled = true;
+  flashBanner(`${target.page}쪽 뒤에 페이지를 넣는 중…`);
+  try {
+    const specs = classified.kind === "pdf" ? await specsFromPdfFile(file, target) : await specsFromImageFile(file, target);
+    const index = validImportIndex(target);
+    if (index < 0) {
+      flashBanner("문서·기준 쪽 또는 잠금 상태가 바뀌어 가져오기를 취소했습니다.");
+      return;
+    }
+    if (!specs.length) {
+      flashBanner("넣을 페이지가 없습니다.");
+      return;
+    }
+    commitBulkChange(() => {
+      const out = insertImportedAfter(state.leaves, state.pages, index, specs);
+      state.leaves = out.leaves;
+      state.pages = out.pages;
+    });
+    afterPageOp(index + 2);
+    flashBanner(specs.length === 1 ? `${index + 2}쪽에 넣었습니다.` : `${specs.length}쪽을 ${index + 2}쪽부터 넣었습니다.`);
+  } catch {
+    flashBanner("페이지를 넣지 못했습니다.");
+  } finally {
+    importingPages = false;
+    els.importPages.disabled = false;
+  }
+}
+
+function pickImportPages() {
+  if (importingPages) {
+    flashBanner("페이지를 넣는 중입니다. 완료 후 다시 선택하세요.");
+    return;
+  }
+  if (state.interactMode === "view") {
+    flashBanner("보기 중입니다. 자물쇠를 풀면 넣을 수 있습니다.");
+    return;
+  }
+  if (!els.importPagesInput || !state.pdf) return;
+  pendingImportTarget = currentImportTarget();
+  els.importPagesInput.value = "";
+  els.importPagesInput.click();
 }
 
 function movePageByDrag(from, to) {
@@ -7868,7 +8063,7 @@ function makePreviewRow(leaf) {
   meta.className = "preview-meta";
   const label = document.createElement("span");
   label.className = "preview-page-label";
-  label.textContent = leaf.kind === "outline" ? leaf.title : `${pageNum}`;
+  label.textContent = `${pageNum}`;
   const star = document.createElement("button");
   star.type = "button";
   star.className = "preview-bookmark";
@@ -7879,6 +8074,7 @@ function makePreviewRow(leaf) {
   star.addEventListener("click", (event) => {
     event.stopPropagation();
     state.leaves = toggleBookmark(state.leaves, pageNum - 1);
+    markStructureChanged();
     persistStrokes();
     if (state.previewFilter !== "all") {
       renderPreviewList();
@@ -7898,6 +8094,13 @@ function makePreviewRow(leaf) {
     meta.append(label, caption);
   } else {
     meta.append(label);
+    if (leaf.kind === "outline") {
+      const source = document.createElement("span");
+      source.className = "preview-source-label";
+      source.textContent = leaf.title;
+      source.title = leaf.title;
+      meta.append(source);
+    }
   }
   row.append(wrap, meta);
   bindPreviewRowGestures(row, pageNum);
@@ -7936,11 +8139,20 @@ function syncPreviewCurrent({ paintVisible = false } = {}) {
 }
 
 /** #335: 미리보기 행 비율은 문서의 첫 페이지 비율을 따른다(0.45~1.6 클램프). */
+let previewAspect = PREVIEW_THUMB_RATIO;
+let previewAspectGen = -1;
+
 function previewRatio() {
+  if (previewAspectGen !== openGen) {
+    previewAspect = PREVIEW_THUMB_RATIO;
+    previewAspectGen = openGen;
+  }
   const w = Number(state.baseCss?.width) || 0;
   const h = Number(state.baseCss?.height) || 0;
-  const raw = w > 0 && h > 0 ? h / w : PREVIEW_THUMB_RATIO;
-  return Math.min(1.6, Math.max(0.45, raw));
+  // #428: 서랍을 열어 종이 크기를 다시 맞추는 동안 baseCss는 잠깐 0이 된다.
+  // 그때 행 높이가 기본 세로 비율로 바뀌면 210쪽 스크롤이 목록 밖으로 나간다.
+  if (w > 0 && h > 0) previewAspect = Math.min(1.6, Math.max(0.45, h / w));
+  return previewAspect;
 }
 
 async function paintVisiblePreviewRows() {
@@ -7995,6 +8207,7 @@ async function renderPreviewList() {
   if (!els.previewList) {
     return;
   }
+  applyPreviewWidth();
   document.querySelectorAll("#preview-filters [data-preview-filter]").forEach((btn) => {
     btn.classList.toggle("is-selected", btn.dataset.previewFilter === state.previewFilter);
   });
@@ -8005,6 +8218,8 @@ async function renderPreviewList() {
   const windowEl = document.createElement("div");
   windowEl.className = "preview-list-window";
   els.previewList.replaceChildren(spacer, windowEl);
+  // #428: 삽입·삭제 뒤 새 번호가 목록에서도 보이도록 현재 쪽을 먼저 맞춘다.
+  syncPreviewCurrent();
   await paintVisiblePreviewRows();
 }
 
@@ -8017,50 +8232,54 @@ function pageThumbKey(leaf, width) {
   return thumbCacheKey(leaf, width, "page");
 }
 
-function storeThumb(canvas, key) {
-  if (!state.identity || typeof canvas.toBlob !== "function") {
-    return;
-  }
+function storeThumb(canvas, key, identity = state.identity) {
+  if (!identity || typeof canvas.toBlob !== "function") return;
   canvas.toBlob((blob) => {
-    if (blob) {
-      saveThumb(state.identity, key, blob);
-    }
+    if (blob) saveThumb(identity, key, blob);
   }, "image/png");
 }
 
-async function drawStoredPage(canvas, key) {
-  const cached = pageThumbCache.get(key);
+async function drawStoredPage(canvas, key, identity = state.identity, valid = () => true) {
+  const memoryKey = JSON.stringify([identity, key]);
+  const cached = pageThumbCache.get(memoryKey);
   if (cached?.bitmap) {
     canvas.width = cached.width;
     canvas.height = cached.height;
     canvas.getContext("2d").drawImage(cached.bitmap, 0, 0);
     return true;
   }
-  const blob = await loadThumb(state.identity, key);
-  if (!blob) {
-    return false;
-  }
+  const blob = await loadThumb(identity, key);
+  if (!blob || !valid()) return false;
+  let bitmap;
   try {
-    const bitmap = await createImageBitmap(blob);
+    bitmap = await createImageBitmap(blob);
+    if (!valid()) {
+      bitmap.close();
+      return false;
+    }
     canvas.width = bitmap.width;
     canvas.height = bitmap.height;
     canvas.getContext("2d").drawImage(bitmap, 0, 0);
-    pageThumbCache.set(key, { width: bitmap.width, height: bitmap.height, bitmap });
+    pageThumbCache.set(memoryKey, { width: bitmap.width, height: bitmap.height, bitmap });
     return true;
   } catch {
+    bitmap?.close();
     return false;
   }
 }
 
 /** Thumb ink: the same layers as the page, scaled down. */
-async function paintThumbInk(canvas, leaf) {
+async function paintThumbInk(canvas, leaf, valid = () => true) {
   const items = state.pages[inkKey(leaf)] || [];
   if (!items.length) {
     return;
   }
   const base = await basePageCss();
+  if (!valid()) return;
   const layers = await exportInkCanvas(items, { width: canvas.width, height: canvas.height }, base.width);
   canvas.getContext("2d").drawImage(layers, 0, 0);
+  layers.width = 0;
+  layers.height = 0;
 }
 
 async function renderThumbPage(canvas, leaf, size) {
@@ -8091,13 +8310,21 @@ async function renderThumbPage(canvas, leaf, size) {
   }
 }
 
+// #428: 같은 행의 병렬 갱신은 각자 작업 캔버스를 쓰고 마지막 결과만 반영한다.
+const thumbPaintTokens = new WeakMap();
+
 async function paintPreviewThumb(canvas, leaf) {
+  const identity = state.identity;
+  const gen = openGen;
+  const token = (thumbPaintTokens.get(canvas) || 0) + 1;
+  thumbPaintTokens.set(canvas, token);
+  const valid = () => identity === state.identity && gen === openGen &&
+    thumbPaintTokens.get(canvas) === token &&
+    state.leaves.some((item) => item.id === leaf.id && item.rotate === leaf.rotate);
   const size = previewThumbSize(state.previewWidth, previewRatio());
   const items = state.pages[inkKey(leaf)] || [];
-  const key = thumbCacheKey(leaf, size.width, inkSignature(items));
-  if (canvas.dataset.painted === key) {
-    return;
-  }
+  const key = JSON.stringify([identity, thumbCacheKey(leaf, size.width, inkSignature(items))]);
+  if (canvas.dataset.painted === key) return;
   const hit = thumbCache.get(key);
   if (hit?.bitmap) {
     canvas.width = hit.width;
@@ -8107,22 +8334,33 @@ async function paintPreviewThumb(canvas, leaf) {
     canvas.dataset.painted = key;
     return;
   }
-  const pageKey = pageThumbKey(leaf, size.width);
-  if (!(await drawStoredPage(canvas, pageKey))) {
-    await renderThumbPage(canvas, leaf, size);
-    const pageBitmap = snapshotCanvas(canvas);
-    if (pageBitmap) {
-      pageThumbCache.set(pageKey, { width: canvas.width, height: canvas.height, bitmap: pageBitmap });
+  const work = document.createElement("canvas");
+  try {
+    const pageKey = pageThumbKey(leaf, size.width);
+    if (!(await drawStoredPage(work, pageKey, identity, valid))) {
+      if (!valid()) return;
+      await renderThumbPage(work, leaf, size);
+      if (!valid()) return;
+      const pageBitmap = snapshotCanvas(work);
+      if (pageBitmap) {
+        pageThumbCache.set(JSON.stringify([identity, pageKey]), { width: work.width, height: work.height, bitmap: pageBitmap });
+      }
+      storeThumb(work, pageKey, identity);
     }
-    storeThumb(canvas, pageKey);
+    if (!valid()) return;
+    await paintThumbInk(work, leaf, valid);
+    if (!valid()) return;
+    const bitmap = snapshotCanvas(work);
+    if (bitmap) thumbCache.set(key, { width: work.width, height: work.height, bitmap });
+    canvas.width = work.width;
+    canvas.height = work.height;
+    canvas.getContext("2d").drawImage(work, 0, 0);
+    fitThumbElement(canvas, size);
+    canvas.dataset.painted = key;
+  } finally {
+    work.width = 0;
+    work.height = 0;
   }
-  await paintThumbInk(canvas, leaf);
-  const bitmap = snapshotCanvas(canvas);
-  if (bitmap) {
-    thumbCache.set(key, { width: canvas.width, height: canvas.height, bitmap });
-  }
-  fitThumbElement(canvas, size);
-  canvas.dataset.painted = key;
 }
 
 function insertOutlinePage() {
@@ -8226,7 +8464,9 @@ function applyHistoryLeaves(entry, side) {
     return Boolean(pages);
   }
   const prev = state.leaves;
+  const outline = side === "undo" ? entry?.extra?.outlineBefore : entry?.extra?.outlineAfter;
   state.leaves = cloneItems(next);
+  if (outline) state.outline = normalizeOutline(cloneItems(outline), state.leaves);
   state.pageCount = state.leaves.length;
   if (state.page > state.pageCount) {
     state.page = state.pageCount;
@@ -8248,13 +8488,19 @@ function redrawHistoryPage(key) {
 }
 
 function undoInk() {
+  const pagesBefore = { ...state.pages };
   const entry = undoChange(state.history, state.pages);
   if (!entry) {
     return;
   }
+  const rebuild = applyHistoryLeaves(entry, "undo");
+  for (const key of new Set([...Object.keys(pagesBefore), ...Object.keys(state.pages)])) {
+    state.inkGone = goneAfterChange(pagesBefore[key], state.pages[key], state.inkGone);
+  }
+  markStructureChanged();
   persistStrokes();
   syncHistoryButtons();
-  if (applyHistoryLeaves(entry, "undo")) {
+  if (rebuild) {
     rebuildPages();
     if (!els.previewDrawer.hidden) {
       renderPreview();
@@ -8265,13 +8511,19 @@ function undoInk() {
 }
 
 function redoInk() {
+  const pagesBefore = { ...state.pages };
   const entry = redoChange(state.history, state.pages);
   if (!entry) {
     return;
   }
+  const rebuild = applyHistoryLeaves(entry, "redo");
+  for (const key of new Set([...Object.keys(pagesBefore), ...Object.keys(state.pages)])) {
+    state.inkGone = goneAfterChange(pagesBefore[key], state.pages[key], state.inkGone);
+  }
+  markStructureChanged();
   persistStrokes();
   syncHistoryButtons();
-  if (applyHistoryLeaves(entry, "redo")) {
+  if (rebuild) {
     rebuildPages();
     if (!els.previewDrawer.hidden) {
       renderPreview();
@@ -8346,28 +8598,8 @@ function offscreenCanvas(width, height) {
 }
 
 function waitForImage(src) {
-  return new Promise((resolve) => {
-    const entry = cachedImage(src, () => resolve());
-    if (!entry || entry.ready) {
-      resolve();
-      return;
-    }
-    // #348: iOS 축소 디코드는 load 뒤 비동기로 ready가 된다 — 짧게 되물어본다.
-    if (typeof entry.img.addEventListener === "function") {
-      entry.img.addEventListener("load", () => resolve(), { once: true });
-      entry.img.addEventListener("error", () => resolve(), { once: true });
-    }
-    const poll = window.setInterval(() => {
-      if (entry.ready) {
-        window.clearInterval(poll);
-        resolve();
-      }
-    }, 50);
-    window.setTimeout(() => {
-      window.clearInterval(poll);
-      resolve();
-    }, 5000);
-  });
+  const entry = cachedImage(src, null);
+  return entry?.promise || Promise.resolve();
 }
 
 async function preloadItemImages(items) {
@@ -8377,7 +8609,9 @@ async function preloadItemImages(items) {
 
 /** Ink layers in screen order (locked image, ink, free image) on one canvas. */
 async function exportInkCanvas(items, pixels, cssWidth) {
+  const gen = openGen;
   await preloadItemImages(items);
+  if (gen !== openGen) throw new Error("문서가 바뀌었습니다.");
   const canvas = offscreenCanvas(pixels.width, pixels.height);
   const ctx = canvas2d(canvas);
   // Ink keeps its own canvas: a pixel eraser must not eat the image layers.
@@ -8394,6 +8628,10 @@ async function exportInkCanvas(items, pixels, cssWidth) {
   ctx.drawImage(under, 0, 0);
   ctx.drawImage(inkOnly, 0, 0);
   ctx.drawImage(over, 0, 0);
+  for (const layer of [under, inkOnly, over]) {
+    layer.width = 0;
+    layer.height = 0;
+  }
   return canvas;
 }
 
@@ -8714,13 +8952,19 @@ async function openDropboxFile(entry) {
       return;
     }
     closeDropboxSheet();
-    state.dropboxDoc = doc;
     showBanner("");
     await openPdfBuffer(buffer, { identity: dropboxIdentity(doc), name: doc.name });
+    // #430: 저장소 복원이 실패하면 기존 문서의 업로드 대상을 유지한다.
+    if (state.identity !== dropboxIdentity(doc)) return;
+    state.dropboxDoc = doc;
     await loadInkSidecar(doc);
     await rebuildPages();
     await downloadThumbPack(doc);
-  } catch {
+  } catch (error) {
+    if (error?.name === "InkStorageReadError") {
+      showBanner(STROKE_READ_FAILURE);
+      return;
+    }
     flashBanner("드롭박스에서 열지 못했습니다.");
   }
 }
@@ -8820,7 +9064,7 @@ async function warmThumbs() {
   }
   const pending = state.leaves
     .map((leaf) => ({ leaf, key: pageThumbKey(leaf, size.width) }))
-    .filter(({ key }) => !done.has(key) && !pageThumbCache.get(key));
+    .filter(({ key }) => !done.has(key) && !pageThumbCache.get(JSON.stringify([identity, key])));
   if (!pending.length) {
     return;
   }
@@ -9052,13 +9296,18 @@ async function openDriveFile(picked) {
       flashBanner(check.message);
       return;
     }
-    state.driveDoc = doc;
-    state.driveSidecarId = "";
     showBanner("");
     await openPdfBuffer(buffer, { identity: driveIdentity(doc), name: doc.name });
+    if (state.identity !== driveIdentity(doc)) return;
+    state.driveDoc = doc;
+    state.driveSidecarId = "";
     await loadDriveSidecar(doc);
     await rebuildPages();
   } catch (error) {
+    if (error?.name === "InkStorageReadError") {
+      showBanner(STROKE_READ_FAILURE);
+      return;
+    }
     // The status tells us whether it was the grant, the scope or the network.
     const why = error?.message ? ` (${error.message})` : "";
     flashBanner(`구글 드라이브에서 열지 못했습니다.${why}`, 3200);
@@ -9323,13 +9572,19 @@ async function loadDriveSidecar(doc) {
   }
   // #83: 더 최근 쪽이 문서 구조(잎·목차)를 정하고, **필기는 합집합**이다.
   // 두 기기가 서로 다른 쪽에 쓴 것이 어느 쪽도 지워지지 않는다.
-  const local = { savedAt: state.inkSavedAt || 0, pages: state.pages };
-  const takeStructure = pickNewer(local, remote) === "remote";
+  const local = { savedAt: state.inkSavedAt || 0, pages: state.pages, leavesVersion: state.leavesVersion };
+  const takeStructure = takeRemoteStructure(local, remote);
   state.inkGone = mergeGone(state.inkGone, remote.gone);
   const added = countNewFrom(remote.pages, state.pages, state.inkGone);
   state.pages = mergePages(state.pages, remote.pages, state.inkGone);
   if (takeStructure) {
-    state.leaves = normalizeLeaves(remote.leaves, state.pdf?.numPages || state.pageCount || remote.leaves.length);
+    const before = state.leaves;
+    state.leaves = normalizeSavedLeaves(remote, state.pdf?.numPages || state.pageCount || remote.leaves.length);
+    state.leavesVersion = remote.leavesVersion || 0;
+    if (leavesNeedRebuild(before, state.leaves)) {
+      state.history = createHistory();
+      syncHistoryButtons();
+    }
     state.pageCount = state.leaves.length;
     state.outline = normalizeOutline(remote.outline, state.leaves);
     state.inkSavedAt = remote.savedAt;
@@ -9341,6 +9596,7 @@ async function loadDriveSidecar(doc) {
     }
   }
   persistStrokes();
+  if (takeStructure) afterPageOp(state.page);
   return added;
 }
 
@@ -9629,13 +9885,19 @@ async function loadInkSidecar(doc) {
   }
   // #83: 더 최근 쪽이 문서 구조(잎·목차)를 정하고, **필기는 합집합**이다.
   // 두 기기가 서로 다른 쪽에 쓴 것이 어느 쪽도 지워지지 않는다.
-  const local = { savedAt: state.inkSavedAt || 0, pages: state.pages };
-  const takeStructure = pickNewer(local, remote) === "remote";
+  const local = { savedAt: state.inkSavedAt || 0, pages: state.pages, leavesVersion: state.leavesVersion };
+  const takeStructure = takeRemoteStructure(local, remote);
   state.inkGone = mergeGone(state.inkGone, remote.gone);
   const added = countNewFrom(remote.pages, state.pages, state.inkGone);
   state.pages = mergePages(state.pages, remote.pages, state.inkGone);
   if (takeStructure) {
-    state.leaves = normalizeLeaves(remote.leaves, state.pdf?.numPages || state.pageCount || remote.leaves.length);
+    const before = state.leaves;
+    state.leaves = normalizeSavedLeaves(remote, state.pdf?.numPages || state.pageCount || remote.leaves.length);
+    state.leavesVersion = remote.leavesVersion || 0;
+    if (leavesNeedRebuild(before, state.leaves)) {
+      state.history = createHistory();
+      syncHistoryButtons();
+    }
     state.pageCount = state.leaves.length;
     state.outline = normalizeOutline(remote.outline, state.leaves);
     state.inkSavedAt = remote.savedAt;
@@ -9647,6 +9909,7 @@ async function loadInkSidecar(doc) {
     }
   }
   persistStrokes();
+  if (takeStructure) afterPageOp(state.page);
   return added;
 }
 
@@ -9779,7 +10042,7 @@ async function flattenAfterWriteBack(blob) {
   // Rotation, duplicates and blank pages are baked in: the leaves start over.
   const outline = flattenOutline(state.outline, state.leaves);
   try {
-    saveStrokes(state.identity, {}, null, outline);
+    await saveStrokes(state.identity, {}, null, outline);
   } catch {
     // storage is best effort
   }
@@ -10971,6 +11234,12 @@ function selectMoreAction(action) {
     els.imageInput.click();
     return;
   }
+  if (action === "importpages") {
+    closeMorePanel();
+    ignoreAfterPanel = true;
+    pickImportPages();
+    return;
+  }
   if (action === "sticker") {
     closeMorePanel();
     ignoreAfterPanel = true;
@@ -11722,9 +11991,8 @@ function bindToolbarGrip(grip) {
   });
 }
 
-els.panBtn?.addEventListener("click", () => selectPanTool());
-
 // #399: PC에서 스페이스를 누르는 동안만 손바닥 — 떼면 쓰던 도구로 돌아온다.
+// #56: 바 칸은 없다. 손바닥은 스페이스·보기 제스처만.
 let toolBeforeSpace = "";
 document.addEventListener("keydown", (event) => {
   if (event.code !== "Space" || event.repeat || els.writeScreen.hidden || isTextTarget(event.target)) {
@@ -12206,6 +12474,17 @@ els.imageInput.addEventListener("change", () => {
     addImageFile(file);
   }
 });
+if (els.importPagesInput) {
+  els.importPagesInput.accept = IMPORT_ACCEPT;
+}
+els.importPagesInput.addEventListener("change", () => {
+  const file = els.importPagesInput.files?.[0];
+  els.importPagesInput.value = "";
+  if (file) {
+    importPagesFromFile(file);
+  }
+});
+els.importPages.addEventListener("click", pickImportPages);
 els.previewClose.addEventListener("click", closePreview);
 els.previewDrawer?.addEventListener("pointerdown", (event) => {
   if (!event.target.closest(".preview-row")) {

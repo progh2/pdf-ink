@@ -194,9 +194,10 @@ describe("#79 시트 배선", () => {
     assert.match(html, /data-more="sticker">스티커/);
     assert.equal((html.match(/class="toolbar"/g) || []).length, 1);
     assert.doesNotMatch(html, /data-tool="sticker"/);
-    // The stamp stays the red ellipse it was (#50).
-    // #401: 도장은 스티커 안으로 — 툴바에도 ⋯에도 없고, 처음 한 번만 심는다.
-    assert.doesNotMatch(html, /data-more="stamp"|id="stamp-btn"/);
+    // The stamp stays the red ellipse it was (#50). #56이 바 칸을 되돌렸고,
+    // #401 스티커 심기는 그대로 — ⋯ 항목은 다시 넣지 않는다.
+    assert.match(html, /id="stamp-btn"/);
+    assert.doesNotMatch(html, /data-more="stamp"/);
     assert.match(main, /function seedStampStickers/);
     assert.match(main, /if \(stampStickersSeeded\(\)\) \{\s*return;/, "지운 도장은 되살아나지 않는다");
   });

@@ -37,6 +37,8 @@ export function loadStrokes(identity) {
       leaves: Array.isArray(data.leaves) ? data.leaves : null,
       outline: Array.isArray(data.outline) ? data.outline : [],
       gone: data.gone && typeof data.gone === "object" ? data.gone : {},
+      leavesVersion: data.leavesVersion === 1 ? 1 : 0,
+      savedAt: Number(data.savedAt) || 0,
     };
   } catch {
     return emptyStrokeRecord();
@@ -59,18 +61,93 @@ export function savePenOnly(on) {
   }
 }
 
+// #430: 작은 필기는 동기 저장을 유지해 pagehide에서도 남긴다. 한도에 닿으면
+// 같은 레코드를 IndexedDB에 보관한다. 실패한 스냅샷은 탭 안에 남겨 재열기 때 살린다.
+const pendingStrokeWrites = new Map();
+const unsavedStrokeRecords = new Map();
+const strokeSaveTimes = new Map();
+
 export function saveStrokes(identity, pages, leaves = null, outline = null, gone = null) {
   const hasOutline = Array.isArray(outline);
+  const savedAt = Math.max(Date.now(), (strokeSaveTimes.get(identity) || 0) + 1);
   const payload = JSON.stringify({
     version: gone ? 4 : hasOutline ? 3 : leaves ? 2 : 1,
     identity,
     pages,
     ...(leaves ? { leaves } : {}),
+    ...(Array.isArray(leaves) ? { leavesVersion: 1 } : {}),
     ...(hasOutline ? { outline } : {}),
     ...(gone ? { gone } : {}),
-    savedAt: Date.now(),
+    savedAt,
   });
-  localStorage.setItem(STROKE_PREFIX + identity, payload);
+  strokeSaveTimes.set(identity, savedAt);
+  unsavedStrokeRecords.set(identity, payload);
+  try {
+    localStorage.setItem(STROKE_PREFIX + identity, payload);
+    unsavedStrokeRecords.delete(identity);
+    return Promise.resolve();
+  } catch (localError) {
+    // 문서별 순서를 지킨다. 이전 저장 실패 때문에 다음 저장도 건너뛰지 않는다.
+    const previous = pendingStrokeWrites.get(identity) || Promise.resolve();
+    const pending = previous.catch(() => {}).then(async () => {
+      try {
+        await strokeBackup(identity, payload);
+      } catch (backupError) {
+        throw new AggregateError([localError, backupError], "필기 저장 실패");
+      }
+      if (unsavedStrokeRecords.get(identity) === payload) {
+        unsavedStrokeRecords.delete(identity);
+      }
+    });
+    pendingStrokeWrites.set(identity, pending);
+    const finished = () => {
+      if (pendingStrokeWrites.get(identity) === pending) pendingStrokeWrites.delete(identity);
+    };
+    pending.then(finished, finished);
+    return pending;
+  }
+}
+
+/** #430: DB 버전을 올리지 않고 기존 session 저장소의 독립 키를 쓴다. */
+async function strokeBackup(identity, payload) {
+  const db = await openDb();
+  try {
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(SESSION_STORE, payload === undefined ? "readonly" : "readwrite");
+      const store = tx.objectStore(SESSION_STORE);
+      const key = STROKE_PREFIX + identity;
+      const request = payload === undefined ? store.get(key) : store.put(payload, key);
+      // put 성공 이벤트만으로는 부족하다. 트랜잭션 commit까지 기다린다.
+      tx.oncomplete = () => resolve(request.result);
+      tx.onerror = tx.onabort = () => reject(tx.error || new Error("필기 저장 트랜잭션 중단"));
+    });
+  } finally {
+    db.close();
+  }
+}
+
+/** 기존 기록·대체 저장·실패한 메모리 스냅샷 중 최신 것을 복원한다. */
+export async function loadSavedStrokes(identity) {
+  const pending = pendingStrokeWrites.get(identity);
+  if (pending) await pending.catch(() => {});
+  // 대체 기록을 읽지 못하면 오래된 localStorage로 조용히 덮지 않는다.
+  let backup;
+  try {
+    backup = await strokeBackup(identity);
+  } catch (error) {
+    // 이 탭에서 실패한 최신 스냅샷이 있으면 DB 장애 중에도 잃지 않는다.
+    if (!unsavedStrokeRecords.has(identity)) throw error;
+  }
+  const records = [loadStrokes(identity)];
+  for (const raw of [backup, unsavedStrokeRecords.get(identity)]) {
+    if (!raw) continue;
+    const data = JSON.parse(raw);
+    if (!data?.pages || typeof data.pages !== "object") throw new Error("필기 저장 기록 손상");
+    records.push(data);
+  }
+  const latest = records.reduce((a, b) => (Number(b.savedAt) || 0) > (Number(a.savedAt) || 0) ? b : a);
+  strokeSaveTimes.set(identity, Math.max(strokeSaveTimes.get(identity) || 0, Number(latest.savedAt) || 0));
+  return { ...latest, unsaved: unsavedStrokeRecords.has(identity) };
 }
 
 function openDb() {

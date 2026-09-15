@@ -1,3 +1,4 @@
+// #428: 문서별 비동기 작업·확정 목록·고정 삽입 위치에 맞춰 배선 핀을 갱신했다. 동작은 previewLifecycle.test.js에서 검증한다.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -196,8 +197,8 @@ describe("#85 preview / page navigation speed", () => {
       "highlighter",
       "pencil",
       "eraser",
-      "pan",
       "select",
+      "stamp",
       "undo",
       "redo",
       "more",
@@ -397,8 +398,8 @@ describe("#141 썸 저장과 미리 그리기", () => {
     assert.match(storage, /export async function loadThumb/);
     assert.match(storage, /export async function saveThumb/);
     assert.match(storage, /thumbStoreKey\(identity, key\)/, "one document's thumbs never answer for another");
-    assert.match(mainSrc2, /storeThumb\(canvas, pageKey\)/);
-    assert.match(mainSrc2, /await drawStoredPage\(canvas, pageKey\)/);
+    assert.match(mainSrc2, /storeThumb\(work, pageKey, identity\)/);
+    assert.match(mainSrc2, /await drawStoredPage\(work, pageKey, identity, valid\)/);
     // Only the page picture is stored, so edits do not pile up entries (#143).
     assert.match(mainSrc2, /function pageThumbKey[\s\S]*thumbCacheKey\(leaf, width, "page"\)/);
   });
@@ -452,16 +453,16 @@ describe("#143 썸에 필기", () => {
 
   it("draws the ink layers over the page picture", () => {
     assert.match(src, /async function paintThumbInk[\s\S]*exportInkCanvas\(items/);
-    assert.match(src, /await paintThumbInk\(canvas, leaf\)/);
+    assert.match(src, /await paintThumbInk\(work, leaf, valid\)/);
     // Blank pages get their ink too, through the same path.
     const paint = src.slice(src.indexOf("async function paintPreviewThumb"), src.indexOf("function insertOutlinePage"));
-    assert.match(paint, /renderThumbPage\(canvas, leaf, size\)/);
-    assert.match(paint, /await paintThumbInk\(canvas, leaf\)/);
+    assert.match(paint, /renderThumbPage\(work, leaf, size\)/);
+    assert.match(paint, /await paintThumbInk\(work, leaf, valid\)/);
   });
 
   it("keys the finished thumb by the ink, and stores only the page", () => {
     assert.match(src, /thumbCacheKey\(leaf, size\.width, inkSignature\(items\)\)/);
-    assert.match(src, /storeThumb\(canvas, pageKey\)/);
+    assert.match(src, /storeThumb\(work, pageKey, identity\)/);
     assert.doesNotMatch(src, /storeThumb\(canvas, key\);/, "an edit must not add a stored entry");
     assert.doesNotMatch(src, /inkStamp/, "the session counter is gone");
   });
@@ -481,7 +482,7 @@ describe("#151 이어서·바뀐 쪽만", () => {
     assert.match(storage5, /export async function listThumbKeys[\s\S]*getAllKeys\(\)/);
     assert.match(storage5, /key\.startsWith\(prefix\)/, "one document's list only");
     assert.match(src5, /const done = await listThumbKeys\(identity\)/);
-    assert.match(src5, /\.filter\(\(\{ key \}\) => !done\.has\(key\) && !pageThumbCache\.get\(key\)\)/);
+    assert.match(src5, /\.filter\(\(\{ key \}\) => !done\.has\(key\) && !pageThumbCache\.get\(JSON\.stringify\(\[identity, key\]\)\)\)/);
   });
 
   it("stops when there is nothing left, so a finished document costs nothing", () => {

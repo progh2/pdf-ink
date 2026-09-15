@@ -598,8 +598,16 @@ describe("#327 PC 확대/축소", () => {
 describe("#366 첫 편집 진입은 선택 도구", () => {
   it("wires select-on-first-edit, and area entry claims the first slot", () => {
     assert.match(main, /state\.editEntered = false/);
-    assert.match(main, /!state\.editEntered\)[\s\S]{0,160}selectPanTool\(\)/); // #399
+    assert.match(main, /!state\.editEntered\)[\s\S]{0,160}selectSelectTool\(\)/); // #56: 바 칸이 있는 선택으로
     assert.match(main, /state\.editEntered = true; \/\/ #366: 영역 도구/);
+  });
+});
+
+describe("#56 손바닥은 제스처만", () => {
+  it("keeps space-bar pan and drops the bar button", () => {
+    assert.match(main, /function selectPanTool/);
+    assert.match(main, /event\.code !== "Space"/);
+    assert.doesNotMatch(html, /id="pan-btn"/);
   });
 });
 

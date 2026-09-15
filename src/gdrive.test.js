@@ -1,3 +1,4 @@
+// #428: 문서별 비동기 작업·확정 목록·고정 삽입 위치에 맞춰 배선 핀을 갱신했다. 동작은 previewLifecycle.test.js에서 검증한다.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -222,7 +223,7 @@ describe("#169 배선", () => {
   it("reads it on open and takes the newer save", () => {
     const load = main.slice(main.indexOf("async function loadDriveSidecar"), main.indexOf("/* ---- 자동 저장"));
     // #83부터: 더 최근 쪽이 구조를 정하고, 필기는 합집합이다.
-    assert.match(load, /const takeStructure = pickNewer\(local, remote\) === "remote"/);
+    assert.match(load, /const takeStructure = takeRemoteStructure\(local, remote\)/);
     assert.match(load, /mergePages\(state\.pages, remote\.pages, state\.inkGone\)/);
     assert.match(main, /await loadDriveSidecar\(doc\)/);
   });

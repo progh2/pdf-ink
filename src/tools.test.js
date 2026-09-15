@@ -128,7 +128,8 @@ describe("toolbar", () => {
     assert.match(toolbar, /id="eraser-btn"/);
     assert.match(toolbar, /id="pen-btn"/);
     assert.match(toolbar, /id="select-btn"/);
-    assert.doesNotMatch(html, /data-more="stamp"|id="stamp-btn"/); // #401: 도장은 기본 스티커가 됐다
+    assert.match(toolbar, /id="stamp-btn"/); // #56: 스탬프는 바 칸
+    assert.doesNotMatch(html, /data-more="stamp"/); // #401: ⋯에는 안 남김
     assert.match(toolbar, /id="redo-btn"/);
     assert.doesNotMatch(toolbar, /id="prev-btn"|id="next-btn"/);
     assert.match(html, /id="prev-btn"/);
