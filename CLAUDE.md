@@ -25,6 +25,7 @@ GoodNotes처럼 PDF 위에 필기하는 웹앱. 서버·로그인 없음. 배포
 - `history.undo`(past 아님), `pageStrokes(page)`, `inkKey(leaf)` — 짐작 말고 grep.
 - 셸 heredoc에 백틱·괄호 든 한국어 본문을 넣으면 먹힌다. PR 본문은 파일로. **명령 줄당 heredoc 하나만** — 두 개 섞으면 몸이 뒤바뀐다.
 - 머지 게이트는 `npm test 2>&1 | tee /tmp/t.txt` 후 **`if ! grep -q "^# fail 0$" /tmp/t.txt; then exit 1; fi`** — `grepA && grepB` 한 줄은 set -e의 &&-리스트 예외라 안 멈춘다(#343에서 fail 1 안고 머지) — 파이프 끝 head/grep이 실패 exit를 삼켜 빨간 채 머지된 적 두 번(#336·#339). 기대 테스트 수(`^# tests N$`)도 함께 확인.
+- **닫힌 이슈의 「잠금」 문구가 최신이라는 보장은 없다.** 마스터의 최근 요청이 언제나 위다. #56의 옛 바 순서를 따라 #427이 손바닥 툴을 지웠다가 제보를 받고 #435에서 되돌렸다 — 잠금과 새 요청이 어긋나면 잠금 쪽을 갱신할 것.
 - 테스트 파일에 파일 핀(readFileSync 등)을 덧붙일 땐 **그 파일 상단 import부터 확인** — 누락으로 스위트가 죽은 채 통과한 척한 게 세 번(capture·interact·preview).
 
 ## 자주 쓰는 것
