@@ -1,6 +1,6 @@
 import * as pdfjsLib from "pdfjs-dist";
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
-import { MAX_PDF_BYTES, validatePdfContents, validatePdfFile } from "./validate.js";
+import { maxPdfBytes, sizeLimitLabel, validatePdfContents, validatePdfFile } from "./validate.js";
 import {
   fileIdentity,
   listDocuments,
@@ -21,6 +21,7 @@ import {
   loadThumb,
   loadThumbEntries,
   loadStickers,
+  saveDocumentPlace,
   loadStrokes,
   migrateLastIntoFiles,
   saveCaptures,
@@ -1908,7 +1909,8 @@ function updateCurrentPageFromScroll() {
   if (best !== state.page) {
     state.page = best;
     updatePager();
-    persistSession();
+    // #418: 쪽만 바뀌었다 — 본문은 그대로 두고 자리만 적는다.
+    saveDocumentPlace(state.identity, state.page).catch(() => null);
     applyPreviewAfterPageChange();
   }
 }
@@ -2791,6 +2793,9 @@ async function openPdfBuffer(buffer, { identity, name, page = 1, handle = null }
     state.pdf = null;
   }
 
+  // #418: 이 사본은 없애면 안 된다. pdf.js는 넘긴 버퍼를 워커로 **소유권
+  // 이전(detach)** 하므로, 원본을 그대로 주면 state.buffer가 빈 껍데기가 되어
+  // 저장·굽기·클라우드 업로드가 통째로 깨진다. 메모리 2배는 그 대가다.
   const loading = pdfjsLib.getDocument({ data: buffer.slice(0) });
   const pdf = await loading.promise;
   if (gen !== openGen) {
@@ -9169,10 +9174,11 @@ async function bytesForCopy() {
 }
 
 /** Uploads a copy, never over someone else's file (#149). */
-/** #372: 클라우드 PDF도 로컬과 같은 20MB 상한 — 다운로드 후 즉시 검사. */
+/** #372·#418: 클라우드 PDF도 로컬과 같은 상한(기기 메모리별) — 다운로드 후 즉시 검사. */
 function pdfTooBigBanner(buffer) {
-  if ((buffer?.byteLength || 0) > MAX_PDF_BYTES) {
-    flashBanner("파일이 너무 큽니다. 20MB 이하만 열 수 있습니다.");
+  const limit = maxPdfBytes(navigator.deviceMemory);
+  if ((buffer?.byteLength || 0) > limit) {
+    flashBanner(`파일이 너무 큽니다. ${sizeLimitLabel(limit)} 이하만 열 수 있습니다.`);
     return true;
   }
   return false;

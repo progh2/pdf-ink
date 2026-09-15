@@ -150,6 +150,34 @@ export async function loadLastSession() {
   return session;
 }
 
+/**
+ * #418: 쪽만 바뀐 경우엔 본문을 다시 쓰지 않는다. 200MB짜리 책에서 쪽을
+ * 넘길 때마다 원본을 통째로 저장하면 그게 곧 멈춤이다 — 위치만 고쳐 넣는다.
+ */
+export async function saveDocumentPlace(identity, page) {
+  if (!identity) {
+    return;
+  }
+  const db = await openDb();
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction([FILES_STORE, SESSION_STORE], "readwrite");
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    const files = tx.objectStore(FILES_STORE);
+    const ask = files.get(identity);
+    ask.onsuccess = () => {
+      const row = ask.result;
+      if (!row) {
+        return;
+      }
+      const next = { ...row, page: Math.max(1, Math.round(Number(page) || 1)), openedAt: Date.now() };
+      files.put(next);
+      tx.objectStore(SESSION_STORE).put(next, "last");
+    };
+  });
+  db.close();
+}
+
 export async function loadDocument(identity) {
   const db = await openDb();
   const row = await new Promise((resolve, reject) => {
@@ -162,18 +190,40 @@ export async function loadDocument(identity) {
   return row;
 }
 
+/**
+ * #418: 최근 목록에 본문은 필요 없다. getAll은 모든 문서의 PDF를 **한꺼번에**
+ * 메모리로 올렸다(200MB 책 세 권이면 그대로 600MB) — 커서로 한 건씩 훑으며
+ * 메타데이터만 남긴다. 본문은 각 단계가 끝나면 바로 버려진다.
+ */
 export async function listDocuments() {
   const db = await openDb();
   const rows = await new Promise((resolve, reject) => {
+    const out = [];
     const tx = db.transaction(FILES_STORE, "readonly");
-    const request = tx.objectStore(FILES_STORE).getAll();
-    request.onsuccess = () => resolve(request.result || []);
+    const request = tx.objectStore(FILES_STORE).openCursor();
+    request.onsuccess = () => {
+      const cursor = request.result;
+      if (!cursor) {
+        resolve(out);
+        return;
+      }
+      const row = cursor.value;
+      if (row?.identity && row.buffer) {
+        out.push({
+          identity: row.identity,
+          name: row.name,
+          page: row.page || 1,
+          openedAt: row.openedAt || 0,
+          size: row.buffer.byteLength || 0,
+          handle: row.handle || null,
+        });
+      }
+      cursor.continue();
+    };
     request.onerror = () => reject(request.error);
   });
   db.close();
-  return rows
-    .filter((row) => row?.identity && row.buffer)
-    .sort((a, b) => (b.openedAt || 0) - (a.openedAt || 0));
+  return rows.sort((a, b) => (b.openedAt || 0) - (a.openedAt || 0));
 }
 
 export async function migrateLastIntoFiles() {

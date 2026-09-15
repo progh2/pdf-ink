@@ -229,7 +229,7 @@ describe("#372 저장 정직화·입력 상한 배선", () => {
     assert.equal(pages[1][2].id, "c");
   });
 
-  it("wires the honesty fixes: image-save failure, .ink upload check, 20MB cap", () => {
+  it("wires the honesty fixes: image-save failure, .ink upload check, size cap", () => {
     const src = readFileSync(join(root, "src/main.js"), "utf8");
     // #390: 영구 배너(showBanner)가 아니라 자동 소멸 + 문서당 한 번.
     assert.match(src, /flashBanner\("이미지를 저장하지 못했습니다[^"]*", 4000\)/, "실패를 삼키지 않되 눌러앉지 않는다");
