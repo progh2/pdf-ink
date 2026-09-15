@@ -3043,7 +3043,10 @@ function eventHitsShapeChips(event) {
 }
 
 function restoreFrozenStroke() {
-  const frozen = lockedStrokePoints || shapeHold.frozenPoints?.();
+  // #432: 도형 칩이 걸린 상태에서만 되돌린다. 일반 필기에서 되돌리면
+  // 스냅샷에 없는 6px 안쪽 곡선과 끝점이 통째로 잘려 삐침이 사라졌다.
+  const held = shapeHold.isFrozen?.() || shapeHold.isOffering?.();
+  const frozen = lockedStrokePoints || (held ? shapeHold.frozenPoints?.() : null);
   if (!frozen?.length || !state.currentStroke) {
     return;
   }
@@ -3334,6 +3337,11 @@ function moveStroke(event) {
     // #279: 예측 꼬리를 뺀다 — 모서리에서 옛 방향으로 살짝 튀었다 되돌아가
     // ㄴ 아래 가로가 짧게 들어갔다 사라져 보였다. 지연은 워커로 이미 낮다.
     predictedTail = [];
+    if (jitterOnly) {
+      // #432: 잔떨림 구간의 잉크도 잉크다 — 끝점을 지워야 할 누수 대기
+      // 상태는 여기서 풀린다(스냅샷은 여전히 떨리기 전으로 둔다).
+      shapeHold.noteInk?.();
+    }
     if (canShapeHold(state.currentStroke.type) && !jitterOnly) {
       // #416: 떨림 구간은 기억하지 않는다 — 끝에서 얼 때 되돌아갈 자리는
       // 떨리기 전이어야 #70의 끝단 누수가 재발하지 않는다.

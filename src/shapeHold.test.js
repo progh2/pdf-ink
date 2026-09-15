@@ -1015,3 +1015,126 @@ describe("#416 긴 획의 프레임 비용", () => {
     assert.match(fn, /for \(let index = Math\.max\(0, begin - 1\)/);
   });
 });
+
+describe("#432 일반 필기의 끝점은 도형 스냅샷에 잘리지 않는다", () => {
+  function holdWithClock() {
+    const clock = createClock();
+    const hold = createShapeHold({
+      holdMs: SHAPE_HOLD_MS,
+      now: clock.now,
+      setTimeoutFn: clock.setTimeoutFn,
+      clearTimeoutFn: clock.clearTimeoutFn,
+    });
+    return { clock, hold };
+  }
+
+  it("20ms 삐침: 입력 3점이 저장 3점으로 남는다", () => {
+    const { clock, hold } = holdWithClock();
+    const norms = [
+      { x: 0.30, y: 0.40 },
+      { x: 0.33, y: 0.44 },
+      { x: 0.36, y: 0.47 },
+    ];
+    let live = [norms[0]];
+    hold.begin({ tool: "pen", client: { x: 100, y: 100 }, getPoints: () => live });
+    hold.rememberPoints(live);
+    clock.advance(10);
+    if (hold.noteMove({ client: { x: 130, y: 140 }, getPoints: () => live })) {
+      live = appendInkPoint(live, norms[1], { x: 130, y: 140 }, null);
+      hold.rememberPoints(live);
+    }
+    clock.advance(10);
+    if (hold.noteMove({ client: { x: 160, y: 170 }, getPoints: () => live })) {
+      live = appendInkPoint(live, norms[2], { x: 160, y: 170 }, null);
+      hold.rememberPoints(live);
+    }
+    const done = hold.finish(live);
+    assert.equal(done.points.length, 3, "짧은 삐침이 잘리면 안 된다");
+    assert.equal(done.offer, null);
+  });
+
+  it("6px 안쪽 곡선과 pen-up 끝점이 끝까지 살아남는다", () => {
+    const { clock, hold } = holdWithClock();
+    let live = [{ x: 0.2, y: 0.3 }];
+    hold.begin({ tool: "pen", client: { x: 200, y: 200 }, getPoints: () => live });
+    hold.rememberPoints(live);
+    // 큰 획 하나로 drawn을 세운 뒤, 마지막을 6px 안쪽 잔움직임으로 마무리한다.
+    clock.advance(16);
+    hold.noteMove({ client: { x: 260, y: 210 }, getPoints: () => live });
+    live = appendInkPoint(live, { x: 0.26, y: 0.31 }, { x: 260, y: 210 }, null);
+    hold.rememberPoints(live);
+    const beforeJitter = live.length;
+    clock.advance(16);
+    // #416: 얼지도 제안 중도 아니면 잔움직임도 잉크다 — 스냅샷에는 담지 않는다.
+    assert.equal(hold.inkDuringJitter(), true);
+    hold.noteMove({ client: { x: 264, y: 212 }, getPoints: () => live });
+    live = appendInkPoint(live, { x: 0.264, y: 0.312 }, { x: 264, y: 212 }, null);
+    hold.noteInk();
+    const withUp = finishInkPoints(live, { x: 0.266, y: 0.313 }, { x: 266, y: 213 }, null);
+    const done = hold.finish(withUp);
+    assert.ok(done.points.length > beforeJitter, "잔움직임과 끝점이 스냅샷에 잘렸다");
+    assert.deepEqual(done.points.at(-1), withUp.at(-1), "pen-up 끝점(#316)이 남아야 한다");
+  });
+
+  it("칩으로 손이 튄 직후의 끝점은 여전히 누수로 본다 (#70)", () => {
+    const { clock, hold } = holdWithClock();
+    const dragged = lineStroke(0.06, 0.28, 0.9, 0.3, 32, 0.003);
+    let live = [dragged[0]];
+    let offered = null;
+    const onOffer = (next) => {
+      offered = next;
+    };
+    hold.begin({ tool: "pen", client: { x: 24, y: 60 }, getPoints: () => live, onOffer });
+    hold.rememberPoints(live);
+    for (let index = 1; index < dragged.length; index += 1) {
+      const client = { x: 24 + index * 22, y: 60 };
+      if (hold.noteMove({ client, getPoints: () => live, onOffer })) {
+        live = appendInkPoint(live, dragged[index], client, null);
+        hold.rememberPoints(live);
+      }
+    }
+    clock.advance(SHAPE_HOLD_MS);
+    assert.equal(hold.isOffering(), true);
+    assert.ok(offered);
+    const frozenCount = live.length;
+    // 칩을 향한 큰 튐: 제안은 걷히지만 잉크는 한 점도 들어오지 않았다.
+    const append = hold.noteMove({ client: { x: 24 + 31 * 22, y: 235 }, getPoints: () => live, onOffer });
+    assert.equal(append, false);
+    const done = hold.finish([...live, { x: 0.9, y: 0.52 }]);
+    assert.equal(done.points.length, frozenCount, "튐 직후의 끝점은 글씨가 아니다");
+  });
+
+  it("칩이 걷힌 뒤 이어 쓴 글씨는 지켜진다", () => {
+    const { clock, hold } = holdWithClock();
+    const dragged = lineStroke(0.06, 0.28, 0.9, 0.3, 32, 0.003);
+    let live = [dragged[0]];
+    hold.begin({ tool: "pen", client: { x: 24, y: 60 }, getPoints: () => live });
+    hold.rememberPoints(live);
+    for (let index = 1; index < dragged.length; index += 1) {
+      const client = { x: 24 + index * 22, y: 60 };
+      if (hold.noteMove({ client, getPoints: () => live })) {
+        live = appendInkPoint(live, dragged[index], client, null);
+        hold.rememberPoints(live);
+      }
+    }
+    clock.advance(SHAPE_HOLD_MS);
+    assert.equal(hold.isOffering(), true);
+    hold.noteMove({ client: { x: 24 + 31 * 22, y: 235 }, getPoints: () => live });
+    // 손이 다시 움직여 진짜 잉크가 들어오면 누수 대기는 풀린다.
+    clock.advance(16);
+    const client = { x: 24 + 33 * 22, y: 250 };
+    assert.equal(hold.noteMove({ client, getPoints: () => live }), true);
+    live = appendInkPoint(live, { x: 0.95, y: 0.56 }, client, null);
+    hold.rememberPoints(live);
+    const withUp = finishInkPoints(live, { x: 0.96, y: 0.57 }, { x: 24 + 34 * 22, y: 255 }, null);
+    const done = hold.finish(withUp);
+    assert.equal(done.points.length, withUp.length, "이어 쓴 글씨까지 잘리면 안 된다");
+  });
+
+  it("main.js는 홀드 상태에서만 스냅샷으로 되돌린다", () => {
+    assert.match(main, /const held = shapeHold\.isFrozen\?\.\(\) \|\| shapeHold\.isOffering\?\.\(\);/);
+    assert.match(main, /lockedStrokePoints \|\| \(held \? shapeHold\.frozenPoints\?\.\(\) : null\)/);
+    assert.match(main, /shapeHold\.noteInk\?\.\(\);/);
+    assert.match(shapeHoldSrc, /thawPending/);
+  });
+});
