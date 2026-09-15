@@ -187,13 +187,21 @@ describe("#430 Safari 필기 대체 저장", () => {
 });
 
 const main = readFileSync(new URL("./main.js", import.meta.url), "utf8");
-function writer(save, images = () => Promise.resolve()) {
+function writer(save, images = () => Promise.resolve(), free = null) {
+  // #437: 할당량 실패 경로는 미리보기 비우기와 재시도를 부른다.
+  const freed = [];
   const context = createContext({
     state: { identity: "A", pages: pages("A"), leaves: [], outline: [], inkGone: {} },
     els: { banner: { textContent: "" } },
     saveStrokes: save, saveInkImages: images,
     stripImages: value => ({ light: value, images: {} }), liveImageIds: () => new Set(),
     console: { warn() {} }, flashBanner() {},
+    isQuotaError: error => /quota|full-quota/i.test(String(error?.name || "") + String(error?.message || "")),
+    freeThumbsExcept: identity => {
+      freed.push(identity);
+      return free ? free() : Promise.resolve(3);
+    },
+    freed,
   });
   const fn = main.slice(main.indexOf("const STROKE_SAVE_FAILURE"), main.indexOf("function scheduleStrokeSave"));
   runInContext(`let strokesDirty = true, strokeSaveAttempt = 0, inkImageWarned = false;
@@ -270,5 +278,54 @@ describe("#430 저장소 읽기 실패로 클라우드 문서가 뒤섞이지 �
     await context.open({ path: "/B.pdf", name: "B.pdf", rev: "B-rev" });
     assert.equal(state.dropboxDoc, original);
     assert.equal(state.identity, "dbx::/A.pdf");
+  });
+});
+
+describe("#437 저장 공간이 찼을 때", () => {
+  it("미리보기 그림을 한 번 비우고 곧바로 다시 저장한다", async () => {
+    let calls = 0;
+    const ctx = writer(() => {
+      calls += 1;
+      return calls === 1
+        ? Promise.reject(Object.assign(new Error("full"), { name: "QuotaExceededError" }))
+        : Promise.resolve();
+    });
+    const said = [];
+    let shown = "";
+    Object.defineProperty(ctx.els.banner, "textContent", {
+      get: () => shown,
+      set: (text) => {
+        shown = text;
+        said.push(text);
+      },
+    });
+    ctx.write();
+    await tick();
+    assert.deepEqual(ctx.freed, ["A"], "지금 문서 것만 남기고 비운다");
+    assert.ok(said.some((text) => /저장 공간이 가득/.test(text)), "비우는 동안 이유를 말한다");
+    await tick();
+    await tick();
+    assert.equal(calls, 2, "비운 뒤 스스로 다시 저장한다");
+    assert.equal(ctx.dirty(), false);
+    assert.equal(ctx.els.banner.textContent, "", "성공하면 경고는 걷힌다");
+  });
+
+  it("비워도 여전히 차 있으면 무엇을 할지 말해 준다", async () => {
+    const ctx = writer(() => Promise.reject(Object.assign(new Error("full"), { name: "QuotaExceededError" })));
+    ctx.write();
+    await tick();
+    await tick();
+    await tick();
+    assert.equal(ctx.freed.length, 1, "비우기는 한 번만");
+    assert.match(ctx.els.banner.textContent, /다른 문서를 닫거나/);
+    assert.equal(ctx.dirty(), true, "저장할 것이 남아 있다");
+  });
+
+  it("할당량이 아닌 실패는 예전 안내 그대로다", async () => {
+    const ctx = writer(() => Promise.reject(new Error("disk on fire")));
+    ctx.write();
+    await tick();
+    assert.deepEqual(ctx.freed, []);
+    assert.match(ctx.els.banner.textContent, /내보내기/);
   });
 });

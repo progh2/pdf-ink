@@ -202,6 +202,25 @@ export async function saveLastSession(session) {
   await saveDocument(session);
 }
 
+/**
+ * #437: 세션에는 **가리키는 값만** 둔다. 예전엔 같은 레코드를 files와
+ * session 두 곳에 넣어 PDF 본문을 두 벌 보관했다 — 문서 하나가 할당량을 두
+ * 배로 먹었고, #418로 상한이 200MB가 된 뒤로는 그 탓에 할당량이 차서
+ * 필기 저장(localStorage → IndexedDB 대체까지)이 통째로 실패할 수 있었다.
+ */
+function toPlace(entry) {
+  const place = {
+    identity: entry.identity,
+    name: entry.name,
+    page: entry.page || 1,
+    openedAt: entry.openedAt || Date.now(),
+  };
+  if (entry.handle) {
+    place.handle = entry.handle;
+  }
+  return place;
+}
+
 export async function saveDocument(record) {
   const db = await openDb();
   const entry = toEntry(record);
@@ -210,7 +229,7 @@ export async function saveDocument(record) {
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
     tx.objectStore(FILES_STORE).put(entry);
-    tx.objectStore(SESSION_STORE).put(entry, "last");
+    tx.objectStore(SESSION_STORE).put(toPlace(entry), "last");
   });
   db.close();
 }
@@ -224,6 +243,11 @@ export async function loadLastSession() {
     request.onerror = () => reject(request.error);
   });
   db.close();
+  // 옛 기록에는 본문이 들어 있다. 없으면 files에서 본문을 찾아 붙인다.
+  if (session?.identity && !session.buffer) {
+    const row = await loadDocument(session.identity);
+    return row ? { ...row, ...session, buffer: row.buffer } : session;
+  }
   return session;
 }
 
@@ -249,7 +273,8 @@ export async function saveDocumentPlace(identity, page) {
       }
       const next = { ...row, page: Math.max(1, Math.round(Number(page) || 1)), openedAt: Date.now() };
       files.put(next);
-      tx.objectStore(SESSION_STORE).put(next, "last");
+      // #437: 세션에는 본문 없이 자리만.
+      tx.objectStore(SESSION_STORE).put(toPlace(next), "last");
     };
   });
   db.close();
@@ -421,6 +446,54 @@ export async function listThumbKeys(identity) {
   } catch {
     return new Set();
   }
+}
+
+/**
+ * #437: 할당량이 차서 필기 저장이 실패했을 때 가장 먼저 내줄 수 있는 것은
+ * 미리보기 그림이다 — 다시 그리면 그만인 캐시라 지워도 잃는 것이 없다.
+ * 지금 보고 있는 문서 것만 남긴다. 지운 건수를 돌려준다.
+ */
+export async function freeThumbsExcept(identity) {
+  const keep = `${identity || "?"}::`;
+  const db = await openDb();
+  try {
+    return await new Promise((resolve, reject) => {
+      let removed = 0;
+      const tx = db.transaction(THUMB_STORE, "readwrite");
+      const store = tx.objectStore(THUMB_STORE);
+      const request = store.openKeyCursor();
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (!cursor) {
+          return;
+        }
+        if (typeof cursor.key !== "string" || !cursor.key.startsWith(keep)) {
+          store.delete(cursor.key);
+          removed += 1;
+        }
+        cursor.continue();
+      };
+      tx.oncomplete = () => resolve(removed);
+      tx.onerror = tx.onabort = () => reject(tx.error || new Error("미리보기 정리 실패"));
+    });
+  } finally {
+    db.close();
+  }
+}
+
+/** 할당량 초과인가 — 브라우저마다 이름이 다르고 AggregateError 안에 있기도 하다. */
+export function isQuotaError(error) {
+  if (!error) {
+    return false;
+  }
+  if (Array.isArray(error.errors)) {
+    return error.errors.some((inner) => isQuotaError(inner));
+  }
+  const name = String(error.name || "");
+  if (name === "QuotaExceededError" || name === "NS_ERROR_DOM_QUOTA_REACHED") {
+    return true;
+  }
+  return /quota|storage is full|저장 공간/i.test(String(error.message || ""));
 }
 
 export async function loadThumbEntries(identity, keys) {
