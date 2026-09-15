@@ -102,7 +102,7 @@ sequenceDiagram
   App->>Cloud: 로그인(PKCE) 또는 토큰(GIS)
   App->>Cloud: 파일 고르기 (목록 / Picker)
   Cloud-->>App: PDF 바이트
-  App->>App: validate.js (PDF · 20MB)
+  App->>App: validate.js (PDF · 80~200MB)
   App->>App: 보기(잠금)로 시작 (#127)
   par 사이드카
     App->>Cloud: <이름>.pdf.ink 찾기·받기
