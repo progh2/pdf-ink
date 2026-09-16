@@ -30,6 +30,11 @@
           </button>
           <button type="button" class="dropbox-open" id="dropbox-open">드롭박스에서 열기</button>
           <button type="button" class="dropbox-open" id="gdrive-open" hidden>구글 드라이브에서 열기</button>
+          <!-- #443: 목록 ↔ 표지. 표지는 1쪽을 그려 캐시한다. -->
+          <div class="recents-views" id="recents-views" hidden>
+            <button type="button" class="recents-view" id="recents-view-list" data-recents-view="list" aria-label="목록 보기">목록</button>
+            <button type="button" class="recents-view" id="recents-view-cover" data-recents-view="cover" aria-label="표지 보기">표지</button>
+          </div>
           <ul class="recents" id="recents" hidden></ul>
           <!-- #441: 쌓인 문서를 지울 수 있게 — 저장 공간이 차면 필기 저장이 실패한다(#437). -->
           <button type="button" class="recents-clear" id="recents-clear" hidden>로컬 문서 모두 지우기</button>

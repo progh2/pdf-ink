@@ -45,6 +45,25 @@ export function loadStrokes(identity) {
   }
 }
 
+/** #443: 첫 화면을 목록으로 볼지 표지로 볼지 — 고른 보기를 기억한다. */
+const RECENTS_VIEW_KEY = "pdf-ink:recents-view";
+
+export function loadRecentsView() {
+  try {
+    return localStorage.getItem(RECENTS_VIEW_KEY) === "cover" ? "cover" : "list";
+  } catch {
+    return "list";
+  }
+}
+
+export function saveRecentsView(view) {
+  try {
+    localStorage.setItem(RECENTS_VIEW_KEY, view === "cover" ? "cover" : "list");
+  } catch {
+    // Preference is best-effort.
+  }
+}
+
 export function loadPenOnly() {
   try {
     return localStorage.getItem(PEN_ONLY_KEY) === "1";

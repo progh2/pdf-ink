@@ -24,6 +24,8 @@ import {
   loadStickers,
   saveDocumentPlace,
   deleteAllDocuments,
+  loadRecentsView,
+  saveRecentsView,
   deleteDocument,
   storageEstimate,
   freeThumbsExcept,
@@ -502,6 +504,7 @@ const els = {
   dropzone: document.querySelector("#dropzone"),
   recents: document.querySelector("#recents"),
   recentsClear: document.querySelector("#recents-clear"),
+  recentsViews: document.querySelector("#recents-views"),
   storageNote: document.querySelector("#storage-note"),
   otherPdf: document.querySelector("#other-pdf"),
   penOnlyBtn: document.querySelector("#pen-only-btn"),
@@ -681,6 +684,8 @@ const els = {
 
 const state = {
   pdf: null,
+  // #443: 첫 화면을 목록으로 볼지 표지로 볼지.
+  recentsView: loadRecentsView(),
   // #178: 파일이 들고 온 링크. 쪽·회전별로 한 번만 읽는다.
   pdfLinks: new Map(),
   // #198: 이름 목적지는 문서마다 한 번만 찾는다.
@@ -2606,6 +2611,91 @@ async function removeAllRecents(count) {
   await renderRecents();
 }
 
+/**
+ * #443: 표지는 문서 1쪽을 그려 만들고 thumbs에 캐시한다. 한 번에 하나씩만
+ * 연다 — 200MB짜리가 여럿이면 한꺼번에 여는 순간 탭이 죽는다(#308·#310).
+ */
+const COVER_THUMB_KEY = "cover";
+const COVER_WIDTH = 150;
+let coverQueue = Promise.resolve();
+let coverGen = 0;
+
+async function drawCoverFromPdf(canvas, identity, valid) {
+  const row = await loadDocument(identity);
+  if (!row?.buffer || !valid()) {
+    return false;
+  }
+  // #418과 달리 여기서는 사본을 뜨지 않는다. 이 버퍼는 방금 IDB에서 읽은
+  // 것이라 워커가 가져가도(detach) 잃을 원본이 없다 — 표지 한 장 때문에
+  // 200MB를 두 벌 들 이유는 없다.
+  const task = pdfjsLib.getDocument({ data: row.buffer });
+  let pdf = null;
+  try {
+    pdf = await task.promise;
+    if (!valid()) {
+      return false;
+    }
+    const page = await pdf.getPage(1);
+    const base = page.getViewport({ scale: 1, rotation: page.rotate || 0 });
+    const scale = (COVER_WIDTH * 2) / base.width;
+    const viewport = page.getViewport({ scale, rotation: page.rotate || 0 });
+    canvas.width = Math.max(1, Math.round(viewport.width));
+    canvas.height = Math.max(1, Math.round(viewport.height));
+    await renderPdfToCanvas(page, canvas.getContext("2d"), { viewport });
+    return valid();
+  } catch (error) {
+    console.warn("drawCoverFromPdf", error);
+    return false;
+  } finally {
+    try {
+      await pdf?.destroy();
+    } catch {
+      // 이미 닫혔으면 그만이다.
+    }
+  }
+}
+
+function paintCover(img, identity) {
+  const gen = coverGen;
+  const valid = () => gen === coverGen;
+  coverQueue = coverQueue
+    .catch(() => {})
+    .then(async () => {
+      if (!valid() || !img.isConnected) {
+        return;
+      }
+      const canvas = document.createElement("canvas");
+      const cached = await drawStoredPage(canvas, COVER_THUMB_KEY, identity, valid);
+      if (!cached) {
+        const drawn = await drawCoverFromPdf(canvas, identity, valid);
+        if (!drawn) {
+          return;
+        }
+        storeThumb(canvas, COVER_THUMB_KEY, identity);
+      }
+      if (!valid() || !img.isConnected) {
+        return;
+      }
+      img.src = canvas.toDataURL("image/png");
+    });
+}
+
+function syncRecentsViews() {
+  for (const btn of els.recentsViews?.querySelectorAll("[data-recents-view]") || []) {
+    btn.classList.toggle("is-selected", btn.dataset.recentsView === state.recentsView);
+  }
+}
+
+function setRecentsView(view) {
+  const next = view === "cover" ? "cover" : "list";
+  if (state.recentsView === next) {
+    return;
+  }
+  state.recentsView = next;
+  saveRecentsView(next);
+  renderRecents();
+}
+
 async function renderRecents() {
   let rows = [];
   try {
@@ -2621,8 +2711,16 @@ async function renderRecents() {
     rows = [];
   }
   disarmRecentDelete();
+  // 다시 그리는 순간 이전 표지 작업은 버린다 — 사라진 칸에 그리지 않는다.
+  coverGen += 1;
   els.recents.replaceChildren();
   refreshStorageNote();
+  const cover = state.recentsView === "cover";
+  els.recents.classList.toggle("is-cover", cover);
+  if (els.recentsViews) {
+    els.recentsViews.hidden = !rows.length;
+    syncRecentsViews();
+  }
   if (els.recentsClear) {
     els.recentsClear.hidden = !rows.length;
     els.recentsClear.onclick = () => removeAllRecents(rows.length);
@@ -2638,6 +2736,14 @@ async function renderRecents() {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "recent-card";
+    if (cover) {
+      // 제목은 표지 아래에 온다 — 표지를 먼저 붙인다.
+      const img = document.createElement("img");
+      img.className = "recent-cover";
+      img.alt = "";
+      button.append(img);
+      paintCover(img, entry.identity);
+    }
     const title = document.createElement("span");
     title.className = "recent-card-name";
     title.textContent = entry.title;
@@ -12131,6 +12237,11 @@ function bindToolbarGrip(grip) {
     event.preventDefault();
     event.stopPropagation();
   });
+}
+
+// #443: 목록 ↔ 표지.
+for (const btn of els.recentsViews?.querySelectorAll("[data-recents-view]") || []) {
+  btn.addEventListener("click", () => setRecentsView(btn.dataset.recentsView));
 }
 
 els.panBtn?.addEventListener("click", () => selectPanTool());

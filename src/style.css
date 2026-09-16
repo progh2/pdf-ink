@@ -134,6 +134,82 @@ body {
   background: var(--selected);
 }
 
+/* #443: 목록 ↔ 표지 전환. 고른 쪽만 진하게. */
+.recents-views {
+  width: 320px;
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.recents-view {
+  padding: 6px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--paper);
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.recents-view.is-selected {
+  background: var(--selected);
+  color: var(--title);
+}
+
+/* 표지 보기: 두 칸 격자. 제목은 표지 아래. */
+.recents.is-cover {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+
+.recents.is-cover .recent-row {
+  position: relative;
+  display: block;
+}
+
+.recents.is-cover .recent-card {
+  width: 100%;
+  height: auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  text-align: center;
+}
+
+.recent-cover {
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #F7F4EC;
+  object-fit: contain;
+  display: block;
+}
+
+.recents.is-cover .recent-card-name {
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  font-size: 13px;
+}
+
+.recents.is-cover .recent-del {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 28px;
+  height: 28px;
+  font-size: 13px;
+  opacity: 0.9;
+}
+
 /* #441: 카드와 지우기는 한 줄에. 지우기는 카드를 밀지 않게 고정 폭. */
 .recent-row {
   display: flex;
