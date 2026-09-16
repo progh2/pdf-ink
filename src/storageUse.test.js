@@ -93,3 +93,43 @@ describe("#441 문서 지우기 배선", () => {
     assert.doesNotMatch(block, /STICKER_STORE|SHELF_STORE/);
   });
 });
+
+describe("#443 표지 보기", () => {
+  const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+  const main = readFileSync(join(root, "src/main.js"), "utf8");
+  const store = readFileSync(join(root, "src/storage.js"), "utf8");
+  const html = readFileSync(join(root, "index.html"), "utf8");
+  const css = readFileSync(join(root, "src/style.css"), "utf8");
+
+  it("목록과 표지를 오가고 고른 보기를 기억한다", () => {
+    assert.match(html, /data-recents-view="list"/);
+    assert.match(html, /data-recents-view="cover"/);
+    assert.match(store, /export function loadRecentsView/);
+    assert.match(store, /export function saveRecentsView/);
+    assert.match(main, /recentsView: loadRecentsView\(\)/);
+    assert.match(main, /saveRecentsView\(next\)/);
+  });
+
+  it("제목은 표지 아래에 온다", () => {
+    const block = main.slice(main.indexOf("    if (cover) {"), main.indexOf("button.addEventListener(\"click\", () => openStoredDocument"));
+    assert.ok(block.indexOf("recent-cover") < block.indexOf("recent-card-name"), "표지가 먼저 붙는다");
+    assert.match(css, /\.recents\.is-cover \{[\s\S]*?grid-template-columns/);
+  });
+
+  it("표지는 캐시를 먼저 보고, 없을 때만 한 번에 하나씩 연다", () => {
+    const block = main.slice(main.indexOf("function paintCover"), main.indexOf("function syncRecentsViews"));
+    assert.match(block, /coverQueue = coverQueue/, "줄을 세워 한 번에 하나만 연다");
+    assert.match(block, /drawStoredPage\(canvas, COVER_THUMB_KEY, identity, valid\)/);
+    assert.match(block, /storeThumb\(canvas, COVER_THUMB_KEY, identity\)/);
+    // 표지 한 장 때문에 200MB를 두 벌 들지 않는다(#418과 대비되는 자리다).
+    const draw = main.slice(main.indexOf("async function drawCoverFromPdf"), main.indexOf("function paintCover"));
+    assert.match(draw, /getDocument\(\{ data: row\.buffer \}\)/);
+    assert.doesNotMatch(draw, /row\.buffer\.slice/);
+    assert.match(draw, /pdf\?\.destroy\(\)/, "표지를 뜬 문서는 곧바로 닫는다");
+  });
+
+  it("다시 그리면 이전 표지 작업은 버린다", () => {
+    assert.match(main, /coverGen \+= 1;/);
+    assert.match(main, /const valid = \(\) => gen === coverGen;/);
+  });
+});
