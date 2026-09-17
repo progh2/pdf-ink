@@ -1213,55 +1213,15 @@ function liveCanvas2d(canvas) {
 }
 
 /*
- * 그리는 중인 획을 워커가 칠한다 (#208). 메인 스레드가 잠깐 막혀도 획이
- * 화면에서 끊기지 않는다. OffscreenCanvas가 없는 브라우저는 예전 경로.
+ * 그리는 중인 획은 **메인 스레드에서 동기로** 칠한다. #208에서 워커에
+ * 넘겼다가 #282에서 되돌렸다 — 비동기 메시지라 「지우기」가 다음 획의
+ * 「그리기」보다 늦게 도착하면 짧은 획이 먹히고, 커밋과 어긋나 뗄 때
+ * 깜빡였다. #172(willReadFrequently 제거)로 메인 스레드도 충분히 빠르다.
+ * #448: 꺼 둔 채 남아 있던 전용 워커와 화면 밖 캔버스 이전 배선은 지웠다.
  */
-let liveWorker = null;
-let liveCanvasSeq = 0;
-
-function liveWorkerReady() {
-  // #282: 워커 라이브 층을 끈다. 비동기 메시지라 「지우기」가 다음 획의
-  // 「그리기」보다 늦게 도착하면 짧은 획이 먹히고, 커밋과 어긋나 뗄 때
-  // 깜빡였다. 메인 스레드에서 동기로 그리면 순서가 보장된다. #172(willRead
-  // Frequently 제거)로 이미 충분히 빠르다.
-  return false;
-}
-
-function adoptLiveCanvas(view) {
-  const worker = liveWorkerReady();
-  if (!worker) {
-    return;
-  }
-  try {
-    const off = view.liveCanvas.transferControlToOffscreen();
-    liveCanvasSeq += 1;
-    view.liveId = liveCanvasSeq;
-    worker.postMessage({ type: "canvas", id: view.liveId, canvas: off }, [off]);
-  } catch {
-    view.liveId = null;
-  }
-}
-
-function postLiveSize(view, width, height) {
-  if (view.liveId != null && liveWorker) {
-    liveWorker.postMessage({ type: "size", id: view.liveId, width, height });
-  }
-}
-
-function dropLiveCanvas(view) {
-  if (view?.liveId != null && liveWorker) {
-    liveWorker.postMessage({ type: "drop", id: view.liveId });
-    view.liveId = null;
-  }
-}
-
 function clearLiveLayer(view) {
   // #294: 라이브 층을 지우면 증분 펜 렌더의 기준점도 처음으로 되돌린다.
   liveDrawnUpto = 0;
-  if (view?.liveId != null && liveWorker) {
-    liveWorker.postMessage({ type: "clear", id: view.liveId });
-    return;
-  }
   const canvas = view?.liveCanvas;
   if (canvas) {
     liveCanvas2d(canvas).clearRect(0, 0, canvas.width, canvas.height);
@@ -1280,15 +1240,6 @@ function drawLiveLayer(view, stroke) {
     predictedTail.length && stroke?.points?.length
       ? { ...stroke, points: [...stroke.points, ...predictedTail] }
       : stroke;
-  if (view.liveId != null && liveWorker) {
-    liveWorker.postMessage({
-      type: "stroke",
-      id: view.liveId,
-      item: shown?.points?.length ? shown : null,
-      scale: strokeScale(view),
-    });
-    return;
-  }
   const ctx = liveCanvas2d(canvas);
   // #294: 불투명한 펜은 지우지 않고 늘어난 구간만 덧그린다 — 매 프레임 전체를
   // 다시 그리지 않아 긴 획이 끊기지 않는다. 형광/연필은 반투명이라 덧그리면
@@ -1540,7 +1491,6 @@ function makeStage(pageNum) {
     rendered: false,
     token: 0,
   };
-  adoptLiveCanvas(view);
   return view;
 }
 
@@ -1557,10 +1507,8 @@ function applyPageSize(view, cssWidth, cssHeight, pixelWidth, pixelHeight) {
     view.overCanvas,
     view.maskCanvas,
   ]) {
-    if (!(canvas === view.liveCanvas && view.liveId != null)) {
-      canvas.width = pixelWidth;
-      canvas.height = pixelHeight;
-    }
+    canvas.width = pixelWidth;
+    canvas.height = pixelHeight;
     canvas.style.width = `${cssWidth}px`;
     canvas.style.height = `${cssHeight}px`;
   }
@@ -1568,7 +1516,6 @@ function applyPageSize(view, cssWidth, cssHeight, pixelWidth, pixelHeight) {
   // the last page left behind.
   clearLiveLayer(view);
   // #208: 넘긴 캔버스의 픽셀 크기는 워커만 만질 수 있다.
-  postLiveSize(view, pixelWidth, pixelHeight);
 }
 
 /** Blank page size: the same paper as the page it was put next to (#118). */
@@ -1831,7 +1778,7 @@ function acquireStage(pageNum) {
 // #308: 버려지는 스테이지의 캔버스 6장 백킹을 즉시 해제한다.
 function freeStageCanvases(view) {
   for (const canvas of [view?.pdfCanvas, view?.underCanvas, view?.inkCanvas, view?.liveCanvas, view?.overCanvas, view?.maskCanvas]) {
-    if (canvas && !(canvas === view.liveCanvas && view.liveId != null)) {
+    if (canvas) {
       canvas.width = 0;
       canvas.height = 0;
     }
@@ -2339,7 +2286,6 @@ function scheduleZoomRender() {
 async function rebuildPages() {
   const gen = ++renderGen;
   for (const view of [...state.pageViews, ...stagePool]) {
-    dropLiveCanvas(view);
     // #308: 다시 만들 스테이지들의 캔버스 백킹을 즉시 해제 — 핀치 반복 크래시 방지.
     freeStageCanvases(view);
   }

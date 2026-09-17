@@ -139,11 +139,10 @@ describe("문서가 없는 기능을 말하지 않는다", () => {
   const readme = readFileSync(join(root, "README.md"), "utf8");
   const main = readFileSync(join(root, "src/main.js"), "utf8");
 
-  it("라이브 층 워커는 꺼져 있다 — README도 그렇게 말한다", () => {
-    // #282에서 껐다(비동기 메시지 순서 때문에 짧은 획이 먹혔다). 다시 켜면
-    // 이 핀이 깨지고, 그때 README도 같이 고치게 된다.
-    const gate = main.slice(main.indexOf("function liveWorkerReady"), main.indexOf("function adoptLiveCanvas"));
-    assert.match(gate, /return false;/);
+  it("라이브 층 워커는 없다 — README도 그렇게 말한다", () => {
+    // #282에서 껐고(비동기 메시지 순서 때문에 짧은 획이 먹혔다) #448에서
+    // 배선을 지웠다. 되살리면 이 핀이 깨지고, 그때 README도 같이 고치게 된다.
+    assert.doesNotMatch(main, /new Worker\(|transferControlToOffscreen/);
     assert.doesNotMatch(readme, /워커가 자기 프레임 시계/);
   });
 });
