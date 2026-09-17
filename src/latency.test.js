@@ -1,12 +1,11 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const main = readFileSync(join(root, "src/main.js"), "utf8");
-const worker = readFileSync(join(root, "src/livePaint.worker.js"), "utf8");
 
 describe("#208 획 사이의 끊김 — 저장을 한가할 때로", () => {
   it("never stringifies the whole document between strokes", () => {
@@ -35,17 +34,15 @@ describe("#208 예측 이벤트", () => {
 });
 
 
-describe("#282 워커 live 층 비활성", () => {
-  const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-  const main = readFileSync(join(root, "src/main.js"), "utf8");
-
-  it("keeps the live layer on the main thread (no async worker race)", () => {
-    const fn = main.slice(main.indexOf("function liveWorkerReady"), main.indexOf("function adoptLiveCanvas"));
-    assert.match(fn, /return false;/, "워커를 켜지 않는다");
-    assert.doesNotMatch(fn, /new Worker\(/, "워커를 만들지 않는다");
+describe("#282·#448 라이브 층은 메인 스레드에서만 칠한다", () => {
+  it("워커 배선이 남아 있지 않다", () => {
+    // #208에서 워커로 넘겼다가 #282에서 되돌렸고, #448에서 꺼진 배선을
+    // 통째로 지웠다. 되살리려면 #282의 순서 문제부터 풀어야 한다.
+    assert.doesNotMatch(main, /liveWorker|adoptLiveCanvas|transferControlToOffscreen/);
+    assert.equal(existsSync(join(root, "src/livePaint.worker.js")), false, "파일도 없다");
   });
 
-  it("still has the direct paint path", () => {
+  it("직접 칠하는 길은 그대로다", () => {
     const draw = main.slice(main.indexOf("function drawLiveLayer"), main.indexOf("function drawStrokesOn"));
     assert.match(draw, /liveCanvas2d\(canvas\)/);
   });
