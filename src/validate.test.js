@@ -69,3 +69,22 @@ describe("#437 세션에는 본문을 두 벌 두지 않는다", () => {
     assert.equal(isQuotaError(null), false);
   });
 });
+
+describe("문서는 실제 상한과 같은 숫자를 말한다", () => {
+  const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+  const readme = readFileSync(join(root, "README.md"), "utf8");
+  const prd = readFileSync(join(root, "docs/PRD.md"), "utf8");
+
+  it("README·PRD의 용량 문구가 maxPdfBytes와 어긋나지 않는다", () => {
+    // 한 번 어긋난 적이 있다(20MB 시절 문구가 #418 뒤에도 남아 있었다).
+    const tiers = [maxPdfBytes(2), maxPdfBytes(4), maxPdfBytes(16)].map((bytes) =>
+      sizeLimitLabel(bytes).replace("MB", ""),
+    );
+    // "80 · 120 · 200MB"처럼 한 줄에 세 단계가 순서대로 나와야 한다.
+    const said = new RegExp(`${tiers.join("\\s*·\\s*")}\\s*MB`);
+    for (const doc of [readme, prd]) {
+      assert.match(doc, said);
+      assert.doesNotMatch(doc, /20MB (이하|를 넘는)/, "옛 상한 문구가 남아 있다");
+    }
+  });
+});
