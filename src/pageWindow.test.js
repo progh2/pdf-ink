@@ -541,3 +541,31 @@ describe("#335 문서 비율 미리보기", () => {
     assert.match(main, /ratio: previewRatio\(\),/);
   });
 });
+
+describe("#450 다시 만드는 동안에는 쪽이 흔들리지 않는다", () => {
+  const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+  const main = readFileSync(join(root, "src/main.js"), "utf8");
+
+  it("스택을 비우며 생긴 scroll로 현재 쪽을 되계산하지 않는다", () => {
+    const fn = main.slice(main.indexOf("function updateCurrentPageFromScroll"), main.indexOf("function applyPreviewAfterPageChange"));
+    assert.match(fn, /if \(rebuildingPages\) \{\s*return;/);
+    // 선언이 쓰는 자리보다 앞에 있어야 한다(#403의 TDZ를 되풀이하지 않는다).
+    assert.ok(main.indexOf("let rebuildingPages = 0;") < main.indexOf("if (rebuildingPages) {"));
+  });
+
+  it("다시 만들기 전의 쪽으로 돌아온다", () => {
+    assert.match(main, /const keepPage = state\.page;/);
+    assert.match(main, /rebuildingPages \+= 1;/);
+    assert.match(main, /rebuildingPages = Math\.max\(0, rebuildingPages - 1\);/);
+    assert.match(main, /state\.page = Math\.min\(Math\.max\(1, keepPage \|\| state\.page\), state\.leaves\.length \|\| 1\);\s*\n\s*scrollPageIntoView\(state\.page, false\);/);
+  });
+
+  it("빈 스택으로 끌려간 자리는 실제로 앞쪽을 가리킨다", () => {
+    // 왜 이 보호가 필요한지 — 같은 metrics에 scrollTop만 0이면 1쪽이 된다.
+    const metrics = scrollStackMetrics(200, 400, 600, 24);
+    const deep = pageAtScrollMid({ scrollTop: 40000, viewportHeight: 800, metrics });
+    const clamped = pageAtScrollMid({ scrollTop: 0, viewportHeight: 800, metrics });
+    assert.ok(deep > 50);
+    assert.equal(clamped, 1);
+  });
+});

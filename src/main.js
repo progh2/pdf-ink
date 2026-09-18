@@ -1920,8 +1920,17 @@ async function syncScrollWindow() {
   state.pageViews = next;
 }
 
+// #450: rebuildPages가 도는 동안 스크롤에서 쪽을 되계산하지 않는다.
+let rebuildingPages = 0;
+
 function updateCurrentPageFromScroll() {
   if (state.viewMode !== "scroll" || !state.scrollLayout?.count) {
+    return;
+  }
+  // #450: 다시 만드는 중에는 스크롤 위치가 진실이 아니다. 스택을 비우면
+  // 브라우저가 scrollTop을 0 근처로 끌어내리고 scroll을 쏘는데, 그 값으로
+  // 현재 쪽을 되계산하면 보던 자리를 잃는다(미리보기를 열면 앞쪽으로 날아갔다).
+  if (rebuildingPages) {
     return;
   }
   const best = pageAtScrollMid({
@@ -2285,6 +2294,17 @@ function scheduleZoomRender() {
 
 async function rebuildPages() {
   const gen = ++renderGen;
+  // 다시 만들기 전의 쪽을 기억한다 — 복원은 이 값으로 한다.
+  const keepPage = state.page;
+  rebuildingPages += 1;
+  try {
+    await rebuildPagesNow(gen, keepPage);
+  } finally {
+    rebuildingPages = Math.max(0, rebuildingPages - 1);
+  }
+}
+
+async function rebuildPagesNow(gen, keepPage) {
   for (const view of [...state.pageViews, ...stagePool]) {
     // #308: 다시 만들 스테이지들의 캔버스 백킹을 즉시 해제 — 핀치 반복 크래시 방지.
     freeStageCanvases(view);
@@ -2333,6 +2353,9 @@ async function rebuildPages() {
     els.pageStack.style.height = `${state.scrollLayout.height}px`;
     await syncScrollWindow();
     await renderVisiblePages();
+    // #450: 스택을 비우는 사이 들어온 scroll로 쪽이 흔들렸을 수 있다 —
+    // 기억해 둔 쪽으로 되돌리고 그 자리로 간다.
+    state.page = Math.min(Math.max(1, keepPage || state.page), state.leaves.length || 1);
     scrollPageIntoView(state.page, false);
   }
   if (gen !== renderGen) {
