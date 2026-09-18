@@ -175,3 +175,62 @@ describe("선택 회전", () => {
     assert.deepEqual(pages[1][0].points, items[0].points);
   });
 });
+
+describe("#452 쪽을 돌리면 그림도 같이 돈다", () => {
+  const page = { w: 400, h: 600 };
+  const aspect = page.w / page.h;
+
+  it("꽉 찬 그림은 돌린 쪽을 그대로 채운다", () => {
+    const img = { type: "image", x: 0, y: 0, w: 1, h: 1, rotate: 0, src: "x" };
+    const out = rotateItem(img, 90, aspect);
+    assert.equal(out.rotate, 90, "그림이 돈다");
+    // 돌린 쪽은 600x400. 그리기 전 픽셀 크기는 그대로 400x600이어야,
+    // 중심에서 90° 돌렸을 때 새 쪽을 정확히 채운다.
+    assert.ok(Math.abs(out.w * page.h - page.w) < 1e-9);
+    assert.ok(Math.abs(out.h * page.w - page.h) < 1e-9);
+    // 중심은 쪽 한가운데 그대로.
+    assert.ok(Math.abs(out.x + out.w / 2 - 0.5) < 1e-9);
+    assert.ok(Math.abs(out.y + out.h / 2 - 0.5) < 1e-9);
+  });
+
+  it("네 번 돌리면 제자리로 온다", () => {
+    const img = { type: "image", x: 0.1, y: 0.25, w: 0.8, h: 0.5, rotate: 0, src: "x" };
+    let out = img;
+    let a = aspect;
+    for (let turn = 0; turn < 4; turn += 1) {
+      out = rotateItem(out, 90, a);
+      a = 1 / a; // 쪽도 함께 돌았다
+    }
+    assert.equal(out.rotate, 0);
+    for (const key of ["x", "y", "w", "h"]) {
+      assert.ok(Math.abs(out[key] - img[key]) < 1e-9, `${key}가 제자리로`);
+    }
+  });
+
+  it("180°는 상자 모양을 바꾸지 않는다", () => {
+    const img = { type: "image", x: 0.1, y: 0.2, w: 0.5, h: 0.4, rotate: 0, src: "x" };
+    const out = rotateItem(img, 180, aspect);
+    assert.equal(out.rotate, 180);
+    assert.ok(Math.abs(out.w - img.w) < 1e-9);
+    assert.ok(Math.abs(out.h - img.h) < 1e-9);
+  });
+
+  it("이미 돌아가 있던 그림은 더해서 돈다", () => {
+    const img = { type: "image", x: 0.2, y: 0.2, w: 0.4, h: 0.4, rotate: 300, src: "x" };
+    assert.equal(rotateItem(img, 90, aspect).rotate, 30);
+  });
+
+  it("가림 상자는 내용 방향이 없으므로 상자만 돈다", () => {
+    const mask = { type: "mosaic", x: 0.1, y: 0.2, w: 0.6, h: 0.3 };
+    const out = rotateItem(mask, 90, aspect);
+    assert.equal(out.rotate, undefined);
+    assert.ok(Math.abs(out.w - mask.h) < 1e-9);
+    assert.ok(Math.abs(out.h - mask.w) < 1e-9);
+  });
+
+  it("획은 예전 그대로 점을 돌린다", () => {
+    const stroke = { type: "pen", width: 2, points: [{ x: 0.2, y: 0.4 }] };
+    const out = rotateItem(stroke, 90, aspect);
+    assert.deepEqual(out.points, [rotatePoint({ x: 0.2, y: 0.4 }, 90)]);
+  });
+});
