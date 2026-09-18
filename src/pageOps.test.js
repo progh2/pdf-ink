@@ -185,7 +185,8 @@ describe("#55 서랍 배선", () => {
     assert.match(main, /commitLeafChange\(out\.key, \(\) => \{[\s\S]*state\.pages = out\.pages/);
     assert.match(main, /commitLeafChange\(inkKey\(leaf\), \(\) => \{[\s\S]*state\.leaves = moved/);
     // Rotating a page still turns its strokes with it.
-    assert.match(main, /state\.pages\[key\] = rotateItems\(pageStrokes\(pageNum\), delta\)/);
+    // #452: 쪽 비율까지 넘겨야 이미지가 함께 돈다.
+    assert.match(main, /state\.pages\[key\] = rotateItems\(pageStrokes\(pageNum\), delta, pageBoxAspect\(pageNum, leaf\)\)/);
   });
 
   it("holds to grab, so a drag reorders instead of scrolling the drawer", () => {

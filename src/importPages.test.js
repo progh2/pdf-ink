@@ -14,7 +14,8 @@ import {
   insertImportedAfter,
 } from "./importPages.js";
 import { IMAGE_MAX_BYTES } from "./image.js";
-import { inkKey, makePdfLeaf } from "./preview.js";
+import { inkKey, leafPaperBox, makePdfLeaf } from "./preview.js";
+import { rotateItem } from "./rotate.js";
 import { MAX_PDF_BYTES, maxPdfBytes, sizeLimitLabel } from "./validate.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -169,5 +170,30 @@ describe("#454 가져온 쪽의 모양이 화면·썸네일·파일에서 같다
 
   it("제 모양 쪽이 첫 장이어도 칸은 문서 기본 쪽이다", () => {
     assert.match(main, /firstLeaf\?\.ratio\s*\n?\s*\? \{ width: base\.width, height: base\.height \}/);
+  });
+});
+
+describe("#454·#452 가져온 세로 그림을 돌려도 종이를 꽉 채운다", () => {
+  it("돌린 뒤에도 그림이 종이와 정확히 같다", () => {
+    // 칸 400x600에 9:16 그림을 가져오면 종이는 337.5x600이 되고 그림이 꽉 찬다.
+    const cell = { width: 400, height: 600 };
+    const ratio = 16 / 9;
+    const paper = leafPaperBox(cell.width, cell.height, ratio);
+    assert.ok(Math.abs(paper.height - 600) < 1e-9);
+    const full = { type: "image", x: 0, y: 0, w: 1, h: 1, rotate: 0, src: "x" };
+
+    // 쪽을 90° 돌리면 종이도 눕는다.
+    const turned = leafPaperBox(cell.width, cell.height, ratio, 90);
+    assert.ok(Math.abs(turned.width / turned.height - ratio) < 1e-9, "비율이 뒤집혀 눕는다");
+
+    // 그림은 돌기 전 쪽 비율로 다시 정규화된다(#452).
+    const out = rotateItem(full, 90, paper.width / paper.height);
+    assert.equal(out.rotate, 90);
+    // 그린 픽셀 크기(돌리기 전)는 새 종이의 높이x너비여야, 90° 돌렸을 때 딱 맞는다.
+    assert.ok(Math.abs(out.w * turned.width - turned.height) < 1e-6, "돌린 그림의 폭 = 종이 높이");
+    assert.ok(Math.abs(out.h * turned.height - turned.width) < 1e-6, "돌린 그림의 높이 = 종이 너비");
+    // 중심은 종이 한가운데 그대로.
+    assert.ok(Math.abs(out.x + out.w / 2 - 0.5) < 1e-9);
+    assert.ok(Math.abs(out.y + out.h / 2 - 0.5) < 1e-9);
   });
 });
