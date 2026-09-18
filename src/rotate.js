@@ -41,7 +41,19 @@ export function rotateRect(rect, delta) {
   return { x: left, y: top, w: Math.max(...xs) - left, h: Math.max(...ys) - top };
 }
 
-export function rotateItem(item, delta) {
+/**
+ * #452: 쪽을 돌리면 그림도 같이 돌아야 한다.
+ *
+ * 그리는 규약은 "저장된 상자 크기로 그린 뒤 중심에서 `rotate`만큼 돌린다"이다
+ * (선택 회전 `rotateItemAround`가 그렇게 쓴다). 예전 쪽 회전은 상자만 돌리고
+ * `rotate`를 그대로 뒀다 — 그림은 안 돌고 상자 모양만 바뀌어 찌그러졌다.
+ *
+ * 그래서 이미지는 (1) 중심을 돌리고 (2) `rotate += delta`를 더하고 (3) 상자는
+ * **그리기 전 픽셀 크기를 지키도록** 새 쪽 비율로 다시 정규화한다. 쪽이 W×H에서
+ * H×W가 되므로 90°에서는 `w' = w·(W/H)`, `h' = h·(H/W)`이다. `pageAspect`는
+ * 돌리기 **전** 쪽의 W/H.
+ */
+export function rotateItem(item, delta, pageAspect = 1) {
   if (!item || !delta) {
     return item;
   }
@@ -54,7 +66,21 @@ export function rotateItem(item, delta) {
     next.x = point.x;
     next.y = point.y;
     next.tilt = (Number.isFinite(item.tilt) ? item.tilt : 0) + (delta * Math.PI) / 180;
-  } else if (item.type === "mosaic" || item.type === "image") {
+  } else if (item.type === "image") {
+    const w = Number(item.w) || 0;
+    const h = Number(item.h) || 0;
+    const mid = rotatePoint({ x: (Number(item.x) || 0) + w / 2, y: (Number(item.y) || 0) + h / 2 }, delta);
+    const quarter = normalizeRotation(delta) % 180 === 90;
+    const aspect = Number(pageAspect) > 0 ? Number(pageAspect) : 1;
+    const nextW = quarter ? w * aspect : w;
+    const nextH = quarter ? h / aspect : h;
+    next.w = nextW;
+    next.h = nextH;
+    next.x = mid.x - nextW / 2;
+    next.y = mid.y - nextH / 2;
+    next.rotate = wrapRotation((Number(item.rotate) || 0) + delta);
+  } else if (item.type === "mosaic") {
+    // 가림 상자는 내용에 방향이 없다 — 상자만 돌린다.
     const box = rotateRect({ x: item.x, y: item.y, w: item.w, h: item.h }, delta);
     next.x = box.x;
     next.y = box.y;
@@ -64,8 +90,8 @@ export function rotateItem(item, delta) {
   return next;
 }
 
-export function rotateItems(items, delta) {
-  return (items || []).map((item) => rotateItem(item, delta));
+export function rotateItems(items, delta, pageAspect = 1) {
+  return (items || []).map((item) => rotateItem(item, delta, pageAspect));
 }
 
 /** Free angle in [0, 360). Page rotate still uses normalizeRotation (90° snap). */

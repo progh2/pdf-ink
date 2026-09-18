@@ -7037,6 +7037,24 @@ function rotateCurrentPage(delta) {
   rotatePageAt(state.page, delta);
 }
 
+/**
+ * #452: 쪽 회전이 이미지를 바르게 돌리려면 **돌리기 전 쪽의 가로/세로 비**가
+ * 필요하다. 항목 좌표는 화면에 놓인 쪽 상자에 대한 비율이므로, 그 상자를
+ * 먼저 본다(보이는 뷰 → 스크롤 레이아웃 → 기본 쪽 상자 순).
+ */
+function pageBoxAspect(pageNum, leaf) {
+  const view = state.pageViews.find((item) => item.pageNum === pageNum);
+  if (view?.cssWidth > 0 && view?.cssHeight > 0) {
+    return view.cssWidth / view.cssHeight;
+  }
+  const metrics = state.scrollLayout;
+  if (metrics?.pageWidth > 0 && metrics?.pageHeight > 0) {
+    return metrics.pageWidth / metrics.pageHeight;
+  }
+  const base = outlineViewport(state.baseCss?.width || 0, state.baseCss?.height || 0, leaf?.rotate || 0);
+  return base.width > 0 && base.height > 0 ? base.width / base.height : 1;
+}
+
 function rotatePageAt(pageNum, delta) {
   const leaf = leafAt(state.leaves, pageNum);
   if (!leaf) {
@@ -7044,7 +7062,7 @@ function rotatePageAt(pageNum, delta) {
   }
   commitPageChange(pageNum, () => {
     const key = inkKey(leaf);
-    state.pages[key] = rotateItems(pageStrokes(pageNum), delta);
+    state.pages[key] = rotateItems(pageStrokes(pageNum), delta, pageBoxAspect(pageNum, leaf));
     state.leaves = setLeafRotate(state.leaves, pageNum - 1, addRotation(leaf.rotate, delta));
     state.pageCount = state.leaves.length;
     state.selectIndices = [];
@@ -7601,7 +7619,7 @@ function runPickedMenu(action) {
       state.pages = { ...state.pages };
       for (const at of indexes) {
         const leaf = state.leaves[at];
-        state.pages[inkKey(leaf)] = rotateItems(state.pages[inkKey(leaf)] || [], delta);
+        state.pages[inkKey(leaf)] = rotateItems(state.pages[inkKey(leaf)] || [], delta, pageBoxAspect(at + 1, leaf));
       }
       state.leaves = rotatePageLeaves(state.leaves, indexes, delta);
     });
