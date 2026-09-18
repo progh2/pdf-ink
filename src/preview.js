@@ -23,8 +23,38 @@ export function makePdfLeaf(pdfPage, extras = {}) {
   return leaf;
 }
 
+export const LEAF_RATIO_MIN = 0.1;
+export const LEAF_RATIO_MAX = 10;
+
+/** #454: 가져온 쪽이 제 모양을 갖는다 — 높이/너비. 저장본에서도 살아남는다. */
+export function leafRatio(value) {
+  const ratio = Number(value);
+  if (!Number.isFinite(ratio) || ratio <= 0) {
+    return 0;
+  }
+  return Math.min(LEAF_RATIO_MAX, Math.max(LEAF_RATIO_MIN, ratio));
+}
+
+/**
+ * #454: 제 비율을 가진 쪽의 종이를 칸 안에 눕힌다. 남는 자리는 흰 종이가
+ * 아니라 작업 영역 바탕이다 — 크기가 다른 낱장이 섞인 책처럼 보인다.
+ * 칸을 넘기지 않는 것이 중요하다: 세로 스크롤에서 넘치면 다음 쪽과 겹친다.
+ */
+export function leafPaperBox(cellWidth, cellHeight, ratio, rotate = 0) {
+  const cw = Math.max(1, Number(cellWidth) || 1);
+  const ch = Math.max(1, Number(cellHeight) || 1);
+  const own = leafRatio(ratio);
+  if (!own) {
+    return { width: cw, height: ch };
+  }
+  const want = normalizeRotation(rotate) % 180 === 90 ? 1 / own : own;
+  const width = Math.min(cw, ch / want);
+  return { width, height: width * want };
+}
+
 export function makeOutlineLeaf(id, extras = {}) {
   const key = String(id || `o-${Date.now()}`);
+  const ratio = leafRatio(extras.ratio);
   return {
     id: key.startsWith("o:") ? key : `o:${key}`,
     kind: "outline",
@@ -32,6 +62,7 @@ export function makeOutlineLeaf(id, extras = {}) {
     bookmark: Boolean(extras.bookmark),
     rotate: normalizeRotation(extras.rotate || 0),
     title: extras.title || "빈 쪽",
+    ...(ratio ? { ratio } : {}),
     // #428: 예전 가져온 잎은 ID 접두어로도 식별한다. 파일명을 종류로 쓰지 않는다.
     ...((extras.imported || /^o:(imp|shelf|mv)-/.test(key)) ? { imported: true } : {}),
   };

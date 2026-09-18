@@ -8,7 +8,7 @@
  */
 import { acceptImageFile } from "./image.js";
 import { inkKey, makeOutlineLeaf } from "./preview.js";
-import { MAX_PDF_BYTES } from "./validate.js";
+import { maxPdfBytes, sizeLimitLabel } from "./validate.js";
 
 /** 갤러리·파일 앱이 이미지와 PDF를 같이 보여 주게. capture는 안 붙인다 — 붙이면 카메라만 뜬다. */
 export const IMPORT_ACCEPT =
@@ -42,8 +42,10 @@ export function classifyImportFile(file) {
     return { kind: "reject", message: "빈 파일은 열 수 없습니다." };
   }
   if (looksLikePdf(file)) {
-    if (file.size > MAX_PDF_BYTES) {
-      return { kind: "reject", message: "파일이 너무 큽니다. 20MB 이하만 올릴 수 있습니다." };
+    // #418을 따라간다 — 상한은 기기 메모리에 달렸고, 문구는 실제 상한을 말한다.
+    const limit = maxPdfBytes(globalThis.navigator?.deviceMemory);
+    if (file.size > limit) {
+      return { kind: "reject", message: `파일이 너무 큽니다. ${sizeLimitLabel(limit)} 이하만 올릴 수 있습니다.` };
     }
     return { kind: "pdf" };
   }
@@ -68,7 +70,8 @@ export function insertImportedAfter(leaves, pages, index, specs) {
   let at = Math.min(Math.max(0, Number(index) + 1), list.length);
   const firstAt = at;
   for (const spec of items) {
-    const leaf = makeOutlineLeaf(spec.id, { title: spec.title || "가져온 쪽", imported: true });
+    // #454: 쪽이 제 모양(높이/너비)을 지니고 들어간다 — 흰 여백이 생기지 않는다.
+    const leaf = makeOutlineLeaf(spec.id, { title: spec.title || "가져온 쪽", imported: true, ratio: spec.ratio });
     list.splice(at, 0, leaf);
     nextPages[inkKey(leaf)] = Array.isArray(spec.items) ? spec.items.slice() : [];
     at += 1;

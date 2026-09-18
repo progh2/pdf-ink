@@ -15,7 +15,7 @@ import {
 } from "./importPages.js";
 import { IMAGE_MAX_BYTES } from "./image.js";
 import { inkKey, makePdfLeaf } from "./preview.js";
-import { MAX_PDF_BYTES } from "./validate.js";
+import { MAX_PDF_BYTES, maxPdfBytes, sizeLimitLabel } from "./validate.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const main = readFileSync(join(root, "src/main.js"), "utf8");
@@ -43,10 +43,13 @@ describe("#425 가져오기 분류", () => {
     assert.match(classifyImportFile(file({ size: 0 })).message, /빈 파일/);
   });
 
-  it("rejects an oversized pdf with the same 20MB cap as open", () => {
+  it("rejects an oversized pdf with the same cap as open (#418)", () => {
+    // 상한은 기기 메모리에 달렸다. 문구는 그때 실제로 적용된 상한을 말한다.
+    const limit = maxPdfBytes(globalThis.navigator?.deviceMemory);
     const out = classifyImportFile(file({ name: "big.pdf", type: "application/pdf", size: MAX_PDF_BYTES + 1 }));
     assert.equal(out.kind, "reject");
-    assert.match(out.message, /20MB/);
+    assert.equal(out.message, `파일이 너무 큽니다. ${sizeLimitLabel(limit)} 이하만 올릴 수 있습니다.`);
+    assert.doesNotMatch(out.message, /20MB/, "#418 전의 낡은 숫자를 말하지 않는다");
   });
 
   it("rejects an oversized image with the image cap, not the pdf cap", () => {
@@ -111,13 +114,15 @@ describe("#425 배선", () => {
   it("inserts after the current page and persists leaves + images", () => {
     const pick = main.slice(main.indexOf("function pickImportPages"), main.indexOf("function movePageByDrag"));
     assert.match(pick, /els\.importPagesInput\.click\(\)/);
-    const run = main.slice(main.indexOf("function importPageBox"), main.indexOf("function pickImportPages"));
+    const run = main.slice(main.indexOf("const FULL_PAGE_BOX"), main.indexOf("function pickImportPages"));
     assert.match(run, /classifyImportFile\(file\)/);
     assert.match(run, /insertImportedAfter\(state\.leaves, state\.pages, index, specs\)/);
     assert.match(run, /const index = validImportIndex\(target\)/);
     assert.match(run, /commitBulkChange/, "여러 쪽 undo가 한 번에 돌아가게");
     assert.match(run, /afterPageOp\(index \+ 2\)/, "첫 가져온 쪽 = 지금+1");
-    assert.match(run, /containBoxOnPage/, "그림은 쪽 안에 비율 유지");
+    // #454: 쪽이 그림 모양을 가지므로 그림은 종이를 꽉 채운다.
+    assert.match(run, /ratio: height \/ width/);
+    assert.match(run, /items: \[imageItem\(\{ \.\.\.FULL_PAGE_BOX/);
     assert.match(run, /locked: true/);
     assert.match(run, /pdfjsLib\.getDocument/, "고른 PDF의 모든 쪽");
     assert.match(run, /validatePdfContents/);
@@ -130,5 +135,39 @@ describe("#425 배선", () => {
     assert.match(main, /action === "importpages"[\s\S]{0,120}pickImportPages\(\)/);
     assert.match(main, /els\.importPages\.addEventListener\("click", pickImportPages\)/);
     assert.match(main, /els\.importPagesInput\.addEventListener\("change"/);
+  });
+});
+
+describe("#454 가져온 쪽의 모양이 화면·썸네일·파일에서 같다", () => {
+  const main = readFileSync(join(root, "src/main.js"), "utf8");
+  const exportSrc = readFileSync(join(root, "src/exportPdf.js"), "utf8");
+
+  it("잎에 비율을 심어 넣는다", () => {
+    const out = insertImportedAfter([makePdfLeaf(1)], {}, 0, [{ id: "o:imp-x", title: "그림", ratio: 16 / 9 }]);
+    assert.ok(Math.abs(out.leaves[1].ratio - 16 / 9) < 1e-9);
+  });
+
+  it("화면 쪽 크기가 제 비율을 쓴다", () => {
+    const blank = main.slice(main.indexOf("async function blankPageCss"), main.indexOf("async function blankCellCss"));
+    assert.match(blank, /leafPaperBox\(cell\.width, cell\.height, leaf\.ratio, leaf\.rotate\)/);
+  });
+
+  it("썸네일도 같은 모양을 쓴다", () => {
+    const thumb = main.slice(main.indexOf("async function blankThumbShape"), main.indexOf("const canvasRenderQueue"));
+    assert.match(thumb, /leafPaperBox\(cellW, cellH, leaf\.ratio, leaf\.rotate\)/);
+  });
+
+  it("내보낸 파일의 쪽도 그 모양이다", () => {
+    assert.match(exportSrc, /leafPaperBox\(blankSize\.width, blankSize\.height, plan\.leaf\.ratio, 0\)/);
+    assert.match(exportSrc, /out\.addPage\(\[paper\.width, paper\.height\]\)/);
+  });
+
+  it("칸보다 좁은 쪽도 가운데 온다", () => {
+    assert.match(main, /marginLeft = `\$\{-\(view\.cssWidth \|\| metrics\.pageWidth\) \/ 2\}px`/);
+    assert.match(main, /state\.viewMode === "scroll" && state\.scrollLayout[\s\S]{0,120}marginLeft = `\$\{-cssWidth \/ 2\}px`/);
+  });
+
+  it("제 모양 쪽이 첫 장이어도 칸은 문서 기본 쪽이다", () => {
+    assert.match(main, /firstLeaf\?\.ratio\s*\n?\s*\? \{ width: base\.width, height: base\.height \}/);
   });
 });

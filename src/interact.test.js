@@ -362,7 +362,8 @@ describe("#171·#172 배선", () => {
 
   it("does not ask for a low-latency surface over the page (#192)", () => {
     assert.doesNotMatch(main, /desynchronized: true/, "on some Android GPUs it comes up opaque and blacks the page");
-    assert.match(main, /canvas\.style\.height = `\$\{cssHeight\}px`;\s*\}\s*\/\/ #192[\s\S]{0,120}clearLiveLayer\(view\);/, "a resized layer starts empty");
+    // #454: 크기를 정한 뒤 가운데 맞추기가 끼어들 수 있다 — 중요한 건 지우기가 뒤따르는 것.
+    assert.match(main, /canvas\.style\.height = `\$\{cssHeight\}px`;\s*\}[\s\S]{0,360}\/\/ #192[\s\S]{0,160}clearLiveLayer\(view\);/, "a resized layer starts empty");
   });
 });
 
