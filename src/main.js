@@ -421,6 +421,7 @@ import {
   inkKey,
   insertOutlineAfter,
   leafAt,
+  leafPaperBox,
   nearestPdfLeaf,
   normalizeSavedLeaves,
   outlineViewport,
@@ -1512,6 +1513,10 @@ function applyPageSize(view, cssWidth, cssHeight, pixelWidth, pixelHeight) {
     canvas.style.width = `${cssWidth}px`;
     canvas.style.height = `${cssHeight}px`;
   }
+  // #454: 칸보다 좁은 쪽은 가운데로 — 크기가 정해진 뒤 다시 민다.
+  if (state.viewMode === "scroll" && state.scrollLayout) {
+    view.stage.style.marginLeft = `${-cssWidth / 2}px`;
+  }
   // #192: the layer over the page must be empty after a resize, not whatever
   // the last page left behind.
   clearLiveLayer(view);
@@ -1522,6 +1527,16 @@ function applyPageSize(view, cssWidth, cssHeight, pixelWidth, pixelHeight) {
 async function blankPageCss(leaf) {
   const base = await basePageCss();
   const fallback = outlineViewport(base.width, base.height, leaf?.rotate || 0);
+  // #454: 가져온 쪽은 제 비율이 있다 — 칸(이웃 쪽 상자) 안에 그 모양으로 눕힌다.
+  const cell = await blankCellCss(leaf, fallback);
+  if (leaf?.ratio) {
+    return leafPaperBox(cell.width, cell.height, leaf.ratio, leaf.rotate);
+  }
+  return cell;
+}
+
+/** 빈 쪽이 빌려 쓰는 칸: 옆에 놓인 원본 쪽의 상자 (#118). */
+async function blankCellCss(leaf, fallback) {
   if (!state.pdf) {
     return fallback;
   }
@@ -1532,7 +1547,10 @@ async function blankPageCss(leaf) {
   }
   try {
     const page = await state.pdf.getPage(near.pdfPage);
-    const rotation = normalizeRotation((page.rotate || 0) + (leaf?.rotate || 0));
+    // 제 비율이 있는 쪽은 칸만 빌린다 — 회전은 그 비율에 적용된다.
+    const rotation = leaf?.ratio
+      ? normalizeRotation(page.rotate || 0)
+      : normalizeRotation((page.rotate || 0) + (leaf?.rotate || 0));
     const viewport = page.getViewport({ scale: fitScale(page, state.viewMode, rotation), rotation });
     return { width: viewport.width, height: viewport.height };
   } catch {
@@ -1563,13 +1581,19 @@ async function blankThumbShape(leaf, size) {
   }
   try {
     const page = await state.pdf.getPage(near.pdfPage);
-    const rotation = normalizeRotation((page.rotate || 0) + (leaf?.rotate || 0));
+    // #454: 제 비율이 있는 쪽은 칸만 빌리고 모양은 제 것을 쓴다.
+    const rotation = leaf?.ratio
+      ? normalizeRotation(page.rotate || 0)
+      : normalizeRotation((page.rotate || 0) + (leaf?.rotate || 0));
     const base = page.getViewport({ scale: 1, rotation });
     const scale = Math.min(wide / base.width, tall / base.height);
-    return {
-      width: Math.max(1, Math.round(base.width * scale)),
-      height: Math.max(1, Math.round(base.height * scale)),
-    };
+    const cellW = Math.max(1, Math.round(base.width * scale));
+    const cellH = Math.max(1, Math.round(base.height * scale));
+    if (leaf?.ratio) {
+      const paper = leafPaperBox(cellW, cellH, leaf.ratio, leaf.rotate);
+      return { width: Math.max(1, Math.round(paper.width)), height: Math.max(1, Math.round(paper.height)) };
+    }
+    return { width: cellW, height: cellH };
   } catch {
     return { width: wide, height: tall };
   }
@@ -1814,7 +1838,8 @@ function positionScrollStage(view) {
   view.stage.style.position = "absolute";
   view.stage.style.top = `${pageStackOffset(view.pageNum, metrics)}px`;
   view.stage.style.left = "50%";
-  view.stage.style.marginLeft = `${-metrics.pageWidth / 2}px`;
+  // #454: 칸보다 좁은 쪽(가져온 그림)도 가운데 오게 — 제 너비로 민다.
+  view.stage.style.marginLeft = `${-(view.cssWidth || metrics.pageWidth) / 2}px`;
   if (!view.cssWidth) {
     view.stage.style.width = `${metrics.pageWidth}px`;
     view.stage.style.height = `${metrics.pageHeight}px`;
@@ -2342,7 +2367,11 @@ async function rebuildPagesNow(gen, keepPage) {
       css = first.getViewport({ scale: fitScale(first, "scroll", rotation), rotation });
     } else {
       const base = await basePageCss();
-      css = outlineViewport(base.width, base.height, firstLeaf?.rotate || 0);
+      // #454: 제 모양을 가진 쪽이 첫 장이어도 **칸**은 문서의 기본 쪽 상자다 —
+      // 그 쪽만 칸 안에서 제 모양으로 눕는다(칸까지 따라 돌면 책 전체가 돌아간다).
+      css = firstLeaf?.ratio
+        ? { width: base.width, height: base.height }
+        : outlineViewport(base.width, base.height, firstLeaf?.rotate || 0);
     }
     if (gen !== renderGen) {
       return;
@@ -7991,23 +8020,24 @@ function currentImportTarget() {
   };
 }
 
-function importPageBox(imgWidth, imgHeight, target) {
-  return containBoxOnPage(imgWidth, imgHeight, target.width, target.height);
-}
+/** #454: 가져온 쪽은 제 모양이므로 그림이 종이를 꽉 채운다. */
+const FULL_PAGE_BOX = { x: 0, y: 0, w: 1, h: 1 };
 
 function validImportIndex(target) {
   if (!state.pdf || els.writeScreen.hidden) return -1;
   return importTargetIndex(target, { identity: state.identity, gen: openGen, leaves: state.leaves, interactMode: state.interactMode });
 }
 
-async function specsFromImageFile(file, target) {
+async function specsFromImageFile(file) {
   const raw = await readFileDataUrl(file);
   if (!acceptImageSrc(raw)) throw new Error("image");
   const img = await loadHtmlImage(raw);
-  const box = importPageBox(img.naturalWidth || img.width, img.naturalHeight || img.height, target);
+  // #454: 쪽이 그림 모양을 갖는다 — 그래서 그림은 종이를 꽉 채우고 흰 여백이 없다.
+  const width = img.naturalWidth || img.width || 1;
+  const height = img.naturalHeight || img.height || 1;
   return [{
-    id: importedLeafId(), title: file.name || "가져온 쪽",
-    items: [imageItem({ ...box, src: raw, locked: true, id: importedLeafId("img") })],
+    id: importedLeafId(), title: file.name || "가져온 쪽", ratio: height / width,
+    items: [imageItem({ ...FULL_PAGE_BOX, src: raw, locked: true, id: importedLeafId("img") })],
   }];
 }
 
@@ -8031,11 +8061,12 @@ async function specsFromPdfFile(file, target) {
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         await renderPdfToCanvas(page, ctx, { viewport });
         const src = canvas.toDataURL("image/jpeg", 0.82);
-        const box = importPageBox(viewport.width, viewport.height, target);
         specs.push({
           id: importedLeafId(),
           title: count > 1 ? `${file.name || "PDF"} · 원본 ${pageNum}쪽` : file.name || "가져온 쪽",
-          items: [imageItem({ ...box, src, locked: true, id: importedLeafId("img") })],
+          // #454: 원본 쪽 모양 그대로 — 늘리거나 여백을 두지 않는다.
+          ratio: viewport.height / viewport.width,
+          items: [imageItem({ ...FULL_PAGE_BOX, src, locked: true, id: importedLeafId("img") })],
         });
       } finally {
         canvas.width = 0;
@@ -8066,7 +8097,7 @@ async function importPagesFromFile(file) {
   els.importPages.disabled = true;
   flashBanner(`${target.page}쪽 뒤에 페이지를 넣는 중…`);
   try {
-    const specs = classified.kind === "pdf" ? await specsFromPdfFile(file, target) : await specsFromImageFile(file, target);
+    const specs = classified.kind === "pdf" ? await specsFromPdfFile(file, target) : await specsFromImageFile(file);
     const index = validImportIndex(target);
     if (index < 0) {
       flashBanner("문서·기준 쪽 또는 잠금 상태가 바뀌어 가져오기를 취소했습니다.");

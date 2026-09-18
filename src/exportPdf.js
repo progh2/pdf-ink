@@ -1,5 +1,6 @@
 import { PDFDocument, PDFHexString, PDFName, PDFNull, PDFString, degrees } from "pdf-lib";
 import { BOOKMARK_GROUP_TITLE, bookmarkTitle, hasOutlineContent } from "./pdfOutline.js";
+import { leafPaperBox } from "./preview.js";
 import { normalizeRotation } from "./rotate.js";
 
 /** Annotated PDF: the page stays vector, the ink rides on top as one PNG (#54). */
@@ -207,7 +208,10 @@ export async function buildAnnotatedPdf({
       baseRotation = normalizeRotation(original.getRotation().angle);
       page = out.addPage([size.width, size.height]);
     } else {
-      page = out.addPage([blankSize.width, blankSize.height]);
+      // #454: 제 모양을 가진 쪽(가져온 그림·PDF 쪽)은 화면에서처럼 그 모양으로
+      // 나간다 — 예전엔 모두 같은 크기라 파일에도 흰 여백이 남았다.
+      const paper = leafPaperBox(blankSize.width, blankSize.height, plan.leaf.ratio, 0);
+      page = out.addPage([paper.width, paper.height]);
     }
     const rotation = normalizeRotation(baseRotation + (Number(plan.leaf.rotate) || 0));
     page.setRotation(degrees(rotation));

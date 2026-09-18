@@ -5,9 +5,12 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  LEAF_RATIO_MAX,
+  LEAF_RATIO_MIN,
   defaultLeaves,
   filterLeaves,
   inkKey,
+  leafPaperBox,
   insertOutlineAfter,
   makeOutlineLeaf,
   makePdfLeaf,
@@ -93,5 +96,49 @@ describe("#338 유령 리프 차단 배선", () => {
 
   it("renders a ghost leaf as blank paper instead of erroring forever", () => {
     assert.match(src, /page = await state\.pdf\.getPage\(leaf\.pdfPage\);\s*\} catch/);
+  });
+});
+
+describe("#454 가져온 쪽은 제 모양을 가진다", () => {
+  it("비율은 저장본을 오가도 살아남는다", () => {
+    const leaf = makeOutlineLeaf("imp-1", { imported: true, ratio: 16 / 9 });
+    assert.ok(Math.abs(leaf.ratio - 16 / 9) < 1e-9);
+    const back = normalizeLeaves([leaf], 1, { complete: true });
+    assert.ok(Math.abs(back[0].ratio - 16 / 9) < 1e-9, "사이드카를 오가도 남는다");
+    // 빈 쪽(#118)은 여전히 비율이 없다 — 이웃 쪽 크기를 빌린다.
+    assert.equal(makeOutlineLeaf("blank-1", {}).ratio, undefined);
+  });
+
+  it("말도 안 되는 값은 받지 않는다", () => {
+    assert.equal(makeOutlineLeaf("a", { ratio: 0 }).ratio, undefined);
+    assert.equal(makeOutlineLeaf("b", { ratio: -3 }).ratio, undefined);
+    assert.equal(makeOutlineLeaf("c", { ratio: "크다" }).ratio, undefined);
+    assert.equal(makeOutlineLeaf("d", { ratio: 500 }).ratio, LEAF_RATIO_MAX);
+    assert.equal(makeOutlineLeaf("e", { ratio: 0.0001 }).ratio, LEAF_RATIO_MIN);
+  });
+
+  it("종이는 칸을 넘지 않는다 — 넘치면 다음 쪽과 겹친다", () => {
+    for (const ratio of [0.2, 0.5, 1, 1.78, 3, 9]) {
+      const box = leafPaperBox(400, 600, ratio);
+      assert.ok(box.width <= 400 + 1e-9 && box.height <= 600 + 1e-9, `${ratio}가 칸을 넘었다`);
+      assert.ok(Math.abs(box.height / box.width - ratio) < 1e-9, "제 비율을 지킨다");
+    }
+  });
+
+  it("세로로 긴 그림은 좁고 긴 종이가 된다", () => {
+    const box = leafPaperBox(400, 600, 16 / 9);
+    assert.ok(Math.abs(box.height - 600) < 1e-9, "칸 높이를 꽉 채운다");
+    assert.ok(box.width < 400, "좌우로는 남는다 — 그 자리는 흰 종이가 아니라 바탕");
+  });
+
+  it("돌린 쪽은 비율도 뒤집혀 눕는다", () => {
+    const box = leafPaperBox(400, 600, 16 / 9, 90);
+    assert.ok(Math.abs(box.width / box.height - 16 / 9) < 1e-9);
+    assert.ok(box.width <= 400 + 1e-9 && box.height <= 600 + 1e-9);
+  });
+
+  it("비율이 없으면 칸을 그대로 쓴다 (옛 가져온 쪽·빈 쪽)", () => {
+    assert.deepEqual(leafPaperBox(400, 600, 0), { width: 400, height: 600 });
+    assert.deepEqual(leafPaperBox(400, 600, undefined), { width: 400, height: 600 });
   });
 });
