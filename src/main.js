@@ -1612,9 +1612,23 @@ async function blankThumbShape(leaf, size) {
  * 세운다** — 앞 렌더가 끝난 뒤 다음이 시작한다. 낡은 결과는 token·gen 검사가 버린다.
  */
 const canvasRenderQueue = new WeakMap();
+// #456: 캔버스마다 지금 줄 서 있거나 도는 PDF 렌더의 수. 줄을 안 서는 그리기
+// (빈 쪽 흰 칠·캐시 복원)가 이걸 보고 비켜야 앞 쪽 그림이 떨어지지 않는다.
+const canvasRenderBusy = new WeakMap();
+
+function canvasRenderPending(canvas) {
+  return (canvasRenderBusy.get(canvas) || 0) > 0;
+}
+
+/** 그 캔버스의 줄이 다 빠질 때까지. 없으면 바로. */
+function canvasRenderIdle(canvas) {
+  const prev = canvasRenderQueue.get(canvas);
+  return prev ? prev.catch(() => {}) : Promise.resolve();
+}
 
 function renderPdfToCanvas(pdfPage, ctx, options) {
   const canvas = ctx.canvas;
+  canvasRenderBusy.set(canvas, (canvasRenderBusy.get(canvas) || 0) + 1);
   const prev = canvasRenderQueue.get(canvas) || Promise.resolve();
   const next = prev
     .catch(() => {})
@@ -1629,6 +1643,9 @@ function renderPdfToCanvas(pdfPage, ctx, options) {
         await new Promise((done) => window.setTimeout(done, 120));
         await pdfPage.render({ canvasContext: ctx, ...options }).promise;
       }
+    })
+    .finally(() => {
+      canvasRenderBusy.set(canvas, Math.max(0, (canvasRenderBusy.get(canvas) || 0) - 1));
     });
   canvasRenderQueue.set(canvas, next);
   return next;
@@ -1653,6 +1670,10 @@ async function renderPageView(view) {
   const dpr = window.devicePixelRatio || 1;
   if (!leaf || leaf.kind === "outline" || !state.pdf) {
     const css = await blankPageCss(leaf);
+    // #456: 이 스테이지를 쓰던 앞 쪽의 PDF 렌더가 아직 캔버스에 그리는 중일 수
+    // 있다(재사용). 흰 칠·그림 얹기가 끝난 뒤에 그 픽셀이 떨어지면 「다른
+    // 쪽의 흔적」이 남는다 — 줄이 다 빠진 뒤에 칠한다.
+    await canvasRenderIdle(view.pdfCanvas);
     if (token !== view.token) {
       return;
     }
@@ -1766,6 +1787,11 @@ function cachePageView(view) {
 
 function restorePageBitmap(view, entry) {
   if (!view || !entry?.bitmap) {
+    return false;
+  }
+  // #456: 도는 렌더가 있으면 복원한 그림 위에 앞 쪽이 떨어진다 — 렌더 경로로
+  // 넘긴다(그쪽은 캔버스 줄을 선다).
+  if (canvasRenderPending(view.pdfCanvas)) {
     return false;
   }
   applyPageSize(view, entry.cssWidth, entry.cssHeight, entry.pixelWidth, entry.pixelHeight);
