@@ -441,6 +441,7 @@ import {
   createPaintCache,
   inkSignature,
   pageAtScrollMid,
+  pinnedPageHolds,
   pageBitmapKey,
   pageStackOffset,
   previewListHeight,
@@ -1973,6 +1974,16 @@ async function syncScrollWindow() {
 
 // #450: rebuildPages가 도는 동안 스크롤에서 쪽을 되계산하지 않는다.
 let rebuildingPages = 0;
+// #458: 일부러 간 쪽(링크·쪽 단추·다시 만들기 복원). 손이 움직이면 푼다.
+let pagePin = null;
+
+function pinPage(pageNum) {
+  pagePin = { page: pageNum, at: performance.now() };
+}
+
+function unpinPage() {
+  pagePin = null;
+}
 
 function updateCurrentPageFromScroll() {
   if (state.viewMode !== "scroll" || !state.scrollLayout?.count) {
@@ -1984,12 +1995,23 @@ function updateCurrentPageFromScroll() {
   if (rebuildingPages) {
     return;
   }
-  const best = pageAtScrollMid({
+  const where = {
     scrollTop: els.workspace.scrollTop,
     viewportHeight: els.workspace.clientHeight,
     scale: state.userScale,
     metrics: state.scrollLayout,
     offset: scrollPadPx(),
+  };
+  // #458: 링크·쪽 단추로 일부러 간 쪽은 손이 다시 움직이기 전까지 지금 쪽이다.
+  if (pagePin) {
+    if (pinnedPageHolds({ pin: pagePin, now: performance.now(), ...where })) {
+      return;
+    }
+    pagePin = null;
+  }
+  const best = pageAtScrollMid({
+    ...where,
+    scrollMax: els.workspace.scrollHeight - els.workspace.clientHeight,
   });
   if (best !== state.page) {
     state.page = best;
@@ -2411,6 +2433,7 @@ async function rebuildPagesNow(gen, keepPage) {
     // #450: 스택을 비우는 사이 들어온 scroll로 쪽이 흔들렸을 수 있다 —
     // 기억해 둔 쪽으로 되돌리고 그 자리로 간다.
     state.page = Math.min(Math.max(1, keepPage || state.page), state.leaves.length || 1);
+    pinPage(state.page);
     scrollPageIntoView(state.page, false);
   }
   if (gen !== renderGen) {
@@ -3187,7 +3210,13 @@ async function openSelectedFile(file, handle = null) {
 }
 
 async function goToPage(nextPage) {
-  if (!state.pdf || nextPage < 1 || nextPage > state.pageCount || nextPage === state.page) {
+  if (!state.pdf || nextPage < 1 || nextPage > state.pageCount) {
+    return;
+  }
+  // #458: 세로 스크롤에서는 「지금 쪽」이어도 그 쪽을 화면에 맞춰야 한다 —
+  // 여러 장이 한 화면에 드는 폰에서는 지금 쪽이 맨 위에 있지 않을 수 있다.
+  // 예전엔 여기서 그냥 돌아와 「다음 쪽」 링크가 먹통이었다.
+  if (nextPage === state.page && state.viewMode === "page") {
     return;
   }
   state.page = nextPage;
@@ -3197,12 +3226,14 @@ async function goToPage(nextPage) {
     applyViewport();
     updatePager();
   } else {
+    pinPage(nextPage);
     await syncScrollWindow();
     scrollPageIntoView(nextPage, true);
     updatePager();
     await renderVisiblePages();
   }
-  await persistSession();
+  // #418이 놓친 길: 쪽만 바뀌었는데 PDF 본문 전체를 다시 쓰고 있었다.
+  saveDocumentPlace(state.identity, state.page).catch(() => null);
   applyPreviewAfterPageChange();
 }
 
@@ -5797,7 +5828,11 @@ function actOnPdfLink(spot) {
   }
   flashPdfLinkHint(spot.pageNum, items.indexOf(hit));
   const fixed = linkFixTarget(fixFor(spot.leaf, hit), state.leaves);
-  followPdfLink(fixed || hit.link, spot.pageNum);
+  followPdfLink(fixed || hit.link, spot.pageNum).catch((error) => {
+    // #458: 링크가 던지면 「앱 오류」가 아니라 링크 말로 알린다.
+    console.warn("followPdfLink", error);
+    flashBanner("링크를 따라가지 못했습니다. 다시 눌러 보세요.", 3200);
+  });
   return true;
 }
 
@@ -11799,6 +11834,8 @@ function movePan(event) {
 }
 
 function onWorkspacePointerDown(event) {
+  // #458: 손이 종이에 닿았다 — 이제부터 지금 쪽은 스크롤 자리가 정한다.
+  unpinPage();
   // #296: 굴러가는 관성 스크롤은 새 터치로 즉시 멈춘다(탭으로 멈추기).
   cancelMomentum();
   // #354: 만지는 동안 선명 오버레이는 치운다.
@@ -13006,6 +13043,8 @@ els.zoomOut?.addEventListener("click", () => zoomTo(state.userScale / ZOOM_BTN_S
 els.workspace.addEventListener(
   "wheel",
   (event) => {
+    // #458: 휠로 굴리는 것도 손이 움직인 것이다 — 붙잡아 둔 쪽을 놓는다.
+    unpinPage();
     if (!event.ctrlKey) {
       return;
     }

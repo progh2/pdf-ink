@@ -7,6 +7,8 @@ import { fileURLToPath } from "node:url";
 import { BAR_TOOLS } from "./toolbar.js";
 import {
   PAGE_BITMAP_LIMIT,
+  PAGE_PIN_SETTLE_MS,
+  pinnedPageHolds,
   PAGE_STACK_GAP,
   PREVIEW_WIDTH_DEFAULT,
   PREVIEW_WIDTH_MAX,
@@ -557,7 +559,8 @@ describe("#450 다시 만드는 동안에는 쪽이 흔들리지 않는다", () 
     assert.match(main, /const keepPage = state\.page;/);
     assert.match(main, /rebuildingPages \+= 1;/);
     assert.match(main, /rebuildingPages = Math\.max\(0, rebuildingPages - 1\);/);
-    assert.match(main, /state\.page = Math\.min\(Math\.max\(1, keepPage \|\| state\.page\), state\.leaves\.length \|\| 1\);\s*\n\s*scrollPageIntoView\(state\.page, false\);/);
+    // #458: 되돌린 쪽은 붙잡아 둔 뒤에 그 자리로 간다.
+    assert.match(main, /state\.page = Math\.min\(Math\.max\(1, keepPage \|\| state\.page\), state\.leaves\.length \|\| 1\);\s*\n\s*pinPage\(state\.page\);\s*\n\s*scrollPageIntoView\(state\.page, false\);/);
   });
 
   it("빈 스택으로 끌려간 자리는 실제로 앞쪽을 가리킨다", () => {
@@ -567,5 +570,73 @@ describe("#450 다시 만드는 동안에는 쪽이 흔들리지 않는다", () 
     const clamped = pageAtScrollMid({ scrollTop: 0, viewportHeight: 800, metrics });
     assert.ok(deep > 50);
     assert.equal(clamped, 1);
+  });
+});
+
+describe("#458 세로 스크롤의 「지금 쪽」과 링크", () => {
+  const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+  const main = readFileSync(join(root, "src/main.js"), "utf8");
+  // 폰을 세로로 들고 가로로 긴 쪽을 본다: 화면 915, 쪽 280(+간격 24).
+  const metrics = scrollStackMetrics(12, 400, 280, 24);
+  const view = 915;
+  const max = metrics.height - view;
+
+  it("맨 위에 걸린 쪽이 지금 쪽이다 — 화면 가운데가 아니다", () => {
+    assert.equal(pageAtScrollMid({ scrollTop: 0, viewportHeight: view, metrics, scrollMax: max }), 1);
+    // 5쪽을 맨 위에 맞추면 5쪽이다(예전엔 가운데에 걸린 6쪽이었다).
+    const top5 = pageStackOffset(5, metrics);
+    assert.equal(pageAtScrollMid({ scrollTop: top5, viewportHeight: view, metrics, scrollMax: max }), 5);
+  });
+
+  it("쪽이 화면보다 길면 예전처럼 한가운데로 잰다", () => {
+    const tall = scrollStackMetrics(50, 400, 1600, 24);
+    const at = pageStackOffset(7, tall) + 300;
+    assert.equal(pageAtScrollMid({ scrollTop: at, viewportHeight: 800, metrics: tall, scrollMax: tall.height - 800 }), 7);
+  });
+
+  it("끝까지 내리면 마지막 쪽까지 차례가 온다", () => {
+    assert.equal(pageAtScrollMid({ scrollTop: max, viewportHeight: view, metrics, scrollMax: max }), 12);
+    // 내려가는 동안 쪽 번호는 뒤로 가지 않고, 건너뛰지도 않는다.
+    let last = 1;
+    for (let top = 0; top <= max; top += 4) {
+      const page = pageAtScrollMid({ scrollTop: top, viewportHeight: view, metrics, scrollMax: max });
+      assert.ok(page === last || page === last + 1, `${top}에서 ${last} → ${page}`);
+      last = page;
+    }
+    assert.equal(last, 12);
+  });
+
+  it("스크롤할 거리가 거의 없는 짧은 문서도 맨 위는 1쪽이다", () => {
+    const few = scrollStackMetrics(4, 400, 280, 24);
+    const short = Math.max(0, few.height - view);
+    assert.equal(pageAtScrollMid({ scrollTop: 0, viewportHeight: view, metrics: few, scrollMax: short }), 1);
+  });
+
+  it("일부러 간 쪽은 도착 전에도, 보이는 동안에도 붙잡혀 있다", () => {
+    const pin = { page: 11, at: 1000 };
+    // 부드러운 스크롤이 아직 출발점에 있다 — 11쪽은 화면에 없지만 놓지 않는다.
+    assert.equal(pinnedPageHolds({ pin, now: 1200, scrollTop: 0, viewportHeight: view, metrics }), true);
+    // 도착했다(끝자락이라 맨 위에 걸리진 못한다). 보이는 동안은 11쪽이다.
+    assert.equal(pinnedPageHolds({ pin, now: 9000, scrollTop: max, viewportHeight: view, metrics }), true);
+    // 한참 뒤, 화면에서 사라졌으면 놓는다.
+    assert.equal(pinnedPageHolds({ pin, now: 9000, scrollTop: 0, viewportHeight: view, metrics }), false);
+    assert.equal(pinnedPageHolds({ pin: null, now: 0, scrollTop: 0, viewportHeight: view, metrics }), false);
+    assert.equal(PAGE_PIN_SETTLE_MS, 1500);
+  });
+
+  it("세로 스크롤의 goToPage는 지금 쪽이어도 화면에 맞춘다", () => {
+    const go = main.slice(main.indexOf("async function goToPage"), main.indexOf("applyPreviewAfterPageChange();", main.indexOf("async function goToPage")));
+    assert.match(go, /if \(nextPage === state\.page && state\.viewMode === "page"\) \{\s*return;/);
+    assert.doesNotMatch(go, /nextPage > state\.pageCount \|\| nextPage === state\.page/);
+    assert.match(go, /pinPage\(nextPage\);/);
+    // #418이 놓친 길: 쪽을 옮길 때 본문 전체를 다시 쓰지 않는다.
+    assert.match(go, /saveDocumentPlace\(state\.identity, state\.page\)/);
+    assert.doesNotMatch(go, /persistSession\(\)/);
+  });
+
+  it("손이 움직이면 붙잡아 둔 쪽을 놓고, 링크 실패는 링크 말로 알린다", () => {
+    assert.match(main, /function onWorkspacePointerDown\(event\) \{[\s\S]{0,120}unpinPage\(\);/);
+    assert.match(main, /"wheel",\s*\(event\) => \{[\s\S]{0,120}unpinPage\(\);/);
+    assert.match(main, /followPdfLink\(fixed \|\| hit\.link, spot\.pageNum\)\.catch\(/);
   });
 });
