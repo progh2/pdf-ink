@@ -137,31 +137,81 @@ export function visibleScrollPages({
   return { from, to, count: to - from + 1 };
 }
 
-export function pageAtScrollMid({ scrollTop, viewportHeight, scale = 1, metrics, offset = 0 } = {}) {
+/**
+ * 「지금 쪽」을 스크롤 자리에서 잰다.
+ *
+ * #458: 예전엔 화면 **한가운데**에 걸린 쪽을 골랐다. 쪽이 화면보다 짧으면
+ * (세로로 든 폰 + 가로로 긴 쪽) 맨 위에 1쪽이 있어도 가운데는 2쪽이라
+ * 「지금 쪽」이 한 칸 밀렸고, 그 쪽으로 가는 링크가 먹통이 됐다. 이제 재는
+ * 자리는 **위에서 반 쪽 내려온 곳**이다(화면 절반을 넘지 않는다). 쪽이 화면보다
+ * 길면 예전과 같은 한가운데고, 짧으면 맨 위에 걸린 쪽이 된다.
+ *
+ * 끝자락에서는 맨 위에 걸 수 없는 쪽들이 있다(마지막 화면에 여러 장이 든다).
+ * `scrollMax`를 주면 마지막 구간에서 재는 자리가 화면 아래쪽으로 쓸려 내려가
+ * 마지막 쪽까지 차례가 온다.
+ */
+export function pageAtScrollMid({ scrollTop, viewportHeight, scale = 1, metrics, offset = 0, scrollMax = null } = {}) {
   const n = Math.max(0, Number(metrics?.count) || 0);
   if (n <= 0) {
     return 1;
   }
   const zoom = Number(scale) > 0 ? Number(scale) : 1;
-  const mid =
-    Math.max(0, (Number(scrollTop) || 0) - (Number(offset) || 0)) +
-    Math.max(0, Number(viewportHeight) || 0) / 2;
   const pageH = (Number(metrics.pageHeight) || 0) * zoom;
   const stride = (Number(metrics.stride) || 0) * zoom;
   if (!(stride > 0)) {
     return 1;
   }
+  const top = Math.max(0, Number(scrollTop) || 0);
+  const view = Math.max(0, Number(viewportHeight) || 0);
+  const lead = Math.min(view / 2, pageH / 2);
+  let anchor = lead;
+  const span = view - 2 * lead;
+  const max = Number(scrollMax);
+  if (span > 0 && Number.isFinite(max) && max > 0) {
+    const sweep = Math.min(span, max);
+    const tail = Math.max(0, max - top);
+    if (tail < sweep) {
+      anchor = lead + span * (1 - tail / sweep);
+    }
+  }
+  const probe = Math.max(0, top - (Number(offset) || 0)) + anchor;
   let best = 1;
   let bestDist = Infinity;
   for (let page = 1; page <= n; page += 1) {
     const center = (page - 1) * stride + pageH / 2;
-    const dist = Math.abs(center - mid);
+    const dist = Math.abs(center - probe);
     if (dist < bestDist) {
       bestDist = dist;
       best = page;
     }
   }
   return best;
+}
+
+/** 링크·쪽 단추로 간 쪽은 손이 다시 움직이기 전까지 「지금 쪽」이다. */
+export const PAGE_PIN_SETTLE_MS = 1500;
+
+/**
+ * #458: 끝자락의 쪽은 맨 위에 걸 수 없어서, 스크롤 자리만으로 재면 「11쪽으로」
+ * 갔는데 표시는 12쪽이 된다. 그래서 일부러 간 쪽은 **붙잡아 둔다.** 부드러운
+ * 스크롤이 도착하기 전(settle)에는 무조건, 그 뒤로는 그 쪽이 화면에 조금이라도
+ * 보이는 동안. 손이 움직이면(포인터·휠) 부르는 쪽에서 핀을 푼다.
+ */
+export function pinnedPageHolds({ pin, now = 0, scrollTop, viewportHeight, scale = 1, metrics, offset = 0 } = {}) {
+  const page = Math.round(Number(pin?.page) || 0);
+  const count = Math.max(0, Number(metrics?.count) || 0);
+  if (page < 1 || page > count) {
+    return false;
+  }
+  if (Number(now) - Number(pin.at || 0) < PAGE_PIN_SETTLE_MS) {
+    return true;
+  }
+  const zoom = Number(scale) > 0 ? Number(scale) : 1;
+  const pageTop = (page - 1) * (Number(metrics.stride) || 0) * zoom + (Number(offset) || 0);
+  const pageBottom = pageTop + (Number(metrics.pageHeight) || 0) * zoom;
+  const viewTop = Math.max(0, Number(scrollTop) || 0);
+  const viewBottom = viewTop + Math.max(0, Number(viewportHeight) || 0);
+  return pageBottom > viewTop && pageTop < viewBottom;
 }
 
 /**
