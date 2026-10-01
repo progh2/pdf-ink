@@ -172,8 +172,11 @@ npm install
 npm run dev      # http://localhost:5173
 npm test         # node --test (순수 모듈 + 계약 테스트)
 npm run build && npm run preview
+npm run smoke    # 빌드한 dist를 진짜 크로미움으로 — 열기·링크·펜·되돌리기·성능 예산
 npm run notices  # 서드파티 표시 다시 만들기
 ```
+
+`npm run smoke`는 CI(GitHub Actions의 `smoke` 잡)가 매 PR마다 돌립니다. 로컬에서 돌리려면 `npx playwright install chromium`으로 크로미움을 받거나, 이미 있는 실행 파일을 `SMOKE_CHROME`으로 가리킵니다(루트 없이 `apt-get download`로 받은 라이브러리는 `SMOKE_LD`). `/tmp`가 작은 tmpfs라 차 있으면 크로미움 렌더러가 조용히 죽으니 `TMPDIR`를 넉넉한 곳으로 두세요.
 
 - `src/main.js`가 DOM과 이벤트를 배선하고, 나머지 **순수 모듈 47개**가 각자 `*.test.js`를 답니다. 배선·디자인 수치는 정규식 **계약 테스트**로 못 박습니다.
 - 작업 규칙(이슈 → 브랜치 → PR → 스쿼시 머지)은 [CLAUDE.md](CLAUDE.md)에 있습니다.

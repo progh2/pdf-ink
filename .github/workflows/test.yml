@@ -19,3 +19,19 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
+
+  # #249: CI가 우리의 브라우저가 된다 — 빌드한 dist를 배포와 같은 헤더로 띄워
+  # 진짜 크로미움으로 열기·링크·펜·되돌리기·성능 예산을 지난다. 정규식 계약이
+  # 못 보는 런타임 예외·경쟁·회귀를 여기서 잡는다.
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - run: npm run smoke
