@@ -126,7 +126,7 @@ import {
 } from "./interact.js";
 import { createImageLoadCache } from "./imageLoad.js";
 import { liveImageIds, mergeImages, stripImages } from "./inkImages.js";
-import { canRedo, canUndo, cloneItems, createHistory, extendChange, recordChange, redoChange, undoChange } from "./history.js";
+import { canRedo, canUndo, cloneItems, createHistory, extendChange, recordAppend, recordChange, redoChange, undoChange } from "./history.js";
 import { bindUndoHold } from "./undoHold.js";
 import { bindMarqueeHold, placeMarqueeMenu } from "./marqueeHold.js";
 import {
@@ -160,14 +160,7 @@ import {
   mergeMatches,
   textFingerprint,
 } from "./pageMatch.js";
-import {
-  countNewFrom,
-  goneAfterChange,
-  mergeGone,
-  mergePages,
-  newItemId,
-  sanitizeGone,
-} from "./inkMerge.js";
+import { countNewFrom, goneAfterChange, itemKey, mergeGone, mergePages, newItemId, sanitizeGone } from "./inkMerge.js";
 import {
   anchorLinkFixes,
   clearLinkFix,
@@ -1074,6 +1067,19 @@ function writeStrokesNow() {
     });
 }
 
+// #460: 마지막 획의 시각. 썸네일 굽기·로컬 저장은 손이 쉴 때까지 기다린다 —
+// 획 「사이」에 끼어들면 다음 획의 첫 프레임을 먹는다.
+let lastInkAt = 0;
+const INK_REST_MS = 2000;
+
+function noteInkActivity() {
+  lastInkAt = performance.now();
+}
+
+function handIsBusy() {
+  return state.drawing || performance.now() - lastInkAt < INK_REST_MS;
+}
+
 function scheduleStrokeSave() {
   if (strokeSaveTimer) {
     return;
@@ -1081,9 +1087,10 @@ function scheduleStrokeSave() {
   const idle = window.requestIdleCallback || ((fn) => window.setTimeout(fn, 250));
   strokeSaveTimer = idle(() => {
     strokeSaveTimer = 0;
-    if (state.drawing) {
-      // 손이 종이에 있는 동안은 절대 안 쓴다.
-      scheduleStrokeSave();
+    if (handIsBusy()) {
+      // 손이 종이에 있거나 방금 뗐다 — 쉴 때 쓴다. 창을 덮거나 닫을 때는
+      // writeStrokesNow가 따로 즉시 쓴다.
+      window.setTimeout(scheduleStrokeSave, INK_REST_MS);
       return;
     }
     writeStrokesNow();
@@ -1102,6 +1109,26 @@ function persistStrokes() {
 function syncHistoryButtons() {
   els.undoBtn.disabled = !canUndo(state.history);
   els.redoBtn.disabled = !canRedo(state.history);
+}
+
+/**
+ * #460: 획 하나를 더하는 빠른 길. 쪽 전체를 복사하지 않고 그 획만 기록한다.
+ * 잎 구성은 바뀌지 않으므로 leaves 스냅샷도 뜨지 않는다.
+ */
+function commitAppend(pageNum, item) {
+  const key = inkKey(leafAt(state.leaves, pageNum));
+  pageStrokes(pageNum).push(item);
+  // 무덤에 있던 것이 다시 살아났으면 비석을 치운다(goneAfterChange가 하던 몫).
+  const gone = itemKey(item);
+  if (state.inkGone?.[gone]) {
+    const next = { ...state.inkGone };
+    delete next[gone];
+    state.inkGone = next;
+  }
+  recordAppend(state.history, { page: key, item });
+  persistStrokes();
+  syncHistoryButtons();
+  refreshPageThumb(pageNum);
 }
 
 function commitPageChange(pageNum, apply) {
@@ -3718,29 +3745,39 @@ function endStroke(event) {
     return;
   }
   const view = state.pageViews.find((item) => item.pageNum === state.drawPage);
-  commitPageChange(state.drawPage, () => {
-    if (view) {
+  const erasing = isStrokeErase(live) || isPixelErase(live);
+  if (erasing && view) {
+    commitPageChange(state.drawPage, () => {
       const cssWidth = view.cssWidth || Number.parseFloat(view.inkCanvas.style.width) || 0;
       const cssHeight = view.cssHeight || Number.parseFloat(view.inkCanvas.style.height) || 0;
-      if (isStrokeErase(live) || isPixelErase(live)) {
-        state.pages[inkKey(leafAt(state.leaves, state.drawPage))] = applyEraserToInk(
-          pageStrokes(state.drawPage),
-          live,
-          cssWidth,
-          cssHeight,
-        );
-      } else {
-        pageStrokes(state.drawPage).push(live);
-      }
-    } else {
-      pageStrokes(state.drawPage).push(live);
-    }
-  });
+      state.pages[inkKey(leafAt(state.leaves, state.drawPage))] = applyEraserToInk(
+        pageStrokes(state.drawPage),
+        live,
+        cssWidth,
+        cssHeight,
+      );
+    });
+  } else {
+    // #460: 더하기 획은 쪽 전체를 복사하지 않는다.
+    commitAppend(state.drawPage, live);
+  }
   const offer = held.offer && canShapeHold(live.type) ? held.offer : null;
   state.currentStroke = null;
   state.drawing = false;
   strokePointerId = null;
   releasePaperScroll();
+  noteInkActivity();
+  if (!erasing && !offer && view && !state.stampGhost && !state.shapeOffer) {
+    // #460: 새 획 하나만 잉크 캔버스에 덧그린다 — 쪽 전체를 다시 그리지 않는다.
+    // 라이브 층은 커밋이 오른 뒤에 지운다(#279의 「뗄 때 반짝」 순서 그대로).
+    paintItem(canvas2d(view.inkCanvas), live, strokeScale(view), view.inkCanvas);
+    if (pageStrokes(state.drawPage).some((item) => item?.type === "mosaic")) {
+      paintMosaicOverlay(view);
+    }
+    clearLiveLayer(view);
+    dismissShapeChips();
+    return;
+  }
   if (offer) {
     const items = pageStrokes(state.drawPage);
     state.shapeOffer = {
@@ -9407,10 +9444,11 @@ async function warmThumbs() {
       uploadThumbPack();
       return;
     }
-    if (state.drawing) {
+    if (handIsBusy()) {
       // The pen comes first; try this one again in a moment.
+      // #460: 획 사이 틈에도 굽지 않는다 — 손이 쉰 뒤에 잇는다.
       index -= 1;
-      idle(step);
+      window.setTimeout(() => idle(step), INK_REST_MS);
       return;
     }
     paintPreviewThumb(canvas, next.leaf)
