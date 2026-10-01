@@ -15,9 +15,17 @@ export function stripImages(pages) {
   const light = {};
   const images = {};
   let n = 0;
+  const hasSrc = (item) => item?.type === "image" && typeof item.src === "string" && Boolean(item.src);
   for (const [key, items] of Object.entries(pages || {})) {
-    light[key] = (items || []).map((item) => {
-      if (item?.type !== "image" || typeof item.src !== "string" || !item.src) {
+    // #463: 그림 없는 쪽은 **같은 배열**을 돌려준다 — 저장 캐시가 참조로 쪽이
+    // 안 바뀐 것을 알아보려면 매번 새 배열을 만들면 안 된다.
+    const needs = Array.isArray(items) && items.some(hasSrc);
+    if (!needs) {
+      light[key] = items;
+      continue;
+    }
+    light[key] = items.map((item) => {
+      if (!hasSrc(item)) {
         return item;
       }
       const id = item.id || `img-strip-${(n += 1)}`;
