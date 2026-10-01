@@ -9,6 +9,7 @@ import {
   cloneItems,
   createHistory,
   extendChange,
+  recordAppend,
   recordChange,
   redoChange,
   undoChange,
@@ -145,5 +146,56 @@ describe("#318 두 페이지 동시 되돌리기", () => {
     redoChange(history, pages);
     assert.deepEqual(pages.a, []);
     assert.deepEqual(pages.b, [{ id: "x2" }]);
+  });
+});
+
+describe("#460 획 하나 더하기는 그 획만 기록한다", () => {
+  const stroke = (x) => ({ type: "pen", color: "#000", width: 2, points: [{ x, y: 0.1 }, { x: x + 0.1, y: 0.2 }] });
+
+  it("되돌리기는 그 획만 빼고, 다시 실행은 다시 넣는다", () => {
+    const history = createHistory();
+    const pages = { 1: [stroke(0.1), stroke(0.2)] };
+    const added = stroke(0.3);
+    pages[1].push(added);
+    recordAppend(history, { page: 1, item: added });
+    assert.equal(history.undo[0].before, null, "쪽 전체 스냅샷을 들지 않는다");
+    assert.ok(history.undo[0].append);
+    undoChange(history, pages);
+    assert.equal(pages[1].length, 2);
+    assert.deepEqual(pages[1][1], stroke(0.2));
+    redoChange(history, pages);
+    assert.equal(pages[1].length, 3);
+    assert.deepEqual(pages[1][2], added);
+  });
+
+  it("같은 내용의 획이 둘이면 뒤의 것 하나만 뺀다", () => {
+    const history = createHistory();
+    const twin = stroke(0.5);
+    const pages = { 1: [stroke(0.1), { ...twin, points: twin.points.map((p) => ({ ...p })) }] };
+    pages[1].push({ ...twin, points: twin.points.map((p) => ({ ...p })) });
+    recordAppend(history, { page: 1, item: twin });
+    undoChange(history, pages);
+    assert.equal(pages[1].length, 2);
+  });
+
+  it("중간에 복사본으로 바뀌어도 내용 열쇠로 찾는다", () => {
+    const history = createHistory();
+    const added = stroke(0.7);
+    const pages = { 1: [stroke(0.1), added] };
+    recordAppend(history, { page: 1, item: added });
+    pages[1] = cloneItems(pages[1]); // 참조가 끊긴다
+    undoChange(history, pages);
+    assert.equal(pages[1].length, 1);
+  });
+
+  it("더하기 기록도 한도와 redo 비우기를 지킨다", () => {
+    const history = createHistory(2);
+    for (let n = 0; n < 3; n += 1) recordAppend(history, { page: 1, item: stroke(n / 10) });
+    assert.equal(history.undo.length, 2);
+    const pages = { 1: [stroke(0.1), stroke(0.2)] };
+    undoChange(history, pages);
+    assert.equal(history.redo.length, 1);
+    recordAppend(history, { page: 1, item: stroke(0.9) });
+    assert.equal(history.redo.length, 0, "새 기록은 redo를 비운다");
   });
 });

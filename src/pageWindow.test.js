@@ -410,7 +410,8 @@ describe("#141 썸 저장과 미리 그리기", () => {
     assert.match(mainSrc2, /async function warmThumbs/);
     assert.match(mainSrc2, /requestIdleCallback/);
     assert.match(mainSrc2, /if \(token !== warmToken \|\| identity !== state\.identity\)/);
-    assert.match(mainSrc2, /if \(state\.drawing\) \{[\s\S]{0,120}idle\(step\);/, "never fights the pen");
+    // #460: 획 중뿐 아니라 획 사이 2초도 비킨다 — 손이 쉴 때 잇는다.
+    assert.match(mainSrc2, /if \(handIsBusy\(\)\) \{[\s\S]{0,260}window\.setTimeout\(\(\) => idle\(step\), INK_REST_MS\);/, "never fights the pen");
     assert.match(mainSrc2, /stopThumbWarming\(\)/);
   });
 
@@ -500,7 +501,7 @@ describe("#151 이어서·바뀐 쪽만", () => {
 
   it("keeps the pen ahead of the drawing queue", () => {
     const warm = src5.slice(src5.indexOf("async function warmThumbs"), src5.indexOf("/* ---- PWA"));
-    assert.match(warm, /if \(state\.drawing\) \{[\s\S]{0,140}index -= 1;/, "retries that page later, never skips it");
+    assert.match(warm, /if \(handIsBusy\(\)\) \{[\s\S]{0,200}index -= 1;/, "retries that page later, never skips it");
   });
 });
 
