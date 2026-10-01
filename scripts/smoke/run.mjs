@@ -9,7 +9,8 @@
  *   2. 링크(쪽넘김) — 목적지·GoTo 동작이 그 쪽으로 간다
  *   3. 링크(스크롤) — 폰 모양 화면에서 「다음」을 세 번 눌러 세 번 다 넘어간다(#458)
  *   4. 펜·되돌리기  — 세 획 뒤 되돌리기 둘·다시 실행 하나가 화면 픽셀과 함께 움직인다(#460)
- *   5. 성능 예산    — 200획 쌓인 쪽에서 펜을 뗀 뒤 긴 작업이 예산 안이다(#460)
+ *   5. 저장·복원     — 두 획 뒤 저장이 돌고, 새로고침해도 잉크가 그대로다(#463)
+ *   6. 성능 예산    — 200획 쌓인 쪽에서 펜을 뗀 뒤 긴 작업이 예산 안이다(#460)
  *
  * 로컬에서 돌리려면: npm run build 뒤 `npm run smoke`. 크로미움이 Playwright
  * 기본 자리에 없으면 SMOKE_CHROME(실행 파일)·SMOKE_LD(공유 라이브러리 폴더)로
@@ -211,6 +212,29 @@ async function scenarioPenUndo(browser, url, fx) {
   await context.close();
 }
 
+/** #463: 저장 → 새로고침 → 복원. 직렬화를 바꾸면 여기서 글자 하나가 틀려도 잉크가 사라진다. */
+async function scenarioPersist(browser, url, fx) {
+  const context = await browser.newContext(PHONE);
+  const { page, errors } = await openDoc(context, url, fx.chain);
+  await unlockPen(page);
+  const cdp = await context.newCDPSession(page);
+  const pen = penOn(cdp, await stageBox(page));
+  await pen(0.1, 0.3, 0.9, 0.3, 30);
+  await sleep(150);
+  await pen(0.1, 0.5, 0.9, 0.5, 30);
+  const drawn = await inkedPixels(page);
+  await sleep(3200); // 손이 쉰 뒤(2초)에야 저장이 돈다(#460)
+  const saved = await page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith("pdf-ink:strokes:")).length);
+  await page.reload({ waitUntil: "load" });
+  await page.waitForFunction(() => !document.querySelector("#write-screen").hidden, null, { timeout: 30000 }).catch(() => null);
+  await sleep(2000);
+  const restored = await page.evaluate(() => (document.querySelector(".ink-canvas") ? true : false)) ? await inkedPixels(page) : 0;
+  check(saved >= 1, "저장: 필기 기록이 localStorage에 있다", `${saved}건`);
+  check(drawn > 0 && Math.abs(restored - drawn) <= Math.max(8, drawn * 0.05), "저장: 새로고침 뒤 잉크가 그대로 돌아온다", `${drawn} → ${restored}`);
+  check(errors.length === 0, "저장: 오류 0", errors.join(" | "));
+  await context.close();
+}
+
 async function scenarioPerf(browser, url, fx) {
   const context = await browser.newContext(PHONE);
   const { page, errors } = await openDoc(context, url, fx.text);
@@ -273,6 +297,7 @@ try {
     ["링크(쪽넘김)", scenarioLinksPage],
     ["링크(스크롤·폰)", scenarioLinksScroll],
     ["펜·되돌리기", scenarioPenUndo],
+    ["저장·복원", scenarioPersist],
     ["성능 예산", scenarioPerf],
   ];
   const only = process.env.SMOKE_ONLY;

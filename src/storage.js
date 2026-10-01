@@ -1,3 +1,4 @@
+import { createPageJsonCache, serializeStrokeRecord } from "./strokeSerial.js";
 const STROKE_PREFIX = "pdf-ink:strokes:";
 const PEN_ONLY_KEY = "pdf-ink:pen-only";
 const DB_NAME = "pdf-ink";
@@ -86,19 +87,35 @@ const pendingStrokeWrites = new Map();
 const unsavedStrokeRecords = new Map();
 const strokeSaveTimes = new Map();
 
+// #463: 문서마다 쪽 단위 직렬화 캐시. 안 바뀐 쪽은 글자를 다시 만들지 않는다.
+const pageJsonCaches = new Map();
+
+function pageJsonCacheFor(identity) {
+  let cache = pageJsonCaches.get(identity);
+  if (!cache) {
+    cache = createPageJsonCache();
+    pageJsonCaches.set(identity, cache);
+  }
+  return cache;
+}
+
 export function saveStrokes(identity, pages, leaves = null, outline = null, gone = null) {
   const hasOutline = Array.isArray(outline);
   const savedAt = Math.max(Date.now(), (strokeSaveTimes.get(identity) || 0) + 1);
-  const payload = JSON.stringify({
-    version: gone ? 4 : hasOutline ? 3 : leaves ? 2 : 1,
-    identity,
-    pages,
-    ...(leaves ? { leaves } : {}),
-    ...(Array.isArray(leaves) ? { leavesVersion: 1 } : {}),
-    ...(hasOutline ? { outline } : {}),
-    ...(gone ? { gone } : {}),
-    savedAt,
-  });
+  // #463: JSON.stringify와 같은 글자를 쪽 캐시로 만든다 — 바뀐 쪽만 다시 쓴다.
+  const payload = serializeStrokeRecord(
+    {
+      version: gone ? 4 : hasOutline ? 3 : leaves ? 2 : 1,
+      identity,
+      pages,
+      ...(leaves ? { leaves } : {}),
+      ...(Array.isArray(leaves) ? { leavesVersion: 1 } : {}),
+      ...(hasOutline ? { outline } : {}),
+      ...(gone ? { gone } : {}),
+      savedAt,
+    },
+    pageJsonCacheFor(identity),
+  );
   strokeSaveTimes.set(identity, savedAt);
   unsavedStrokeRecords.set(identity, payload);
   try {
@@ -365,6 +382,7 @@ export async function deleteDocument(identity) {
   }
   unsavedStrokeRecords.delete(identity);
   strokeSaveTimes.delete(identity);
+  pageJsonCaches.delete(identity);
   const db = await openDb();
   try {
     await new Promise((resolve, reject) => {
@@ -415,6 +433,7 @@ export async function deleteAllDocuments() {
   }
   unsavedStrokeRecords.clear();
   strokeSaveTimes.clear();
+  pageJsonCaches.clear();
   const db = await openDb();
   try {
     await new Promise((resolve, reject) => {

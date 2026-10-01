@@ -26,8 +26,8 @@ describe("#249 스모크 배선", () => {
     assert.ok(job.indexOf("npm run build") < job.indexOf("npm run smoke"), "dist가 있어야 돈다");
   });
 
-  it("다섯 시나리오가 다 있고, 성능 예산이 #460의 측정값 안쪽이다", () => {
-    for (const name of ["scenarioOpen", "scenarioLinksPage", "scenarioLinksScroll", "scenarioPenUndo", "scenarioPerf"]) {
+  it("여섯 시나리오가 다 있고, 성능 예산이 #460의 측정값 안쪽이다", () => {
+    for (const name of ["scenarioOpen", "scenarioLinksPage", "scenarioLinksScroll", "scenarioPenUndo", "scenarioPersist", "scenarioPerf"]) {
       assert.match(runner, new RegExp(`async function ${name}\\(`), name);
     }
     // 수정 전 300획에서 평균 79ms·최대 116ms였다 — 되돌아가면 바로 넘는 값이어야 한다.
